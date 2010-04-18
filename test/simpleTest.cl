@@ -34,13 +34,12 @@ typedef struct {
 	unsigned int count;
 } argument_struct;
 
-void sse_opencl_wrapper(char* arguments) { //char* = void* for LLVM ;)
-	argument_struct* arg_str = (argument_struct*)arguments;
-	__global float* in = arg_str->input;
-	__global float* out = arg_str->output;
-	const unsigned int c = arg_str->count;
+void sse_opencl_wrapper(argument_struct* arguments) {
+	__global float* in = arguments->input;
+	__global float* out = arguments->output;
+	const unsigned int c = arguments->count;
 	square(in, out, c);
-	arg_str->output = out; //required?
+	//arguments->output = out; //not required!
 }
 
 

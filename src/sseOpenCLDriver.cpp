@@ -256,7 +256,7 @@ namespace {
 	}
 
 
-	void resolveRuntimeCalls(llvm::Module* mod) {
+	void __resolveRuntimeCalls(llvm::Module* mod) {
 		std::vector< std::pair<llvm::Function*, void*> > funs;
 		funs.push_back(std::make_pair(jitRT::getFunction("get_work_dim", mod), (void*)get_work_dim));
 		funs.push_back(std::make_pair(jitRT::getFunction("get_global_size", mod), (void*)get_global_size));
@@ -397,6 +397,7 @@ struct _cl_program {
 	void* clProgram;
 	llvm::Module* module;
 	const llvm::Function* function;
+	const llvm::Function* wrapper_function;
 };
 
 
@@ -404,18 +405,43 @@ struct _cl_program {
 #define CL_PRIVATE 0x4 // does not exist in specification 1.0
 struct _cl_kernel_arg {
 private:
-	size_t size; // size of one item in bytes
+	size_t element_size; // size of one item in bytes
 	cl_uint address_space;
 	const void* data;
 
 public:
-	_cl_kernel_arg() : size(0), address_space(0), data(NULL) {}
+	_cl_kernel_arg() : element_size(0), address_space(0), data(NULL) {}
 	_cl_kernel_arg(const size_t _size, const cl_uint _address_space, const void* _data)
-		: size(_size), address_space(_address_space), data(_data) {}
+		: element_size(_size), address_space(_address_space), data(_data) {}
 
-	inline size_t get_size() const { return size; }
+	inline size_t get_element_size() const { return element_size; }
 	inline cl_uint get_address_space() const { return address_space; }
 	inline const void* get_data() { assert(data); return data; }
+	inline const void* get_data_raw() {
+		assert(data);
+		switch (address_space) {
+			case CL_PRIVATE: return data;
+			case CL_GLOBAL: {
+				const _cl_mem* mem = *(const _cl_mem**)data;
+				return mem->get_data();
+			}
+			case CL_LOCAL: assert (false && "local address space currently unsupported!"); return NULL;
+			case CL_CONSTANT: assert (false && "constant address space currently unsupported!"); return NULL;
+			default: assert (false && "bad address space found!"); return NULL;
+		}
+	}
+	inline size_t get_full_size() const {
+		switch (address_space) {
+			case CL_PRIVATE: return element_size;
+			case CL_GLOBAL: {
+				const _cl_mem* mem = *(const _cl_mem**)data;
+				return mem->get_size();
+			}
+			case CL_LOCAL: assert (false && "local address space currently unsupported!"); return NULL;
+			case CL_CONSTANT: assert (false && "constant address space currently unsupported!"); return NULL;
+			default: assert (false && "bad address space found!"); return NULL;
+		}
+	}
 };
 
 /*
@@ -462,9 +488,9 @@ public:
 	inline void* get_compiled_function() const { return compiled_function; }
 	inline cl_uint get_num_args() const { return num_args; }
 
-	inline size_t arg_get_size(const cl_uint arg_index) const {
+	inline size_t arg_get_element_size(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
-		return args[arg_index].get_size();
+		return args[arg_index].get_element_size();
 	}
 	inline cl_uint arg_get_address_space(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
@@ -489,6 +515,14 @@ public:
 	inline const void* arg_get_data(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
 		return args[arg_index].get_data();
+	}
+	inline const void* arg_get_data_raw(const cl_uint arg_index) const {
+		assert (arg_index < num_args);
+		return args[arg_index].get_data_raw();
+	}
+	inline size_t arg_get_full_size(const cl_uint arg_index) const {
+		assert (arg_index < num_args);
+		return args[arg_index].get_full_size();
 	}
 };
 
@@ -873,6 +907,7 @@ clBuildProgram(cl_program           program,
 	if (user_data && !pfn_notify) return CL_INVALID_VALUE;
 
 	//TODO: read .cl representation, invoke clc, invoke llvm-as
+	// alternative: link libClang and use it directly from here :)
 
 	//llvm::Module* mod = jitRT::createModuleFromFile("sseOpenCL.tmp.module.bc");
 
@@ -951,11 +986,19 @@ clCreateKernel(cl_program      program,
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
 	program->function = f;
 
-	resolveRuntimeCalls(module);
+	__resolveRuntimeCalls(module);
 
 	jitRT::resetTargetData(module);
 
-	jitRT::inlineFunctionCalls(jitRT::getFunction("sse_opencl_wrapper", module));
+	llvm::Function* wrapper_fn = jitRT::getFunction("sse_opencl_wrapper", module);
+	if (!wrapper_fn) {
+		std::cerr << "ERROR: could not find wrapper function in kernel module!\n";
+		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+		return NULL;
+	}
+	jitRT::inlineFunctionCalls(wrapper_fn);
+	program->wrapper_function = wrapper_fn;
+
 	void* compiledFnPtr = jitRT::getPointerToFunction(module, "sse_opencl_wrapper");
 
 	if (!compiledFnPtr) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
@@ -1033,27 +1076,6 @@ clSetKernelArg(cl_kernel    kernel,
 	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n"; );
 
 	kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value);
-
-	DEBUG_SSEOPENCLDRIVER(
-		std::cout << "  value:\n";
-		switch (kernel->arg_get_address_space(arg_index)) {
-			case CL_PRIVATE: {
-				std::cout << "    incoming: " << *((unsigned*)arg_value) << "\n";
-				std::cout << "    stored: " << *((unsigned*)kernel->arg_get_data(arg_index)) << "\n";
-				break;
-			}
-			case CL_GLOBAL: {
-				_cl_mem* m = *((_cl_mem**)arg_value);
-				_cl_mem* m2 = *((_cl_mem**)(kernel->arg_get_data(arg_index)));
-				std::cout << "    incoming: " << ((float*)m->get_data())[0] << ", " << ((float*)m->get_data())[1] << "\n";
-				std::cout << "    data-addr: " << m->get_data() << "\n";
-				std::cout << "    stored: " << ((float*)m2->get_data())[0] << ", " << ((float*)m2->get_data())[1] << "\n";
-				std::cout << "    data-addr: " << m2->get_data() << "\n";
-				break;
-			}
-			default: break;
-		}
-	);
 
 	return CL_SUCCESS;
 }
@@ -1180,14 +1202,6 @@ clEnqueueReadBuffer(cl_command_queue    command_queue,
 	void* data = buffer->get_data();
 	memcpy(ptr, data, cb);
 
-	DEBUG_SSEOPENCLDRIVER(
-		std::cout << "\nclEnqueueReadBuffer()\n";
-		std::cout << "  buffer-ptr: " << buffer << "\n";
-		std::cout << "  targtet-ptr: " << ptr << "\n";
-		std::cout << "  outgoing: " << ((float*)buffer->get_data())[0] << ", " << ((float*)buffer->get_data())[1] << "\n";
-		std::cout << "  stored  : " << ((float*)ptr)[0] << ", " << ((float*)ptr)[1] << "\n";
-	);
-
 	return CL_SUCCESS;
 }
 
@@ -1216,10 +1230,6 @@ clEnqueueWriteBuffer(cl_command_queue   command_queue,
 	// TODO: specification seems to require something different?
 	//       storing access patterns to command_queue or sth like that?
 	buffer->set_data(ptr, cb, offset); //cb is size in bytes
-
-	DEBUG_SSEOPENCLDRIVER( std::cout << "\nclEnqueueWriteBuffer()\n"; );
-	DEBUG_SSEOPENCLDRIVER( std::cout << "  incoming: " << ((float*)ptr)[0] << ", " << ((float*)ptr)[1] << "\n"; );
-	DEBUG_SSEOPENCLDRIVER( std::cout << "  stored  : " << ((float*)buffer->get_data())[0] << ", " << ((float*)buffer->get_data())[1] << "\n"; );
 	
 	return CL_SUCCESS;
 }
@@ -1403,30 +1413,66 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	initializeThreads(gThreads, lThreads);
 
 	//
-	// execute!
+	// set up argument struct
 	//
+	void* argument_struct = NULL;
+	const llvm::Function* wrapper_fn = kernel->get_program()->wrapper_function;
+	const llvm::Type* arg_str_ptr_type = jitRT::getArgumentType(wrapper_fn, 0);
+	const llvm::Type* arg_str_type = jitRT::getContainedType(arg_str_ptr_type, 0);
+	llvm::TargetData* targetData = kernel->get_context()->targetData;
+	const size_t arg_str_size = jitRT::getTypeSizeInBits(targetData, arg_str_type);
+	jitRT::printType(arg_str_ptr_type);
+
+	std::cout << "\narg_str_size: " << arg_str_size/8 << " bytes\n";
+	//argument_struct = malloc(arg_str_size/8);
+	size_t current_size = 0;
+	for (unsigned i=0, e=kernel->get_num_args(); i<e; ++i) {
+		char* cur_pos = ((char*)argument_struct)+current_size;
+		const void* data = kernel->arg_get_address_space(i) == CL_PRIVATE
+			? kernel->arg_get_data(i)
+			: *(const void**)kernel->arg_get_data(i);
+		const size_t data_size = kernel->arg_get_element_size(i);
+		std::cout << "  argument " << i << "\n";
+		std::cout << "    size: " << data_size << " bytes\n";
+		std::cout << "    data: " << data << "\n";
+		std::cout << "    cur_addr: " << (void*)cur_pos << "\n";
+		memcpy(cur_pos, data, data_size);
+		current_size += data_size;
+	}
 	typedef struct {
 		float* input;
 		float* output;
 		unsigned int count;
-	} argument_struct;
+	} argument_struct_type;
+	std::cout << "sizeof(argstrtype) = " << sizeof(argument_struct_type) << "\n";
+	std::cout << "memcpy done.\n";
 
-	//typedef void (*kernelFnPtr)(float*, float*, const unsigned int);
-	typedef void (*kernelFnPtr)(void*);
+#ifdef HARDCODED
+	typedef struct {
+		float* input;
+		float* output;
+		unsigned int count;
+	} argument_struct_type;
 
-	argument_struct arg_str;
+	argument_struct_type argument_struct;
 	_cl_mem* in_mem = *(_cl_mem**)kernel->arg_get_data(0);
 	_cl_mem* out_mem = *(_cl_mem**)kernel->arg_get_data(1);
-	arg_str.input = (float*)in_mem->get_data();
-	arg_str.output = (float*)out_mem->get_data();
-	arg_str.count = *(unsigned int*)kernel->arg_get_data(2);
+	argument_struct.input = (float*)in_mem->get_data();
+	argument_struct.output = (float*)out_mem->get_data();
+	argument_struct.count = *(unsigned int*)kernel->arg_get_data(2);
 
-	DEBUG_SSEOPENCLDRIVER( std::cout << "input-addr: " << arg_str.input << "\n"; );
-	DEBUG_SSEOPENCLDRIVER( std::cout << "output-addr: " << arg_str.output << "\n"; );
+	DEBUG_SSEOPENCLDRIVER( std::cout << "input-addr: " << argument_struct.input << "\n"; );
+	DEBUG_SSEOPENCLDRIVER( std::cout << "output-addr: " << argument_struct.output << "\n"; );
+#endif
+	
 
 	void* fnPtr = kernel->get_compiled_function();
+	typedef void (*kernelFnPtr)(void*);
 	kernelFnPtr typedPtr = (kernelFnPtr)fnPtr;
 
+	//
+	// execute!
+	//
 	const size_t num_simd_iterations = *global_work_size / *local_work_size; // = #groups
 	const size_t num_total_iterations = *global_work_size; // = total # threads
 	DEBUG_SSEOPENCLDRIVER( std::cout << "num iterations: " << num_total_iterations << "\n"; );
@@ -1439,15 +1485,16 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		setCurrentLocal(work_dim-1, i % 4);
 
 		// call kernel
-		DEBUG_SSEOPENCLDRIVER( std::cout << "\niteration " << i << "\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "  global id: " << get_global_id(work_dim-1) << "\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "  local id: " << get_local_id(work_dim-1) << "\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "  group id: " << get_group_id(work_dim-1) << "\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "  input: " << arg_str.input[i] << "\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "  output: " << arg_str.output[i] << "\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "  count: " << arg_str.count << "\n"; );
-		typedPtr(&arg_str);
-		DEBUG_SSEOPENCLDRIVER( std::cout << "  result: " << arg_str.output[i] << "\n"; );
+		typedPtr(argument_struct);
+		//DEBUG_SSEOPENCLDRIVER( std::cout << "\niteration " << i << "\n"; );
+		//DEBUG_SSEOPENCLDRIVER( std::cout << "  global id: " << get_global_id(work_dim-1) << "\n"; );
+		//DEBUG_SSEOPENCLDRIVER( std::cout << "  local id: " << get_local_id(work_dim-1) << "\n"; );
+		//DEBUG_SSEOPENCLDRIVER( std::cout << "  group id: " << get_group_id(work_dim-1) << "\n"; );
+		//DEBUG_SSEOPENCLDRIVER( std::cout << "  input: " << argument_struct.input[i] << "\n"; );
+		//DEBUG_SSEOPENCLDRIVER( std::cout << "  output: " << argument_struct.output[i] << "\n"; );
+		//DEBUG_SSEOPENCLDRIVER( std::cout << "  count: " << argument_struct.count << "\n"; );
+		//typedPtr(&argument_struct);
+		//DEBUG_SSEOPENCLDRIVER( std::cout << "  result: " << argument_struct.output[i] << "\n"; );
 	}
 
 	return CL_SUCCESS;
