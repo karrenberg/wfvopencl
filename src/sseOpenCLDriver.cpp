@@ -13,7 +13,6 @@
 //llvm wrapper that provides all functionality needed
 #include <jitRT/llvmWrapper.h>
 
-
 #ifdef __APPLE__
 #include <OpenCL/cl_platform.h>
 #else
@@ -21,10 +20,13 @@
 #include <CL/cl.h> // e.g. for cl_platform_id
 #endif
 
+//#define DEBUG_SSEOPENCLDRIVER(x) do { x } while (false)
+#define DEBUG_SSEOPENCLDRIVER(x)
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 
 ///////////////////////////////////////////////////////////////////////////
 //                 OpenCL Runtime Implementation                         //
@@ -318,7 +320,7 @@ context.
 */
 struct _cl_context {
 	llvm::TargetData* targetData;
-	llvm::ExecutionEngine* engine;
+	//llvm::ExecutionEngine* engine;
 };
 
 /*
@@ -394,6 +396,7 @@ struct _cl_program {
 	_cl_context* context;
 	void* clProgram;
 	llvm::Module* module;
+	const llvm::Function* function;
 };
 
 
@@ -401,63 +404,18 @@ struct _cl_program {
 #define CL_PRIVATE 0x4 // does not exist in specification 1.0
 struct _cl_kernel_arg {
 private:
-	union {
-		_cl_mem* values; // stores *all* values for this argument
-		void* value;
-	};
 	size_t size; // size of one item in bytes
 	cl_uint address_space;
+	const void* data;
 
-	inline void set_private_value(const void* val) {
-		assert (val);
-		// ALWAYS create new _cl_mem object and copy values!
-		//if (val) free(val);
-
-		size_t bytes = size;
-		value = malloc(bytes);
-		memcpy(value, val, bytes);
-		std::cout << "new argument private memory value\n";
-		std::cout << "  bytes  : " << bytes << "\n";
-		std::cout << "  value : " << value << "\n";
-	}
-	inline void set_global_values(const _cl_mem* vals) {
-		assert (vals);
-		// ALWAYS create new _cl_mem object and copy values!
-		//if (values) free(values);
-
-		size_t bytes = vals->get_size();
-		void* data_cp = malloc(bytes);
-		memcpy(data_cp, vals->get_data(), bytes);
-		values = new _cl_mem(vals->get_context(), bytes, data_cp);
-		std::cout << "new argument global memory value\n";
-		std::cout << "  bytes      : " << bytes << "\n";
-		std::cout << "  data-ptr   : " << data_cp << "\n";
-		std::cout << "  memobj-ptr : " << values << "\n";
-	}
 public:
-	//~_cl_kernel_arg() { free(values); }
-	inline void set_data(const void* data) {
-		// TODO: arg_value *has* to be copied!
-		assert (data);
-		switch (address_space) {
-			case CL_PRIVATE  : set_private_value(data); break;
-			case CL_GLOBAL   : set_global_values(*(const _cl_mem**)data); break;
-			case CL_LOCAL    : assert (false && "NOT IMPLEMENTED!"); break;
-			case CL_CONSTANT : assert (false && "NOT IMPLEMENTED!"); break;
-			default          : assert (false && "bad address space found!"); break;
-		}
-	}
-	inline void set_size(const size_t s) {
-		assert (s > 0);
-		size = s;
-	}
-	inline void set_address_space(const cl_uint addr_space) {
-		address_space = addr_space;
-	}
+	_cl_kernel_arg() : size(0), address_space(0), data(NULL) {}
+	_cl_kernel_arg(const size_t _size, const cl_uint _address_space, const void* _data)
+		: size(_size), address_space(_address_space), data(_data) {}
 
-	inline void* get_data() { assert(value); return value; }
 	inline size_t get_size() const { return size; }
 	inline cl_uint get_address_space() const { return address_space; }
+	inline const void* get_data() { assert(data); return data; }
 };
 
 /*
@@ -469,38 +427,39 @@ __kernel function.
 struct _cl_kernel {
 private:
 	_cl_context* context;
-	void* function;
+	_cl_program* program;
+	void* compiled_function;
 	_cl_kernel_arg* args;
 	cl_uint num_args;
 
 public:
-	_cl_kernel() : context(NULL), function(NULL), args(NULL) {}
+	_cl_kernel() : context(NULL), program(NULL), compiled_function(NULL), args(NULL), num_args(0) {}
 
 	inline void set_context(_cl_context* ctx) {
 		assert (ctx);
 		context = ctx;
 	}
-	inline void set_function(void* f) {
+	inline void set_program(_cl_program* p) {
+		assert (p);
+		program = p;
+	}
+	inline void set_compiled_function(void* f) {
 		assert (f);
-		function = f;
+		compiled_function = f;
 	}
 	inline void set_num_args(const cl_uint num) {
 		assert (num > 0);
 		num_args = num;
 		args = new _cl_kernel_arg[num]();
 	}
-	inline void arg_set_info(const cl_uint arg_index, const size_t size, const cl_uint address_space) {
-		assert (args && "set_num_args() has to be called before arg_set_info()!");
-		args[arg_index].set_size(size);
-		args[arg_index].set_address_space(address_space);
-	}
-	inline void arg_set_data(const cl_uint arg_index, const void* data) {
-		assert (arg_index < num_args);
-		args[arg_index].set_data(data);
+	inline void set_arg(const cl_uint arg_index, const size_t size, const cl_uint address_space, const void* data) {
+		assert (args && "set_num_args() has to be called before set_arg()!");
+		args[arg_index] = _cl_kernel_arg(size, address_space, data);
 	}
 
 	inline _cl_context* get_context() const { return context; }
-	inline void* get_function() const { return function; }
+	inline _cl_program* get_program() const { return program; }
+	inline void* get_compiled_function() const { return compiled_function; }
 	inline cl_uint get_num_args() const { return num_args; }
 
 	inline size_t arg_get_size(const cl_uint arg_index) const {
@@ -527,7 +486,7 @@ public:
 		assert (arg_index < num_args);
 		return args[arg_index].get_address_space() == CL_CONSTANT;
 	}
-	inline void* arg_get_data(const cl_uint arg_index) const {
+	inline const void* arg_get_data(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
 		return args[arg_index].get_data();
 	}
@@ -626,7 +585,7 @@ clRetainContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 {
-	std::cout << "TODO: implement clReleaseContext()\n";
+	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseContext()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -669,7 +628,7 @@ clRetainCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
-	std::cout << "TODO: implement clReleaseCommandQueue()\n";
+	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseCommandQueue()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -714,9 +673,11 @@ clCreateBuffer(cl_context   context,
 {
 	if (!context) { if (errcode_ret) *errcode_ret = CL_INVALID_CONTEXT; return NULL; }
 	if (size == 0 || size > CL_DEVICE_MAX_MEM_ALLOC_SIZE) { if (errcode_ret) *errcode_ret = CL_INVALID_BUFFER_SIZE; return NULL; }
+	if (!host_ptr && ((flags & CL_MEM_USE_HOST_PTR) || (flags & CL_MEM_COPY_HOST_PTR))) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
+	if (host_ptr && !(flags & CL_MEM_USE_HOST_PTR) & !(flags & CL_MEM_COPY_HOST_PTR)) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
 
 	_cl_mem* mem = new _cl_mem(context, size, host_ptr ? host_ptr : malloc(size));
-	std::cout << "clCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n";
+	DEBUG_SSEOPENCLDRIVER( std::cout << "\nclCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
 
 	if (errcode_ret) *errcode_ret = CL_SUCCESS;
 	return mem;
@@ -762,7 +723,7 @@ clRetainMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 {
-	std::cout << "TODO: implement clReleaseMemObject()\n";
+	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseMemObject()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -882,7 +843,7 @@ clRetainProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
-	std::cout << "TODO: implement clReleaseProgram()\n";
+	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseProgram()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -921,7 +882,7 @@ clBuildProgram(cl_program           program,
 
 	// initialize context
 	program->context->targetData = jitRT::getTargetData(mod);
-	program->context->engine = jitRT::getExecutionEngine(mod);
+	//program->context->engine = jitRT::getExecutionEngine(mod);
 
 	program->module = mod;
 	return CL_SUCCESS;
@@ -988,40 +949,26 @@ clCreateKernel(cl_program      program,
 
 	const llvm::Function* f = jitRT::getFunction(new_kernel_name, module);
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
+	program->function = f;
 
 	resolveRuntimeCalls(module);
 
 	jitRT::resetTargetData(module);
-#if 0
-	void* compiledFnPtr = jitRT::getPointerToFunction(module, new_kernel_name);
-#else
+
 	jitRT::inlineFunctionCalls(jitRT::getFunction("sse_opencl_wrapper", module));
-	jitRT::printFunction(jitRT::getFunction("sse_opencl_wrapper", module));
 	void* compiledFnPtr = jitRT::getPointerToFunction(module, "sse_opencl_wrapper");
-#endif
+
 	if (!compiledFnPtr) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
 
 	// create kernel object
 	_cl_kernel* kernel = new _cl_kernel();
 	kernel->set_context(program->context);
-	kernel->set_function(compiledFnPtr);
+	kernel->set_program(program);
+	kernel->set_compiled_function(compiledFnPtr);
 
-	// analyze arguments & initialize kernel argument info
+	// initialize kernel arguments (empty)
 	const cl_uint num_args = jitRT::getNumArgs(f);
 	kernel->set_num_args(num_args);
-	for (cl_uint i=0; i<num_args; ++i) {
-		const llvm::Type* argType = jitRT::getArgumentType(f, i);
-		const size_t arg_size_bytes = jitRT::getTypeSizeInBits(program->context->targetData, argType) / 8;
-		const cl_uint address_space = __convertLLVMAddressSpace(jitRT::getAddressSpace(argType));
-		std::cout << "argument " << i << "\n";
-		std::cout << "  size per element: " << arg_size_bytes << "\n";
-		std::cout << "  addrspace: ";
-		if (address_space == CL_PRIVATE) std::cout << "CL_PRIVATE\n";
-		if (address_space == CL_GLOBAL) std::cout << "CL_GLOBAL\n";
-		if (address_space == CL_LOCAL) std::cout << "CL_LOCAL\n";
-		if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n";
-		kernel->arg_set_info(i, arg_size_bytes, address_space);
-	}
 
 	*errcode_ret = CL_SUCCESS;
 	return kernel;
@@ -1047,7 +994,7 @@ clRetainKernel(cl_kernel    kernel) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseKernel(cl_kernel   kernel) CL_API_SUFFIX__VERSION_1_0
 {
-	std::cout << "TODO: implement clReleaseKernel()\n";
+	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseKernel()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1057,7 +1004,7 @@ clSetKernelArg(cl_kernel    kernel,
                size_t       arg_size,
                const void * arg_value) CL_API_SUFFIX__VERSION_1_0
 {
-	std::cout << "clSetKernelArg(" << arg_index << ", " << arg_size << ")\n";
+	DEBUG_SSEOPENCLDRIVER( std::cout << "\nclSetKernelArg(" << arg_index << ", " << arg_size << ")\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (arg_index > kernel->get_num_args()) return CL_INVALID_ARG_INDEX;
 	const bool is_local = kernel->arg_is_local(arg_index);
@@ -1067,11 +1014,46 @@ clSetKernelArg(cl_kernel    kernel,
 
 	// NOTE: This function can be called with arg_size = sizeof(_cl_mem), which means
 	//       that this is not the actual size of the argument data type.
-	// NOTE: This code relies on the fact that the value is an object of type _cl_mem ...
-	// NOTE: This is not everything: we have to check what kind of argument this index is.
+	// NOTE: We have to check what kind of argument this index is.
 	//       We must not access arg_value as a _cl_mem** if it is e.g. an unsigned int
 	// -> all handled by _cl_kernel_arg
-	kernel->arg_set_data(arg_index, arg_value);
+	DEBUG_SSEOPENCLDRIVER( std::cout << "function argument:\n"; );
+	_cl_program* program = kernel->get_program();
+	const llvm::Function* f = program->function;
+	const llvm::Type* argType = jitRT::getArgumentType(f, arg_index);
+	const size_t arg_size_bytes = jitRT::getTypeSizeInBits(program->context->targetData, argType) / 8;
+	const cl_uint address_space = __convertLLVMAddressSpace(jitRT::getAddressSpace(argType));
+
+	DEBUG_SSEOPENCLDRIVER( std::cout << "argument " << arg_index << "\n"; );
+	DEBUG_SSEOPENCLDRIVER( std::cout << "  size per element: " << arg_size_bytes << "\n"; );
+	DEBUG_SSEOPENCLDRIVER( std::cout << "  addrspace: "; );
+	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_PRIVATE) std::cout << "CL_PRIVATE\n"; );
+	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_GLOBAL) std::cout << "CL_GLOBAL\n"; );
+	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_LOCAL) std::cout << "CL_LOCAL\n"; );
+	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n"; );
+
+	kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value);
+
+	DEBUG_SSEOPENCLDRIVER(
+		std::cout << "  value:\n";
+		switch (kernel->arg_get_address_space(arg_index)) {
+			case CL_PRIVATE: {
+				std::cout << "    incoming: " << *((unsigned*)arg_value) << "\n";
+				std::cout << "    stored: " << *((unsigned*)kernel->arg_get_data(arg_index)) << "\n";
+				break;
+			}
+			case CL_GLOBAL: {
+				_cl_mem* m = *((_cl_mem**)arg_value);
+				_cl_mem* m2 = *((_cl_mem**)(kernel->arg_get_data(arg_index)));
+				std::cout << "    incoming: " << ((float*)m->get_data())[0] << ", " << ((float*)m->get_data())[1] << "\n";
+				std::cout << "    data-addr: " << m->get_data() << "\n";
+				std::cout << "    stored: " << ((float*)m2->get_data())[0] << ", " << ((float*)m2->get_data())[1] << "\n";
+				std::cout << "    data-addr: " << m2->get_data() << "\n";
+				break;
+			}
+			default: break;
+		}
+	);
 
 	return CL_SUCCESS;
 }
@@ -1188,13 +1170,23 @@ clEnqueueReadBuffer(cl_command_queue    command_queue,
 	if (command_queue->context != buffer->get_context()) return CL_INVALID_CONTEXT;
     //err = clEnqueueReadBuffer( commands, output, CL_TRUE, 0, sizeof(float) * count, results, 0, NULL, NULL );
 
-	// Write data back into host memory (buffer)
+	// Write data back into host memory (ptr) from device memory (buffer)
 	// In our case, we actually should not have to copy data
 	// because we are still on the CPU. However, const void* prevents this.
 	// Thus, just copy over each byte.
 	// TODO: specification seems to require something different?
 	//       storing access patterns to command_queue or sth like that?
-	buffer->set_data(ptr, cb, offset); //cb is size in bytes
+	
+	void* data = buffer->get_data();
+	memcpy(ptr, data, cb);
+
+	DEBUG_SSEOPENCLDRIVER(
+		std::cout << "\nclEnqueueReadBuffer()\n";
+		std::cout << "  buffer-ptr: " << buffer << "\n";
+		std::cout << "  targtet-ptr: " << ptr << "\n";
+		std::cout << "  outgoing: " << ((float*)buffer->get_data())[0] << ", " << ((float*)buffer->get_data())[1] << "\n";
+		std::cout << "  stored  : " << ((float*)ptr)[0] << ", " << ((float*)ptr)[1] << "\n";
+	);
 
 	return CL_SUCCESS;
 }
@@ -1224,6 +1216,10 @@ clEnqueueWriteBuffer(cl_command_queue   command_queue,
 	// TODO: specification seems to require something different?
 	//       storing access patterns to command_queue or sth like that?
 	buffer->set_data(ptr, cb, offset); //cb is size in bytes
+
+	DEBUG_SSEOPENCLDRIVER( std::cout << "\nclEnqueueWriteBuffer()\n"; );
+	DEBUG_SSEOPENCLDRIVER( std::cout << "  incoming: " << ((float*)ptr)[0] << ", " << ((float*)ptr)[1] << "\n"; );
+	DEBUG_SSEOPENCLDRIVER( std::cout << "  stored  : " << ((float*)buffer->get_data())[0] << ", " << ((float*)buffer->get_data())[1] << "\n"; );
 	
 	return CL_SUCCESS;
 }
@@ -1384,7 +1380,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	if (command_queue->context != kernel->get_context()) return CL_INVALID_CONTEXT;
 	//if (command_queue->context != event_wait_list->context) return CL_INVALID_CONTEXT;
 	if (work_dim < 1 || work_dim > 3) return CL_INVALID_WORK_DIMENSION;
-	if (!kernel->get_function()) return CL_INVALID_PROGRAM_EXECUTABLE; // ?
+	if (!kernel->get_compiled_function()) return CL_INVALID_PROGRAM_EXECUTABLE; // ?
 	if (!global_work_size) return CL_INVALID_GLOBAL_WORK_SIZE;
 	if (!local_work_size) return CL_INVALID_WORK_GROUP_SIZE;
 	if (*global_work_size % *local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
@@ -1394,6 +1390,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 
 	//err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
 
+	DEBUG_SSEOPENCLDRIVER( std::cout << "\nclEnqueueNDRangeKernel()\n"; );
 
 	//
 	// set up runtime
@@ -1418,16 +1415,21 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	typedef void (*kernelFnPtr)(void*);
 
 	argument_struct arg_str;
-	arg_str.input = (float*)kernel->arg_get_data(0);
-	arg_str.output = (float*)kernel->arg_get_data(1);
+	_cl_mem* in_mem = *(_cl_mem**)kernel->arg_get_data(0);
+	_cl_mem* out_mem = *(_cl_mem**)kernel->arg_get_data(1);
+	arg_str.input = (float*)in_mem->get_data();
+	arg_str.output = (float*)out_mem->get_data();
 	arg_str.count = *(unsigned int*)kernel->arg_get_data(2);
 
-	void* fnPtr = kernel->get_function();
+	DEBUG_SSEOPENCLDRIVER( std::cout << "input-addr: " << arg_str.input << "\n"; );
+	DEBUG_SSEOPENCLDRIVER( std::cout << "output-addr: " << arg_str.output << "\n"; );
+
+	void* fnPtr = kernel->get_compiled_function();
 	kernelFnPtr typedPtr = (kernelFnPtr)fnPtr;
 
 	const size_t num_simd_iterations = *global_work_size / *local_work_size; // = #groups
 	const size_t num_total_iterations = *global_work_size; // = total # threads
-	std::cout << "num iterations: " << num_total_iterations << "\n";
+	DEBUG_SSEOPENCLDRIVER( std::cout << "num iterations: " << num_total_iterations << "\n"; );
 	//for (unsigned i=0; i<num_simd_iterations; ++i)
 	for (unsigned i=0; i<num_total_iterations; ++i) {
 		// update runtime environment
@@ -1437,15 +1439,15 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		setCurrentLocal(work_dim-1, i % 4);
 
 		// call kernel
-		std::cout << "\niteration " << i << "\n";
-		std::cout << "  global id: " << get_global_id(work_dim-1) << "\n";
-		std::cout << "  local id: " << get_local_id(work_dim-1) << "\n";
-		std::cout << "  group id: " << get_group_id(work_dim-1) << "\n";
-		std::cout << "  input: " << arg_str.input[i] << "\n";
-		std::cout << "  output: " << arg_str.output[i] << "\n";
-		std::cout << "  count: " << arg_str.count << "\n";
+		DEBUG_SSEOPENCLDRIVER( std::cout << "\niteration " << i << "\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "  global id: " << get_global_id(work_dim-1) << "\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "  local id: " << get_local_id(work_dim-1) << "\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "  group id: " << get_group_id(work_dim-1) << "\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "  input: " << arg_str.input[i] << "\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "  output: " << arg_str.output[i] << "\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "  count: " << arg_str.count << "\n"; );
 		typedPtr(&arg_str);
-		std::cout << "  result: " << arg_str.output[i] << "\n";
+		DEBUG_SSEOPENCLDRIVER( std::cout << "  result: " << arg_str.output[i] << "\n"; );
 	}
 
 	return CL_SUCCESS;
