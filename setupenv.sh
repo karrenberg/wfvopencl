@@ -1,4 +1,5 @@
 #home
+export JITRT_INC=/home/ralf/Projekte/proj_anysl/install/build-icc-opt/jitRT/include
 export JITRT_LIB=/home/ralf/Projekte/proj_anysl/install/build-icc-opt/jitRT/lib
 export LLVM_BIN=/home/ralf/Projekte/proj_anysl/install/build-gcc-opt/llvm/bin
 #uni

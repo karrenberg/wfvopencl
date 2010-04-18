@@ -393,16 +393,30 @@ struct _cl_program {
 };
 
 
-#define CL_SHARED 0x3 // does not exist in specification 1.0
-#define CL_CONSTANT 0x4 // does not exist in specification 1.0
+#define CL_CONSTANT 0x3 // does not exist in specification 1.0
+#define CL_PRIVATE 0x4 // does not exist in specification 1.0
 struct _cl_kernel_arg {
 private:
-	_cl_mem* values; // stores *all* values for this argument
-	size_t size; // size of one item in bits
-	cl_uint qualifier;
-public:
-	//~_cl_kernel_arg() { free(values); }
-	inline void set_values(const _cl_mem* vals) {
+	union {
+		_cl_mem* values; // stores *all* values for this argument
+		void* value;
+	};
+	size_t size; // size of one item in bytes
+	cl_uint address_space;
+
+	inline void set_private_value(const void* val) {
+		assert (val);
+		// ALWAYS create new _cl_mem object and copy values!
+		//if (val) free(val);
+
+		size_t bytes = size;
+		value = malloc(bytes);
+		memcpy(value, val, bytes);
+		std::cout << "new argument private memory value\n";
+		std::cout << "  bytes  : " << bytes << "\n";
+		std::cout << "  value : " << value << "\n";
+	}
+	inline void set_global_values(const _cl_mem* vals) {
 		assert (vals);
 		// ALWAYS create new _cl_mem object and copy values!
 		//if (values) free(values);
@@ -411,20 +425,35 @@ public:
 		void* data_cp = malloc(bytes);
 		memcpy(data_cp, vals->get_data(), bytes);
 		values = new _cl_mem(vals->get_context(), bytes, data_cp);
-		std::cout << "_cl_mem(" << bytes << ", " << data_cp << ") -> " << values << "\n";
+		std::cout << "new argument global memory value\n";
+		std::cout << "  bytes      : " << bytes << "\n";
+		std::cout << "  data-ptr   : " << data_cp << "\n";
+		std::cout << "  memobj-ptr : " << values << "\n";
+	}
+public:
+	//~_cl_kernel_arg() { free(values); }
+	inline void set_data(const void* data) {
+		// TODO: arg_value *has* to be copied!
+		assert (data);
+		switch (address_space) {
+			case CL_PRIVATE  : set_private_value(data); break;
+			case CL_GLOBAL   : set_global_values(*(const _cl_mem**)data); break;
+			case CL_LOCAL    : assert (false && "NOT IMPLEMENTED!"); break;
+			case CL_CONSTANT : assert (false && "NOT IMPLEMENTED!"); break;
+			default          : assert (false && "bad address space found!"); break;
+		}
 	}
 	inline void set_size(const size_t s) {
 		assert (s > 0);
 		size = s;
 	}
-	inline void set_qualifier(const cl_uint qual) {
-		assert (qual == CL_LOCAL || qual == CL_GLOBAL);
-		qualifier = qual;
+	inline void set_address_space(const cl_uint addr_space) {
+		address_space = addr_space;
 	}
 
 	inline _cl_mem* get_values() { assert(values); return values; }
 	inline size_t get_size() const { return size; }
-	inline cl_uint get_qualifier() const { return qualifier; }
+	inline cl_uint get_address_space() const { return address_space; }
 };
 
 /*
@@ -456,42 +485,43 @@ public:
 		num_args = num;
 		args = new _cl_kernel_arg[num]();
 	}
-	inline void arg_set_info(const cl_uint arg_index, const size_t size, const cl_uint qualifier) {
+	inline void arg_set_info(const cl_uint arg_index, const size_t size, const cl_uint address_space) {
 		assert (args && "set_num_args() has to be called before arg_set_info()!");
-		assert ((qualifier == CL_LOCAL || qualifier == CL_GLOBAL) && "only local and global allowed as qualifiers so far!");
 		args[arg_index].set_size(size);
-		args[arg_index].set_qualifier(qualifier);
+		args[arg_index].set_address_space(address_space);
 	}
 
 	inline _cl_context* get_context() const { return context; }
 	inline void* get_function() const { return function; }
 	inline cl_uint get_num_args() const { return num_args; }
 
+	inline cl_uint arg_get_address_space(const cl_uint arg_index) const {
+		assert (arg_index < num_args);
+		return args[arg_index].get_address_space();
+	}
 	inline bool arg_is_global(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
-		return args[arg_index].get_qualifier() == CL_GLOBAL;
+		return args[arg_index].get_address_space() == CL_GLOBAL;
 	}
 	inline bool arg_is_local(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
-		return args[arg_index].get_qualifier() == CL_LOCAL;
+		return args[arg_index].get_address_space() == CL_LOCAL;
 	}
-	inline bool arg_is_shared(const cl_uint arg_index) const {
-		assert (false && "no support for shared qualifier impemented yet");
+	inline bool arg_is_private(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
-		return args[arg_index].get_qualifier() == CL_SHARED;
+		return args[arg_index].get_address_space() == CL_PRIVATE;
 	}
 	inline bool arg_is_constant(const cl_uint arg_index) const {
-		assert (false && "no support for constant qualifier impemented yet");
 		assert (arg_index < num_args);
-		return args[arg_index].get_qualifier() == CL_CONSTANT;
+		return args[arg_index].get_address_space() == CL_CONSTANT;
 	}
 	inline size_t arg_get_size(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
 		return args[arg_index].get_size();
 	}
-	inline void arg_set_values(const cl_uint arg_index, const _cl_mem* values) {
+	inline void arg_set_data(const cl_uint arg_index, const void* data) {
 		assert (arg_index < num_args);
-		args[arg_index].set_values(values);
+		args[arg_index].set_data(data);
 	}
 };
 
@@ -678,7 +708,7 @@ clCreateBuffer(cl_context   context,
 	if (size == 0 || size > CL_DEVICE_MAX_MEM_ALLOC_SIZE) { if (errcode_ret) *errcode_ret = CL_INVALID_BUFFER_SIZE; return NULL; }
 
 	_cl_mem* mem = new _cl_mem(context, size, host_ptr ? host_ptr : malloc(size));
-	std::cout << "new buffer(" << size << ", " << mem->get_data() << ") -> " << mem << "\n";
+	std::cout << "clCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n";
 
 	if (errcode_ret) *errcode_ret = CL_SUCCESS;
 	return mem;
@@ -921,6 +951,14 @@ clGetProgramBuildInfo(cl_program            program,
 
 /* Kernel Object APIs */
 
+inline cl_uint __convertLLVMAddressSpace(cl_uint llvm_address_space) {
+	switch (llvm_address_space) {
+		case 0 : return CL_PRIVATE;
+		case 1 : return CL_GLOBAL;
+		default : return llvm_address_space;
+	}
+}
+
 // -> compile bitcode of function from .bc file to native code
 // -> store void* in _cl_kernel object
 CL_API_ENTRY cl_kernel CL_API_CALL
@@ -958,9 +996,17 @@ clCreateKernel(cl_program      program,
 	const cl_uint num_args = jitRT::getNumArgs(f);
 	kernel->set_num_args(num_args);
 	for (cl_uint i=0; i<num_args; ++i) {
-		const size_t arg_size = jitRT::getArgSizeInBits(f, i, program->context->targetData);
-		const cl_uint qualifier = CL_GLOBAL; //everything global on CPU?
-		kernel->arg_set_info(i, arg_size, qualifier);
+		const llvm::Type* argType = jitRT::getArgumentType(f, i);
+		const size_t arg_size_bytes = jitRT::getTypeSizeInBits(program->context->targetData, argType) / 8;
+		const cl_uint address_space = __convertLLVMAddressSpace(jitRT::getAddressSpace(argType));
+		std::cout << "argument " << i << "\n";
+		std::cout << "  size per element: " << arg_size_bytes << "\n";
+		std::cout << "  addrspace: ";
+		if (address_space == CL_PRIVATE) std::cout << "CL_PRIVATE\n";
+		if (address_space == CL_GLOBAL) std::cout << "CL_GLOBAL\n";
+		if (address_space == CL_LOCAL) std::cout << "CL_LOCAL\n";
+		if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n";
+		kernel->arg_set_info(i, arg_size_bytes, address_space);
 	}
 
 	*errcode_ret = CL_SUCCESS;
@@ -997,7 +1043,7 @@ clSetKernelArg(cl_kernel    kernel,
                size_t       arg_size,
                const void * arg_value) CL_API_SUFFIX__VERSION_1_0
 {
-	std::cout << "clSetKernelArg(" << arg_index << ", " << arg_size << ", " << *(const _cl_mem**)arg_value << ")\n";
+	std::cout << "clSetKernelArg(" << arg_index << ", " << arg_size << ")\n";
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (arg_index > kernel->get_num_args()) return CL_INVALID_ARG_INDEX;
 	const bool is_local = kernel->arg_is_local(arg_index);
@@ -1008,12 +1054,10 @@ clSetKernelArg(cl_kernel    kernel,
 	// NOTE: This function can be called with arg_size = sizeof(_cl_mem), which means
 	//       that this is not the actual size of the argument data type.
 	// NOTE: This code relies on the fact that the value is an object of type _cl_mem ...
-	// NOTE: This is not everything: we have to check what kind of argument this index is
+	// NOTE: This is not everything: we have to check what kind of argument this index is.
 	//       We must not access arg_value as a _cl_mem** if it is e.g. an unsigned int
-
-
-
-	kernel->arg_set_values(arg_index, *(const _cl_mem**)arg_value);
+	// -> all handled by _cl_kernel_arg
+	kernel->arg_set_data(arg_index, arg_value);
 
 	return CL_SUCCESS;
 }

@@ -145,7 +145,8 @@ namespace jitRT {
 	JITRT_API void runStaticConstructorsDestructors(llvm::Module* mod, llvm::ExecutionEngine* engine, const bool isDtors);
 
 	JITRT_API unsigned getNumArgs(const llvm::Function* f);
-	JITRT_API unsigned getArgSizeInBits(const llvm::Function* f, const unsigned arg_index, const llvm::TargetData* targetData);
+	JITRT_API const llvm::Type* getArgumentType(const llvm::Function* f, const unsigned arg_index);
+	JITRT_API unsigned getAddressSpace(const llvm::Type* type);
 
     //llvmCloning
     JITRT_API llvm::Module * cloneModule(const llvm::Module*);

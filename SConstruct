@@ -13,6 +13,7 @@ env.Append(CXXFLAGS = cxxflags)
 
 env.Append(CPPPATH = env.Split("-Iinclude"))
 
+#env.Command(os.path.join(env['ENV']['JITRT_INC'], 'jitRT/llvmWrapper.h'), 'include/jitRT/llvmWrapper.h', "cp $SOURCE $TARGET")
 
 env.Object(target='build/obj/sseOpenCLDriver', source='src/sseOpenCLDriver.cpp')
 env.Object(target='build/obj/simpleTest', source='test/simpleTest.cpp')
