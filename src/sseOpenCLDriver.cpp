@@ -39,6 +39,7 @@ namespace {
 	// scalar implementation
 	//
 	static const cl_uint simdWidth = 4;
+	static const cl_uint maxNumThreads = 1;
 
 	cl_uint dimensions; // max 3
 	size_t* globalThreads; // total # work items per dimension, arbitrary size
@@ -306,6 +307,9 @@ namespace {
 //                SSE OpenCL Internal Data Structures                    //
 ///////////////////////////////////////////////////////////////////////////
 
+struct _cl_platform_id {};
+struct _cl_device_id {};
+
 /*
 An OpenCL context is created with one or more devices. Contexts
 are used by the OpenCL runtime for managing objects such as command-queues, memory,
@@ -451,7 +455,7 @@ public:
 		address_space = addr_space;
 	}
 
-	inline _cl_mem* get_values() { assert(values); return values; }
+	inline void* get_data() { assert(value); return value; }
 	inline size_t get_size() const { return size; }
 	inline cl_uint get_address_space() const { return address_space; }
 };
@@ -490,11 +494,19 @@ public:
 		args[arg_index].set_size(size);
 		args[arg_index].set_address_space(address_space);
 	}
+	inline void arg_set_data(const cl_uint arg_index, const void* data) {
+		assert (arg_index < num_args);
+		args[arg_index].set_data(data);
+	}
 
 	inline _cl_context* get_context() const { return context; }
 	inline void* get_function() const { return function; }
 	inline cl_uint get_num_args() const { return num_args; }
 
+	inline size_t arg_get_size(const cl_uint arg_index) const {
+		assert (arg_index < num_args);
+		return args[arg_index].get_size();
+	}
 	inline cl_uint arg_get_address_space(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
 		return args[arg_index].get_address_space();
@@ -515,13 +527,9 @@ public:
 		assert (arg_index < num_args);
 		return args[arg_index].get_address_space() == CL_CONSTANT;
 	}
-	inline size_t arg_get_size(const cl_uint arg_index) const {
+	inline void* arg_get_data(const cl_uint arg_index) const {
 		assert (arg_index < num_args);
-		return args[arg_index].get_size();
-	}
-	inline void arg_set_data(const cl_uint arg_index, const void* data) {
-		assert (arg_index < num_args);
-		args[arg_index].set_data(data);
+		return args[arg_index].get_data();
 	}
 };
 
@@ -618,7 +626,7 @@ clRetainContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	std::cout << "TODO: implement clReleaseContext()\n";
 	return CL_SUCCESS;
 }
 
@@ -661,7 +669,7 @@ clRetainCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	std::cout << "TODO: implement clReleaseCommandQueue()\n";
 	return CL_SUCCESS;
 }
 
@@ -754,7 +762,7 @@ clRetainMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	std::cout << "TODO: implement clReleaseMemObject()\n";
 	return CL_SUCCESS;
 }
 
@@ -874,7 +882,7 @@ clRetainProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	std::cout << "TODO: implement clReleaseProgram()\n";
 	return CL_SUCCESS;
 }
 
@@ -984,7 +992,13 @@ clCreateKernel(cl_program      program,
 	resolveRuntimeCalls(module);
 
 	jitRT::resetTargetData(module);
+#if 0
 	void* compiledFnPtr = jitRT::getPointerToFunction(module, new_kernel_name);
+#else
+	jitRT::inlineFunctionCalls(jitRT::getFunction("sse_opencl_wrapper", module));
+	jitRT::printFunction(jitRT::getFunction("sse_opencl_wrapper", module));
+	void* compiledFnPtr = jitRT::getPointerToFunction(module, "sse_opencl_wrapper");
+#endif
 	if (!compiledFnPtr) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
 
 	// create kernel object
@@ -1033,7 +1047,7 @@ clRetainKernel(cl_kernel    kernel) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseKernel(cl_kernel   kernel) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	std::cout << "TODO: implement clReleaseKernel()\n";
 	return CL_SUCCESS;
 }
 
@@ -1081,7 +1095,14 @@ clGetKernelWorkGroupInfo(cl_kernel                  kernel,
                          void *                     param_value,
                          size_t *                   param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	if (!kernel) return CL_INVALID_KERNEL;
+	//if (!device) return CL_INVALID_DEVICE;
+	switch (param_name) {
+		case CL_KERNEL_WORK_GROUP_SIZE: *(size_t*)param_value = simdWidth * maxNumThreads; break; // type conversion slightly hacked (should use param_value_size) ;)
+		case CL_KERNEL_COMPILE_WORK_GROUP_SIZE: assert (false && "NOT IMPLEMENTED"); break; //*(size_t**)param_value = new size_t[3](); break;
+		case CL_KERNEL_LOCAL_MEM_SIZE: assert (false && "NOT IMPLEMENTED!"); break;//*(cl_ulong*)param_value = 0; break;
+		default: return CL_INVALID_VALUE;
+	}
 	return CL_SUCCESS;
 }
 
@@ -1142,7 +1163,8 @@ clFlush(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clFinish(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
+	// do nothing :P
 	return CL_SUCCESS;
 }
 
@@ -1158,7 +1180,22 @@ clEnqueueReadBuffer(cl_command_queue    command_queue,
                     const cl_event *    event_wait_list,
                     cl_event *          event) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
+	if (!buffer) return CL_INVALID_MEM_OBJECT;
+	if (!ptr || buffer->get_size() < cb+offset) return CL_INVALID_VALUE;
+	if (!event_wait_list && num_events_in_wait_list > 0) return CL_INVALID_EVENT_WAIT_LIST;
+	if (event_wait_list && num_events_in_wait_list == 0) return CL_INVALID_EVENT_WAIT_LIST;
+	if (command_queue->context != buffer->get_context()) return CL_INVALID_CONTEXT;
+    //err = clEnqueueReadBuffer( commands, output, CL_TRUE, 0, sizeof(float) * count, results, 0, NULL, NULL );
+
+	// Write data back into host memory (buffer)
+	// In our case, we actually should not have to copy data
+	// because we are still on the CPU. However, const void* prevents this.
+	// Thus, just copy over each byte.
+	// TODO: specification seems to require something different?
+	//       storing access patterns to command_queue or sth like that?
+	buffer->set_data(ptr, cb, offset); //cb is size in bytes
+
 	return CL_SUCCESS;
 }
 
@@ -1179,7 +1216,6 @@ clEnqueueWriteBuffer(cl_command_queue   command_queue,
 	if (!event_wait_list && num_events_in_wait_list > 0) return CL_INVALID_EVENT_WAIT_LIST;
 	if (event_wait_list && num_events_in_wait_list == 0) return CL_INVALID_EVENT_WAIT_LIST;
 	if (command_queue->context != buffer->get_context()) return CL_INVALID_CONTEXT;
-	//clEnqueueWriteBuffer(commands, input, CL_TRUE, 0, sizeof(float) * count, data, 0, NULL, NULL);
 
 	// Write data into 'device memory' (buffer)
 	// In our case, we actually should not have to copy data
@@ -1343,7 +1379,75 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
                        const cl_event * event_wait_list,
                        cl_event *       event) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
+	if (!kernel) return CL_INVALID_KERNEL;
+	if (command_queue->context != kernel->get_context()) return CL_INVALID_CONTEXT;
+	//if (command_queue->context != event_wait_list->context) return CL_INVALID_CONTEXT;
+	if (work_dim < 1 || work_dim > 3) return CL_INVALID_WORK_DIMENSION;
+	if (!kernel->get_function()) return CL_INVALID_PROGRAM_EXECUTABLE; // ?
+	if (!global_work_size) return CL_INVALID_GLOBAL_WORK_SIZE;
+	if (!local_work_size) return CL_INVALID_WORK_GROUP_SIZE;
+	if (*global_work_size % *local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
+	if (global_work_offset) return CL_INVALID_GLOBAL_OFFSET; // see specification p.111
+	if (!event_wait_list && num_events_in_wait_list > 0) return CL_INVALID_EVENT_WAIT_LIST;
+	if (event_wait_list && num_events_in_wait_list == 0) return CL_INVALID_EVENT_WAIT_LIST;
+
+	//err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
+
+
+	//
+	// set up runtime
+	// TODO: do somewhere else
+	// TODO: use SIMD environment / packetization
+	//
+	initializeOpenCL(1);
+	size_t gThreads[1] = { 1024 };
+	size_t lThreads[1] = { 4 };
+	initializeThreads(gThreads, lThreads);
+
+	//
+	// execute!
+	//
+	typedef struct {
+		float* input;
+		float* output;
+		unsigned int count;
+	} argument_struct;
+
+	//typedef void (*kernelFnPtr)(float*, float*, const unsigned int);
+	typedef void (*kernelFnPtr)(void*);
+
+	argument_struct arg_str;
+	arg_str.input = (float*)kernel->arg_get_data(0);
+	arg_str.output = (float*)kernel->arg_get_data(1);
+	arg_str.count = *(unsigned int*)kernel->arg_get_data(2);
+
+	void* fnPtr = kernel->get_function();
+	kernelFnPtr typedPtr = (kernelFnPtr)fnPtr;
+
+	const size_t num_simd_iterations = *global_work_size / *local_work_size; // = #groups
+	const size_t num_total_iterations = *global_work_size; // = total # threads
+	std::cout << "num iterations: " << num_total_iterations << "\n";
+	//for (unsigned i=0; i<num_simd_iterations; ++i)
+	for (unsigned i=0; i<num_total_iterations; ++i) {
+		// update runtime environment
+		// TODO: use SIMD environment / packetization
+		setCurrentGlobal(work_dim-1, i);
+		setCurrentGroup(work_dim-1, i / 4);
+		setCurrentLocal(work_dim-1, i % 4);
+
+		// call kernel
+		std::cout << "\niteration " << i << "\n";
+		std::cout << "  global id: " << get_global_id(work_dim-1) << "\n";
+		std::cout << "  local id: " << get_local_id(work_dim-1) << "\n";
+		std::cout << "  group id: " << get_group_id(work_dim-1) << "\n";
+		std::cout << "  input: " << arg_str.input[i] << "\n";
+		std::cout << "  output: " << arg_str.output[i] << "\n";
+		std::cout << "  count: " << arg_str.count << "\n";
+		typedPtr(&arg_str);
+		std::cout << "  result: " << arg_str.output[i] << "\n";
+	}
+
 	return CL_SUCCESS;
 }
 
