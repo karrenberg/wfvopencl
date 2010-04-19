@@ -7,22 +7,26 @@
  * Released under the GPL
  */
 #include <assert.h>
-#include <iostream>
-#include <sstream> //stringstream
+#include <iostream> // std::cout
+#include <sstream>  // std::stringstream
+#include <string.h> // memcpy
 
-//llvm wrapper that provides all functionality needed
-#include <jitRT/llvmWrapper.h>
+#include <jitRT/llvmWrapper.h> // packetizer & LLVM wrapper ('jitRT')
 
 #ifdef __APPLE__
 #include <OpenCL/cl_platform.h>
 #else
 #include <CL/cl_platform.h> // e.g. for CL_API_ENTRY
-#include <CL/cl.h> // e.g. for cl_platform_id
+#include <CL/cl.h>          // e.g. for cl_platform_id
 #endif
 
-//#define DEBUG_SSEOPENCLDRIVER(x) do { x } while (false)
-#define DEBUG_SSEOPENCLDRIVER(x)
+// debug output
+//#define SSE_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+#define SSE_OPENCL_DRIVER_DEBUG(x)
 
+//#define SSE_OPENCL_DRIVER_USE_CUSTOM_WRAPPER // required for 32bit (?)
+
+//#define SSE_OPENCL_DRIVER_NO_PACKETIZATION
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,7 +37,6 @@ extern "C" {
 ///////////////////////////////////////////////////////////////////////////
 
 #include <xmmintrin.h>
-#include <string.h>
 // a class 'OpenCLRuntime' would be nicer,
 // but we cannot store address of member function to bitcode
 namespace {
@@ -143,7 +146,7 @@ namespace {
 	}
 
 
-	// packetized implementations
+	// packetized implementation
 	//
 	__m128i* currentGlobal_SIMD; // 0 -> globalThreads[D] -1
 	__m128i* currentLocal_SIMD;  // 0 -> SIMD width -1
@@ -277,7 +280,7 @@ namespace {
 		}
 	}
 
-	bool packetizeKernelFunction(const std::string& kernelName, const std::string& targetKernelName, llvm::Module* mod, const cl_uint packetizationSize, const bool use_sse41, const bool verbose) {
+	bool __packetizeKernelFunction(const std::string& kernelName, const std::string& targetKernelName, llvm::Module* mod, const cl_uint packetizationSize, const bool use_sse41, const bool verbose) {
 		if (!jitRT::getFunction(kernelName, mod)) {
 			std::cerr << "ERROR: source function '" << kernelName << "' not found in module!\n";
 			return false;
@@ -530,6 +533,7 @@ struct _cl_event {
 	_cl_context* context;
 };
 
+
 ///////////////////////////////////////////////////////////////////////////
 //                 SSE OpenCL Driver Implementation                      //
 ///////////////////////////////////////////////////////////////////////////
@@ -619,7 +623,7 @@ clRetainContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 {
-	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseContext()\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseContext()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -662,7 +666,7 @@ clRetainCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
-	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseCommandQueue()\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseCommandQueue()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -711,7 +715,7 @@ clCreateBuffer(cl_context   context,
 	if (host_ptr && !(flags & CL_MEM_USE_HOST_PTR) & !(flags & CL_MEM_COPY_HOST_PTR)) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
 
 	_cl_mem* mem = new _cl_mem(context, size, host_ptr ? host_ptr : malloc(size));
-	DEBUG_SSEOPENCLDRIVER( std::cout << "\nclCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nclCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
 
 	if (errcode_ret) *errcode_ret = CL_SUCCESS;
 	return mem;
@@ -757,7 +761,7 @@ clRetainMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 {
-	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseMemObject()\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseMemObject()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -877,7 +881,7 @@ clRetainProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
-	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseProgram()\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseProgram()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -990,7 +994,7 @@ clCreateKernel(cl_program      program,
 
 	jitRT::resetTargetData(module);
 
-#ifdef SSE_OPENCL_USE_CUSTOM_WRAPPER
+#ifdef SSE_OPENCL_DRIVER_USE_CUSTOM_WRAPPER
 	llvm::Function* wrapper_fn = jitRT::getFunction("sse_opencl_wrapper", module);
 	if (!wrapper_fn) {
 		std::cerr << "ERROR: could not find wrapper function in kernel module!\n";
@@ -1054,7 +1058,7 @@ clRetainKernel(cl_kernel    kernel) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseKernel(cl_kernel   kernel) CL_API_SUFFIX__VERSION_1_0
 {
-	DEBUG_SSEOPENCLDRIVER( std::cout << "TODO: implement clReleaseKernel()\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseKernel()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1064,7 +1068,7 @@ clSetKernelArg(cl_kernel    kernel,
                size_t       arg_size,
                const void * arg_value) CL_API_SUFFIX__VERSION_1_0
 {
-	DEBUG_SSEOPENCLDRIVER( std::cout << "\nclSetKernelArg(" << arg_index << ", " << arg_size << ")\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nclSetKernelArg(" << arg_index << ", " << arg_size << ")\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (arg_index > kernel->get_num_args()) return CL_INVALID_ARG_INDEX;
 	const bool is_local = kernel->arg_is_local(arg_index);
@@ -1077,20 +1081,20 @@ clSetKernelArg(cl_kernel    kernel,
 	// NOTE: We have to check what kind of argument this index is.
 	//       We must not access arg_value as a _cl_mem** if it is e.g. an unsigned int
 	// -> all handled by _cl_kernel_arg
-	DEBUG_SSEOPENCLDRIVER( std::cout << "function argument:\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "function argument:\n"; );
 	_cl_program* program = kernel->get_program();
 	const llvm::Function* f = program->function;
 	const llvm::Type* argType = jitRT::getArgumentType(f, arg_index);
 	const size_t arg_size_bytes = jitRT::getTypeSizeInBits(program->context->targetData, argType) / 8;
 	const cl_uint address_space = __convertLLVMAddressSpace(jitRT::getAddressSpace(argType));
 
-	DEBUG_SSEOPENCLDRIVER( std::cout << "argument " << arg_index << "\n"; );
-	DEBUG_SSEOPENCLDRIVER( std::cout << "  size per element: " << arg_size_bytes << "\n"; );
-	DEBUG_SSEOPENCLDRIVER( std::cout << "  addrspace: "; );
-	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_PRIVATE) std::cout << "CL_PRIVATE\n"; );
-	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_GLOBAL) std::cout << "CL_GLOBAL\n"; );
-	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_LOCAL) std::cout << "CL_LOCAL\n"; );
-	DEBUG_SSEOPENCLDRIVER( if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "argument " << arg_index << "\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "  size per element: " << arg_size_bytes << "\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "  addrspace: "; );
+	SSE_OPENCL_DRIVER_DEBUG( if (address_space == CL_PRIVATE) std::cout << "CL_PRIVATE\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( if (address_space == CL_GLOBAL) std::cout << "CL_GLOBAL\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( if (address_space == CL_LOCAL) std::cout << "CL_LOCAL\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n"; );
 
 	kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value);
 
@@ -1417,7 +1421,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 
 	//err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
 
-	DEBUG_SSEOPENCLDRIVER( std::cout << "\nclEnqueueNDRangeKernel()\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nclEnqueueNDRangeKernel()\n"; );
 
 	//
 	// set up runtime
@@ -1432,14 +1436,6 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	//
 	// set up argument struct
 	//
-	llvm::TargetData* targetData = kernel->get_context()->targetData;
-//	const llvm::Function* wrapper_fn = kernel->get_program()->wrapper_function;
-//	const llvm::Type* arg_str_ptr_type = jitRT::getArgumentType(wrapper_fn, 0);
-//	const llvm::Type* arg_str_type = jitRT::getContainedType(arg_str_ptr_type, 0);
-//	const size_t arg_str_size = jitRT::getTypeSizeInBits(targetData, arg_str_type);
-//	jitRT::printType(arg_str_ptr_type);
-
-
 	// calculate struct size
 	const cl_uint num_args = kernel->get_num_args();
 	size_t arg_str_size = 0;
@@ -1447,38 +1443,40 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		arg_str_size += kernel->arg_get_element_size(i);
 	}
 
+	// allocate memory for the struct
 	// TODO: do we have to care about type padding?
 	void* argument_struct = malloc(arg_str_size);
-	DEBUG_SSEOPENCLDRIVER( std::cout << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
-	DEBUG_SSEOPENCLDRIVER( std::cout << "address of argument-struct: " << argument_struct << "\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "address of argument-struct: " << argument_struct << "\n"; );
 
+	// copy the correct data into the struct
 	size_t current_size = 0;
-	for (unsigned i=0, e=kernel->get_num_args(); i<e; ++i) {
+	for (unsigned i=0; i<num_args; ++i) {
 		char* cur_pos = ((char*)argument_struct)+current_size;
 		const void* data = kernel->arg_get_address_space(i) == CL_PRIVATE
 			? kernel->arg_get_data(i)
 			: (*(const _cl_mem**)kernel->arg_get_data(i))->get_data();
 		const size_t data_size = kernel->arg_get_element_size(i);
-		DEBUG_SSEOPENCLDRIVER( std::cout << "  argument " << i << "\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "    size: " << data_size << " bytes\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "    data: " << data << "\n"; );
-		DEBUG_SSEOPENCLDRIVER( std::cout << "    pos : " << (void*)cur_pos << "\n"; );
+		SSE_OPENCL_DRIVER_DEBUG( std::cout << "  argument " << i << "\n"; );
+		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    size: " << data_size << " bytes\n"; );
+		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    data: " << data << "\n"; );
+		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    pos : " << (void*)cur_pos << "\n"; );
 		memcpy(cur_pos, &data, data_size);
 		current_size += data_size;
-		DEBUG_SSEOPENCLDRIVER( std::cout << "    new size : " << current_size << "\n"; );
+		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    new size : " << current_size << "\n"; );
 	}
-	DEBUG_SSEOPENCLDRIVER( std::cout << "memcpy done.\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "copying of arguments finished.\n"; );
 
 	void* fnPtr = kernel->get_compiled_function();
 	typedef void (*kernelFnPtr)(void*);
 	kernelFnPtr typedPtr = (kernelFnPtr)fnPtr;
 
 	//
-	// execute!
+	// execute the kernel
 	//
 	const size_t num_simd_iterations = *global_work_size / *local_work_size; // = #groups
 	const size_t num_total_iterations = *global_work_size; // = total # threads
-	DEBUG_SSEOPENCLDRIVER( std::cout << "num iterations: " << num_total_iterations << "\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "executing kernel (#iterations: " << num_total_iterations << ")...\n"; );
 	//for (unsigned i=0; i<num_simd_iterations; ++i)
 	for (unsigned i=0; i<num_total_iterations; ++i) {
 		// update runtime environment
@@ -1487,9 +1485,9 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		setCurrentGroup(work_dim-1, i / 4);
 		setCurrentLocal(work_dim-1, i % 4);
 
-		// call kernel
 
-		DEBUG_SSEOPENCLDRIVER(
+		SSE_OPENCL_DRIVER_DEBUG(
+			//hardcoded debug output
 			typedef struct { float* input; float* output; unsigned count; } tt;
 			std::cout << "\niteration " << i << "\n";
 			std::cout << "  global id: " << get_global_id(work_dim-1) << "\n";
@@ -1501,13 +1499,17 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			std::cout << "  output: " << ((tt*)argument_struct)->output[i] << "\n";
 			std::cout << "  count : " << ((tt*)argument_struct)->count << "\n";
 		);
-		//typedPtr(&argument_struct);
+
+		// call kernel
 		typedPtr(argument_struct);
-		DEBUG_SSEOPENCLDRIVER(
+
+		SSE_OPENCL_DRIVER_DEBUG(
+			//hardcoded debug output
 			typedef struct { float* input; float* output; unsigned count; } tt;
 			std::cout << "  result: " << ((tt*)argument_struct)->output[i] << "\n";
 		);
 	}
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
 
 	return CL_SUCCESS;
 }
@@ -1577,515 +1579,5 @@ CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_
 }
 
 #ifdef __cplusplus
-}
-#endif
-
-
-
-// old
-
-
-
-///////////////////////////////////////////////////////////////////////////
-//                 OpenCL Runtime Implementation                         //
-///////////////////////////////////////////////////////////////////////////
-
-#if 0
-#include <xmmintrin.h>
-// a class 'OpenCLRuntime' would be nicer,
-// but we cannot store address of member function to bitcode
-namespace {
-
-	//
-	// scalar implementation
-	//
-	static const unsigned simdWidth = 4;
-
-	unsigned dimensions; // max 3
-	size_t* globalThreads; // total # work items per dimension, arbitrary size
-	size_t* localThreads;  // size of each work group per dimension
-
-	size_t* currentGlobal; // 0 -> globalThreads[D] -1
-	size_t* currentLocal;  // 0 -> SIMD width -1
-	size_t* currentGroup;  // 0 -> (globalThreads[D] / localThreads[D]) -1
-
-	void initializeOpenCL(const unsigned dim) {
-		assert (dim < 4 && "max # dimensions is 3!");
-		dimensions = dim;
-
-		globalThreads = new size_t[dim]();
-		localThreads = new size_t[dim]();
-
-		currentGlobal = new size_t[dim]();
-		currentLocal = new size_t[dim]();
-		currentGroup = new size_t[dim]();
-		
-		for (unsigned i=0; i<dimensions; ++i) {
-			currentGlobal[i] = 0;
-			currentLocal[i] = 0;
-			currentGroup[i] = 0;
-		}
-	}
-
-	inline void initializeThreads(size_t* gThreads, size_t* lThreads) {
-		for (unsigned i=0; i<dimensions; ++i) {
-			globalThreads[i] = gThreads[i];
-			localThreads[i] = lThreads[i];
-		}
-	}
-	
-	// D is dimension index.
-
-	Num. of dimensions in use */
-	inline unsigned get_work_dim() {
-		return dimensions;
-	}
-
-	Num. of global work-items */
-	inline size_t get_global_size(unsigned D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		return globalThreads[D];
-	}
-
-	Global work-item ID value */
-	inline size_t get_global_id(unsigned D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return CL_SUCCESS;
-		return currentGlobal[D];
-	}
-
-	Num. of local work-items */
-	inline size_t get_local_size(unsigned D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		return localThreads[D];
-	}
-
-	Local work-item ID */
-	inline size_t get_local_id(unsigned D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return CL_SUCCESS;
-		return currentLocal[D];
-	}
-
-	Num. of work-groups */
-	inline size_t get_num_groups(unsigned D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		return globalThreads[D] / localThreads[D];
-	}
-
-	Returns the work-group ID */
-	inline size_t get_group_id(unsigned D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return CL_SUCCESS;
-		return currentGroup[D];
-	}
-
-
-	inline void setCurrentGlobal(unsigned D, size_t id) {
-		assert (D < dimensions);
-		assert (id < get_global_size(D));
-		currentGlobal[D] = id;
-	}
-	inline void setCurrentLocal(unsigned D, size_t id) {
-		assert (D < dimensions);
-		assert (id < get_local_size(D));
-		currentLocal[D] = id;
-	}
-	inline void setCurrentGroup(unsigned D, size_t id) {
-		assert (D < dimensions);
-		assert (id < get_num_groups(D));
-		currentGroup[D] = id;
-	}
-
-	//
-	// packetized implementations
-	//
-
-	__m128i* currentGlobal_SIMD; // 0 -> globalThreads[D] -1
-	__m128i* currentLocal_SIMD;  // 0 -> SIMD width -1
-
-	unsigned simdDimension;
-
-
-	// called automatically by initializeOpenCL_SIMD
-	inline void initializeThreads_SIMD(size_t* gThreads, size_t* lThreads) {
-		size_t globalThreadNum = 0;
-		size_t localThreadNum = 0;
-		bool alignedGlobalDims[dimensions];
-		bool alignedLocalDims[dimensions];
-
-		bool error = false;
-
-		for (unsigned i=0; i<dimensions; ++i) {
-			const size_t globalThreadsDimI = gThreads[i];
-			globalThreadNum += globalThreadsDimI;
-			alignedGlobalDims[i] = (globalThreadsDimI % simdWidth == 0);
-			globalThreads[i] = i == simdDimension ? (globalThreadsDimI / simdWidth) : globalThreadsDimI;
-
-			const size_t localThreadsDimI = lThreads[i];
-			localThreadNum += localThreadsDimI;
-			alignedLocalDims[i] = (localThreadsDimI % simdWidth == 0);
-			localThreads[i] = i == simdDimension ? (localThreadsDimI / simdWidth) : localThreadsDimI;
-
-			if (i == simdDimension && !alignedGlobalDims[i]) {
-				std::cerr << "ERROR: chosen SIMD dimension " << i << " is globally not dividable by " << simdWidth << " (global dimension)!\n";
-				error = true;
-			}
-			if (i == simdDimension && !alignedLocalDims[i]) {
-				std::cerr << "ERROR: chosen SIMD dimension " << i << " is locally not dividable by " << simdWidth << " (work-group dimension)!\n";
-				error = true;
-			}
-			if (globalThreadsDimI % localThreadsDimI != 0) {
-				std::cerr << "ERROR: global dimension " << i << " not dividable by local dimension (" << globalThreadsDimI << " / " << localThreadsDimI << ")!\n";
-				error = true;
-			}
-		}
-		if (globalThreadNum % simdWidth != 0) {
-			std::cerr << "ERROR: global number of threads is not dividable by " << simdWidth << "!\n";
-			error = true;
-		}
-		if (localThreadNum % simdWidth != 0) {
-			std::cerr << "ERROR: number of threads in a group is not dividable by " << simdWidth << "!\n";
-			error = true;
-		}
-
-		if (error) exit(-1);
-	}
-
-	void initializeOpenCL_SIMD(const unsigned dims, const unsigned simdDim, size_t* gThreads, size_t* lThreads) {
-		if (dims > 3) {
-			std::cerr << "ERROR: max # dimensions is 3!\n";
-			exit(-1);
-		}
-		if (simdDim > dims) {
-			std::cerr << "ERROR: chosen SIMD dimension out of bounds (" << simdWidth << " > " << dims << ")!\n";
-			exit(-1);
-		}
-		dimensions = dims;
-		simdDimension = simdDim-1; //-1 for array access
-
-		globalThreads = new size_t[dimensions]();
-		localThreads = new size_t[dimensions]();
-
-		currentGlobal_SIMD = new __m128i[dimensions]();
-		currentLocal_SIMD = new __m128i[dimensions]();
-		currentGroup = new size_t[dimensions]();
-
-		for (unsigned i=0; i<dimensions; ++i) {
-			if (i == simdDimension) {
-				currentGlobal_SIMD[i] = _mm_set_epi32(0, 1, 2, 3);
-				currentLocal_SIMD[i] = _mm_set_epi32(0, 1, 2, 3);
-			} else {
-				currentGlobal_SIMD[i] = _mm_set_epi32(0, 0, 0, 0);
-				currentLocal_SIMD[i] = _mm_set_epi32(0, 0, 0, 0);
-			}
-			currentGroup[i] = 0;
-		}
-
-		initializeThreads_SIMD(gThreads, lThreads);
-	}
-
-	inline __m128i get_global_id_SIMD(unsigned D) {
-		assert (D < dimensions);
-		return currentGlobal_SIMD[D];
-	}
-	inline __m128i get_local_id_SIMD(unsigned D) {
-		assert (D < dimensions);
-		return currentLocal_SIMD[D];
-	}
-
-	inline void setCurrentGlobal_SIMD(unsigned D, __m128i id) {
-		assert (D < dimensions);
-		assert (((size_t*)&id)[0] < get_global_size(D));
-		assert (((size_t*)&id)[1] < get_global_size(D));
-		assert (((size_t*)&id)[2] < get_global_size(D));
-		assert (((size_t*)&id)[3] < get_global_size(D));
-		currentGlobal_SIMD[D] = id;
-	}
-	inline void setCurrentLocal_SIMD(unsigned D, __m128i id) {
-		assert (D < dimensions);
-		assert (((size_t*)&id)[0] < get_local_size(D));
-		assert (((size_t*)&id)[1] < get_local_size(D));
-		assert (((size_t*)&id)[2] < get_local_size(D));
-		assert (((size_t*)&id)[3] < get_local_size(D));
-		currentLocal_SIMD[D] = id;
-	}
-
-};
-#endif
-
-
-///////////////////////////////////////////////////////////////////////////
-//                  OpenCL Driver Implementation                         //
-///////////////////////////////////////////////////////////////////////////
-
-#if 0
-#include <stdlib.h> //exit
-#include <string.h> //strcmp
-#include <iostream>
-#include <vector>
-
-int main(int argc, char** argv) {
-
-	bool verbose = false;
-    bool use_sse41 = true;
-	bool optimize = true;
-	bool verify = false;
-	std::vector<std::string> linkModuleNames;
-    std::string moduleName = "";
-    std::string functionName = "";
-    std::string targetFunctionName = "";
-	std::string outputFileName = "";
-
-    ///////////////////////////////////////////////////////////////////////////
-    //                           read input                                  //
-    ///////////////////////////////////////////////////////////////////////////
-
-	bool displayUsage = false;
-
-	//TODO: checks for existance of name do not work :P
-	//      -> same in packetizeFuntion.cpp
-	for (int i=1; i<argc; ++i) {
-		if (strcmp(argv[i], "-m") == 0) {
-			if (i+1 > argc) {
-				std::cerr << "ERROR: no bitcode module specified!\n";
-				return -1;
-			}
-			moduleName = argv[++i];
-			continue;
-		}
-		if (strcmp(argv[i], "-f") == 0) {
-			if (i+1 > argc) {
-				std::cerr << "ERROR: no function name specified!\n";
-				return -1;
-			}
-			functionName = argv[++i];
-			continue;
-		}
-		if (strcmp(argv[i], "-t") == 0) {
-			if (i+1 > argc) {
-				std::cerr << "ERROR: no target function name specified!\n";
-				return -1;
-			}
-			targetFunctionName = argv[++i];
-			continue;
-		}
-		if (strcmp(argv[i], "-o") == 0) {
-			if (i+1 > argc) {
-				std::cerr << "ERROR: output filename missing!\n";
-				return -1;
-			}
-			outputFileName = argv[++i];
-			continue;
-		}
-		if (strcmp(argv[i], "-l") == 0) {
-			if (i+1 > argc) {
-				std::cerr << "ERROR: link module filename missing!\n";
-				return -1;
-			}
-			linkModuleNames.push_back(argv[++i]);
-			continue;
-		}
-
-		if (strcmp(argv[i], "-msse41") == 0) {
-			use_sse41 = true;
-			continue;
-		}
-		if (strcmp(argv[i], "-no-sse41") == 0) {
-			use_sse41 = false;
-			continue;
-		}
-		if (strcmp(argv[i], "-O0") == 0 || strcmp(argv[i], "-no-opt") == 0) {
-			optimize = false;
-			continue;
-		}
-		if (strcmp(argv[i], "-verify") == 0) {
-			verify = true;
-			continue;
-		}
-		if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "-verbose") == 0) {
-			verbose = true;
-			continue;
-		}
-		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "-help") == 0) {
-			displayUsage = true;
-			continue;
-		}
-		std::cerr << "WARNING: Unknown input found: " << argv[i] << "\n";
-	}
-
-	if (!displayUsage) {
-		// print error messages if mandatory input is missing
-		if (argc < 1) {
-			std::cerr << "ERROR: Wrong number of arguments!\n";
-			displayUsage = true;
-		}
-		if (moduleName == "") {
-			std::cerr << "ERROR: no source module specified!\n";
-			displayUsage = true;
-		}
-		if (functionName == "") {
-			std::cerr << "ERROR: no source function specified!\n";
-			displayUsage = true;
-		}
-		if (targetFunctionName == "") {
-			std::cerr << "ERROR: no target function specified!\n";
-			displayUsage = true;
-		}
-	}
-
-	//if necessary, print usage message
-	if (displayUsage) {
-		std::cerr << "\nUsage: " << argv[0] << " -m module.bc -f functionName -t targetFunctionName [options]\n";
-        std::cerr << "Parameters:\n";
-		std::cerr << "  -m FILE     : source bitcode module\n";
-		std::cerr << "  -f NAME     : name of scalar source function in specified module\n";
-		std::cerr << "  -t NAME     : name of target function prototype in specified module\n";
-        std::cerr << "Options:\n";
-		std::cerr << "  -o FILE     : output filename for human readable bitcode (.ll file)\n";
-		std::cerr << "  -l FILE     : additional module that should be linked to source module\n";
-        std::cerr << "  -no-sse41   : disable generation of SSE4.1 intrinsics\n";
-		std::cerr << "  -O0 -no-opt : disable module optimization after packetization\n";
-        std::cerr << "  -v -verbose : enable verbose output (only valid for debug builds)\n";
-        std::cerr << "  -verify     : enable verification of module after packetization\n";
-		std::cerr << "  -h -help    : display help message\n";
-		return CL_SUCCESS;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    //                       1. create source module                         //
-    ///////////////////////////////////////////////////////////////////////////
-
-    llvm::Module* mod = jitRT::createModuleFromFile(moduleName);
-	if (!mod) {
-		std::cerr << "ERROR: could not create source module from file '" << moduleName << "'!\n";
-		return -1;
-	}
-
-    ///////////////////////////////////////////////////////////////////////////
-    //                2. check if module is OpenCL bitcode                   //
-    ///////////////////////////////////////////////////////////////////////////
-
-	const std::string& targetTriple = jitRT::getTargetTriple(mod);
-	if (strstr(targetTriple.c_str(), "opencl") == 0) {
-		std::cerr << "ERROR: module '" << moduleName << "' does not target OpenCL!\n";
-		std::cerr << "       bad target triple: " << targetTriple << "\n";
-		return -1;
-	}
-
-	///////////////////////////////////////////////////////////////////////////
-    //                       3. create link module(s)                        //
-    ///////////////////////////////////////////////////////////////////////////
-
-	const unsigned moduleNr = linkModuleNames.size();
-    llvm::Module** linkModules = new llvm::Module*[moduleNr]();
-    for (unsigned i=0; i<moduleNr; ++i) {
-        linkModules[i] = jitRT::createModuleFromFile(linkModuleNames[i]);
-        if (linkModules[i] == NULL) {
-			std::cerr << "ERROR: could not create module from file '" << linkModuleNames[i] << "'!\n";
-			return -1;
-		}
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    //                          4. link modules                              //
-    ///////////////////////////////////////////////////////////////////////////
-	
-	if (moduleNr > 1) {
-		mod = jitRT::linkEverything(moduleNr, linkModules);
-	}
-    
-	if (!mod) {
-		std::cerr << "ERROR: linking of modules failed!\n";
-		return -1;
-	}
-
-	///////////////////////////////////////////////////////////////////////////
-    //                       5. packetize function                           //
-    ///////////////////////////////////////////////////////////////////////////
-
-	if (!jitRT::getFunction(functionName, mod)) {
-		std::cerr << "ERROR: source function '" << functionName << "' not found in module!\n";
-		return -1;
-	}
-	if (!jitRT::getFunction(targetFunctionName, mod)) {
-		std::cerr << "ERROR: target function '" << targetFunctionName  << "' not found in module!\n";
-		return -1;
-	}
-
-    const unsigned packetizationSize = 4;
-    jitRT::Packetizer* packetizer = jitRT::getPacketizer(use_sse41, verbose);
-    jitRT::addFunctionToPacketizer(packetizer, functionName, targetFunctionName, packetizationSize);
-
-	jitRT::addNativeFunctionToPacketizer(packetizer, "get_global_id", -1, jitRT::getFunction("get_global_id_SIMD", mod), true);
-	jitRT::addNativeFunctionToPacketizer(packetizer, "get_local_id", -1, jitRT::getFunction("get_local_id_SIMD", mod), true);
-
-    jitRT::runPacketizer(packetizer, mod);
-
-	if (!jitRT::getFunction(targetFunctionName, mod)) {
-		std::cerr << "ERROR: packetized target function not found in module!\n";
-		return -1;
-	}
-
-    ///////////////////////////////////////////////////////////////////////////
-    //                 6. create, set up, and link runtime                   //
-    ///////////////////////////////////////////////////////////////////////////
-
-	// don't do this for functions that are replaced by packet functions above
-	std::vector< std::pair<llvm::Function*, void*> > funs;
-	funs.push_back(std::make_pair(jitRT::getFunction("get_work_dim", mod), (void*)get_work_dim));
-	funs.push_back(std::make_pair(jitRT::getFunction("get_global_size", mod), (void*)get_global_size));
-	funs.push_back(std::make_pair(jitRT::getFunction("get_global_id", mod), (void*)get_global_id));
-	funs.push_back(std::make_pair(jitRT::getFunction("get_local_size", mod), (void*)get_local_size));
-	funs.push_back(std::make_pair(jitRT::getFunction("get_local_id", mod), (void*)get_local_id));
-	funs.push_back(std::make_pair(jitRT::getFunction("get_num_groups", mod), (void*)get_num_groups));
-	funs.push_back(std::make_pair(jitRT::getFunction("get_group_id", mod), (void*)get_group_id));
-
-	funs.push_back(std::make_pair(jitRT::getFunction("get_global_id_SIMD", mod), (void*)get_global_id_SIMD));
-	funs.push_back(std::make_pair(jitRT::getFunction("get_local_id_SIMD", mod), (void*)get_local_id_SIMD));
-
-	for (unsigned i=0, e=funs.size(); i<e; ++i) {
-		llvm::Function* funDecl = funs[i].first;
-		void* funImpl = funs[i].second;
-
-		if (funDecl) jitRT::replaceAllUsesWith(funDecl, jitRT::createFunctionPointer(funDecl, funImpl));
-	}
-
-	// initialize OpenCL runtime
-	const unsigned numDims = 1;
-	const unsigned simdDim = 1;
-	size_t gThreads[numDims] = { 16 };
-	size_t lThreads[numDims] = { 4 };
-	initializeOpenCL_SIMD(numDims, simdDim, gThreads, lThreads);
-
-    
-    ///////////////////////////////////////////////////////////////////////////
-    //                    7. run optimization pass(es)                       //
-    ///////////////////////////////////////////////////////////////////////////
-    
-    if (optimize) jitRT::optimizeFunction(targetFunctionName, mod);
-    
-    ///////////////////////////////////////////////////////////////////////////
-    //                         8. verify module                              //
-    ///////////////////////////////////////////////////////////////////////////
-    
-    if (verify) jitRT::verifyModule(mod);
-
-    ///////////////////////////////////////////////////////////////////////////
-    //                          9. print bytecode                            //
-    ///////////////////////////////////////////////////////////////////////////
-
-
-	if (outputFileName != "") {
-		jitRT::writeFunctionToFile(jitRT::getFunction(targetFunctionName, mod), outputFileName);
-	} else {
-		jitRT::printFunction(jitRT::getFunction(targetFunctionName, mod));
-		//outputFileName = targetFunctionName + ".ll";
-	}
-
-    return CL_SUCCESS;
 }
 #endif
