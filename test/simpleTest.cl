@@ -26,21 +26,21 @@ uint4 get_local_id_SIMD(uint);
 
 
 // wrapper function with unified signature for all kernels
-//
+// NOTE: not required for x86-64 architecture (clc generates stub itself)
 // TODO: implement packet version
-typedef struct {
+/*typedef struct {
 	__global float* input;
 	__global float* output;
 	unsigned int count;
 } argument_struct;
 
-void sse_opencl_wrapper(argument_struct* arguments) {
-	__global float* in = arguments->input;
-	__global float* out = arguments->output;
-	const unsigned int c = arguments->count;
+void sse_opencl_wrapper(char* arguments) { // char* is llvm's void* ;)
+	__global float* in = ((argument_struct*)arguments)->input;
+	__global float* out = ((argument_struct*)arguments)->output;
+	const unsigned int c = ((argument_struct*)arguments)->count;
 	square(in, out, c);
 	//arguments->output = out; //not required!
-}
+}*/
 
 
 

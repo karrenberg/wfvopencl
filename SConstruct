@@ -22,5 +22,5 @@ env.Append(LIBPATH = env['ENV']['JITRT_LIB'])
 env.Program(target='build/bin/simpleTest', source=Split('build/obj/simpleTest.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT'])
 
 # build bitcode from OpenCL file
-env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc $SOURCE")
+env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc --march=x86-64 --msse2 $SOURCE")
 env.Command('simpleTest.bc', 'simpleTest.ll', "llvm-as $SOURCE -o $TARGET")

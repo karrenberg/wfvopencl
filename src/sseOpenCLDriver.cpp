@@ -990,6 +990,7 @@ clCreateKernel(cl_program      program,
 
 	jitRT::resetTargetData(module);
 
+#ifdef SSE_OPENCL_USE_CUSTOM_WRAPPER
 	llvm::Function* wrapper_fn = jitRT::getFunction("sse_opencl_wrapper", module);
 	if (!wrapper_fn) {
 		std::cerr << "ERROR: could not find wrapper function in kernel module!\n";
@@ -1000,6 +1001,22 @@ clCreateKernel(cl_program      program,
 	program->wrapper_function = wrapper_fn;
 
 	void* compiledFnPtr = jitRT::getPointerToFunction(module, "sse_opencl_wrapper");
+#else
+	std::stringstream strs2;
+	strs2 << "__OpenCL_" << kernel_name << "_stub";
+	const std::string new_wrapper_name = strs2.str();
+
+	llvm::Function* wrapper_fn = jitRT::getFunction(new_wrapper_name, module);
+	if (!wrapper_fn) {
+		std::cerr << "ERROR: could not find clc-auto-generated wrapper function in kernel module!\n";
+		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+		return NULL;
+	}
+	jitRT::inlineFunctionCalls(wrapper_fn);
+	program->wrapper_function = wrapper_fn;
+
+	void* compiledFnPtr = jitRT::getPointerToFunction(module, new_wrapper_name);
+#endif
 
 	if (!compiledFnPtr) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
 
@@ -1415,56 +1432,42 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	//
 	// set up argument struct
 	//
-	void* argument_struct = NULL;
-	const llvm::Function* wrapper_fn = kernel->get_program()->wrapper_function;
-	const llvm::Type* arg_str_ptr_type = jitRT::getArgumentType(wrapper_fn, 0);
-	const llvm::Type* arg_str_type = jitRT::getContainedType(arg_str_ptr_type, 0);
 	llvm::TargetData* targetData = kernel->get_context()->targetData;
-	const size_t arg_str_size = jitRT::getTypeSizeInBits(targetData, arg_str_type);
-	jitRT::printType(arg_str_ptr_type);
+//	const llvm::Function* wrapper_fn = kernel->get_program()->wrapper_function;
+//	const llvm::Type* arg_str_ptr_type = jitRT::getArgumentType(wrapper_fn, 0);
+//	const llvm::Type* arg_str_type = jitRT::getContainedType(arg_str_ptr_type, 0);
+//	const size_t arg_str_size = jitRT::getTypeSizeInBits(targetData, arg_str_type);
+//	jitRT::printType(arg_str_ptr_type);
 
-	std::cout << "\narg_str_size: " << arg_str_size/8 << " bytes\n";
-	//argument_struct = malloc(arg_str_size/8);
+
+	// calculate struct size
+	const cl_uint num_args = kernel->get_num_args();
+	size_t arg_str_size = 0;
+	for (unsigned i=0; i<num_args; ++i) {
+		arg_str_size += kernel->arg_get_element_size(i);
+	}
+
+	// TODO: do we have to care about type padding?
+	void* argument_struct = malloc(arg_str_size);
+	DEBUG_SSEOPENCLDRIVER( std::cout << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
+	DEBUG_SSEOPENCLDRIVER( std::cout << "address of argument-struct: " << argument_struct << "\n"; );
+
 	size_t current_size = 0;
 	for (unsigned i=0, e=kernel->get_num_args(); i<e; ++i) {
 		char* cur_pos = ((char*)argument_struct)+current_size;
 		const void* data = kernel->arg_get_address_space(i) == CL_PRIVATE
 			? kernel->arg_get_data(i)
-			: *(const void**)kernel->arg_get_data(i);
+			: (*(const _cl_mem**)kernel->arg_get_data(i))->get_data();
 		const size_t data_size = kernel->arg_get_element_size(i);
-		std::cout << "  argument " << i << "\n";
-		std::cout << "    size: " << data_size << " bytes\n";
-		std::cout << "    data: " << data << "\n";
-		std::cout << "    cur_addr: " << (void*)cur_pos << "\n";
-		memcpy(cur_pos, data, data_size);
+		DEBUG_SSEOPENCLDRIVER( std::cout << "  argument " << i << "\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "    size: " << data_size << " bytes\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "    data: " << data << "\n"; );
+		DEBUG_SSEOPENCLDRIVER( std::cout << "    pos : " << (void*)cur_pos << "\n"; );
+		memcpy(cur_pos, &data, data_size);
 		current_size += data_size;
+		DEBUG_SSEOPENCLDRIVER( std::cout << "    new size : " << current_size << "\n"; );
 	}
-	typedef struct {
-		float* input;
-		float* output;
-		unsigned int count;
-	} argument_struct_type;
-	std::cout << "sizeof(argstrtype) = " << sizeof(argument_struct_type) << "\n";
-	std::cout << "memcpy done.\n";
-
-#ifdef HARDCODED
-	typedef struct {
-		float* input;
-		float* output;
-		unsigned int count;
-	} argument_struct_type;
-
-	argument_struct_type argument_struct;
-	_cl_mem* in_mem = *(_cl_mem**)kernel->arg_get_data(0);
-	_cl_mem* out_mem = *(_cl_mem**)kernel->arg_get_data(1);
-	argument_struct.input = (float*)in_mem->get_data();
-	argument_struct.output = (float*)out_mem->get_data();
-	argument_struct.count = *(unsigned int*)kernel->arg_get_data(2);
-
-	DEBUG_SSEOPENCLDRIVER( std::cout << "input-addr: " << argument_struct.input << "\n"; );
-	DEBUG_SSEOPENCLDRIVER( std::cout << "output-addr: " << argument_struct.output << "\n"; );
-#endif
-	
+	DEBUG_SSEOPENCLDRIVER( std::cout << "memcpy done.\n"; );
 
 	void* fnPtr = kernel->get_compiled_function();
 	typedef void (*kernelFnPtr)(void*);
@@ -1485,16 +1488,25 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		setCurrentLocal(work_dim-1, i % 4);
 
 		// call kernel
-		typedPtr(argument_struct);
-		//DEBUG_SSEOPENCLDRIVER( std::cout << "\niteration " << i << "\n"; );
-		//DEBUG_SSEOPENCLDRIVER( std::cout << "  global id: " << get_global_id(work_dim-1) << "\n"; );
-		//DEBUG_SSEOPENCLDRIVER( std::cout << "  local id: " << get_local_id(work_dim-1) << "\n"; );
-		//DEBUG_SSEOPENCLDRIVER( std::cout << "  group id: " << get_group_id(work_dim-1) << "\n"; );
-		//DEBUG_SSEOPENCLDRIVER( std::cout << "  input: " << argument_struct.input[i] << "\n"; );
-		//DEBUG_SSEOPENCLDRIVER( std::cout << "  output: " << argument_struct.output[i] << "\n"; );
-		//DEBUG_SSEOPENCLDRIVER( std::cout << "  count: " << argument_struct.count << "\n"; );
+
+		DEBUG_SSEOPENCLDRIVER(
+			typedef struct { float* input; float* output; unsigned count; } tt;
+			std::cout << "\niteration " << i << "\n";
+			std::cout << "  global id: " << get_global_id(work_dim-1) << "\n";
+			std::cout << "  local id: " << get_local_id(work_dim-1) << "\n";
+			std::cout << "  group id: " << get_group_id(work_dim-1) << "\n";
+			std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
+			std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
+			std::cout << "  input : " << ((tt*)argument_struct)->input[i] << "\n";
+			std::cout << "  output: " << ((tt*)argument_struct)->output[i] << "\n";
+			std::cout << "  count : " << ((tt*)argument_struct)->count << "\n";
+		);
 		//typedPtr(&argument_struct);
-		//DEBUG_SSEOPENCLDRIVER( std::cout << "  result: " << argument_struct.output[i] << "\n"; );
+		typedPtr(argument_struct);
+		DEBUG_SSEOPENCLDRIVER(
+			typedef struct { float* input; float* output; unsigned count; } tt;
+			std::cout << "  result: " << ((tt*)argument_struct)->output[i] << "\n";
+		);
 	}
 
 	return CL_SUCCESS;
