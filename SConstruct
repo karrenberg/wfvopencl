@@ -8,7 +8,7 @@ env['CC'] = 'clang'
 env['CXX'] = 'clang++'
 
 #cxxflags = env.Split("-O3 -msse2")
-cxxflags = env.Split("-O0 -g -DDEBUG -Wall -pedantic")
+cxxflags = env.Split("-O0 -g -DDEBUG -Wall -pedantic -msse3")
 env.Append(CXXFLAGS = cxxflags)
 
 env.Append(CPPPATH = env.Split("-Iinclude"))
@@ -22,5 +22,6 @@ env.Append(LIBPATH = env['ENV']['JITRT_LIB'])
 env.Program(target='build/bin/simpleTest', source=Split('build/obj/simpleTest.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT'])
 
 # build bitcode from OpenCL file
-env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc --march=x86-64 --msse2 $SOURCE")
+#env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc --march=x86-64 --msse2 $SOURCE")
+env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc --march=x86 --msse2 $SOURCE")
 env.Command('simpleTest.bc', 'simpleTest.ll', "llvm-as $SOURCE -o $TARGET")

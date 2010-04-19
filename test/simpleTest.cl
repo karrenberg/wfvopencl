@@ -11,30 +11,16 @@ __kernel void square(
 
 
 
-// target function for packetization
+// scalar wrapper function with unified signature for all kernels
+// NOTE: not required on x86-64 architecture (clc generates stub itself)
 //
-void square_4(
-    __global float4 * input,
-    __global float4 * output,
-    const uint4 count);
-
-
-// native simd function declarations for get_global_id
-//
-uint4 get_global_id_SIMD(uint);
-uint4 get_local_id_SIMD(uint);
-
-
-// wrapper function with unified signature for all kernels
-// NOTE: not required for x86-64 architecture (clc generates stub itself)
-// TODO: implement packet version
 /*typedef struct {
 	__global float* input;
 	__global float* output;
 	unsigned int count;
 } argument_struct;
 
-void sse_opencl_wrapper(char* arguments) { // char* is llvm's void* ;)
+void square_wrapper(char* arguments) { // char* is llvm's void* ;)
 	__global float* in = ((argument_struct*)arguments)->input;
 	__global float* out = ((argument_struct*)arguments)->output;
 	const unsigned int c = ((argument_struct*)arguments)->count;
@@ -43,11 +29,47 @@ void sse_opencl_wrapper(char* arguments) { // char* is llvm's void* ;)
 }*/
 
 
+// target function for packetization
+//
+void square_SIMD(
+    __global float4 * input,
+    __global float4 * output,
+    //const uint4 count); // for testing purposes...
+    const unsigned int count); // const = uniform -> type remains scalar
+
+
+// packetized wrapper function with unified signature for all kernels
+//
+typedef struct {
+	__global float4* input;
+	__global float4* output;
+	//uint4 count;
+	unsigned int count;
+} argument_struct_SIMD;
+
+void square_SIMD_wrapper(char* arguments) { // char* is llvm's void* ;)
+	__global float4* in = ((argument_struct_SIMD*)arguments)->input;
+	__global float4* out = ((argument_struct_SIMD*)arguments)->output;
+	//const uint4 c = ((argument_struct_SIMD*)arguments)->count;
+	const unsigned int c = ((argument_struct_SIMD*)arguments)->count;
+	square_SIMD(in, out, c);
+	//arguments->output = out; //not required!
+}
+
+
+// native simd function declarations for get_global_id
+//
+uint4 get_global_id_SIMD(uint);
+uint4 get_local_id_SIMD(uint);
+
 
 // fake call function to prevent deletion of declarations
+// must never be called!
 //
-void __fakeCall(__global float4 * x, const uint4 y) {
-	square_4(x, x, y);
+void __fakeCall(__global float4 * x, const uint4 y, const unsigned z) {
+	//square_SIMD(x, x, y);
+	square_SIMD(x, x, z);
+	square_SIMD_wrapper(0);
 	get_global_id_SIMD(0);
 	get_local_id_SIMD(0);
 }

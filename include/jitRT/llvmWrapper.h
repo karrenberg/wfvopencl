@@ -125,7 +125,6 @@ namespace jitRT {
     //llvmExecution
     JITRT_API llvm::ExecutionEngine * getExecutionEngine(llvm::Module* mod);
     JITRT_API llvm::ExecutionEngine* createExecutionEngine(llvm::Module* mod);
-	JITRT_API void resetTargetData(llvm::Module* mod);
     JITRT_API int executeMain(void* mainPtr, int argc, char **argv);
 	JITRT_API void executeFunction(llvm::Function* f, llvm::ExecutionEngine* engine);
 	JITRT_API void* executeVoidPtrFunction(llvm::Function* f, llvm::ExecutionEngine* engine);
@@ -140,6 +139,7 @@ namespace jitRT {
 	JITRT_API bool isPointerType(const llvm::Type* type);
 	JITRT_API const llvm::Type* getContainedType(const llvm::Type* type, const unsigned index);
 	JITRT_API llvm::TargetData* getTargetData(llvm::Module* mod);
+	JITRT_API void setTargetData(llvm::Module* mod, const std::string& dataLayout, const std::string& targetTriple);
 	JITRT_API const std::string& getTargetTriple(const llvm::Module* mod);
 	JITRT_API unsigned getTypeSizeInBits(const llvm::TargetData* targetData, const llvm::Type* type);
 	JITRT_API void runStaticConstructorsDestructors(llvm::Module* mod, llvm::ExecutionEngine* engine, const bool isDtors);
