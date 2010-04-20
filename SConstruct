@@ -22,6 +22,12 @@ env.Append(LIBPATH = env['ENV']['JITRT_LIB'])
 env.Program(target='build/bin/simpleTest', source=Split('build/obj/simpleTest.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT'])
 
 # build bitcode from OpenCL file
+# NOTE: using --march automatically generates a stub-function
+# NOTE: using --march also inserts calls to builtin functions instead of e.g. printf
+# NOTE: --march=x86-64 generates bad code for packetization :(
+#       --march-x86 (or left out) generates 32bit data structures etc., making wrapper unusable
+
 #env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc --march=x86-64 --msse2 $SOURCE")
-env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc --march=x86 --msse2 $SOURCE")
+#env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc --march=x86 --msse2 $SOURCE")
+env.Command('simpleTest.ll', 'test/simpleTest.cl', "clc --msse2 $SOURCE")
 env.Command('simpleTest.bc', 'simpleTest.ll', "llvm-as $SOURCE -o $TARGET")

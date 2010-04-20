@@ -112,8 +112,10 @@ int main(int argc, char** argv)
     //
     int i = 0;
     unsigned int count = DATA_SIZE;
-    for(i = 0; i < count; i++)
+    for(i = 0; i < count; i++) {
         data[i] = rand() / (float)RAND_MAX;
+		//if (i < 10) printf("  data[%d] = %f\n", i, data[i]);
+	}
 
     // Connect to a compute device
     //
@@ -244,8 +246,14 @@ int main(int argc, char** argv)
     correct = 0;
     for(i = 0; i < count; i++)
     {
-        if(results[i] == data[i] * data[i])
+        if(results[i] == data[i])// * data[i])
             correct++;
+
+//		if (i < 10) {
+//			printf("  result[%d] = %f", i, results[i]);
+//			if (results[i] == data[i] * data[i]) printf(" - CORRECT!\n");
+//			else printf(" - WRONG (expected: %f)\n", data[i] * data[i]);
+//		}
     }
 
     // Print a brief summary detailing the results

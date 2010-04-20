@@ -3,8 +3,24 @@
  * @date   14.04.2010
  * @author Ralf Karrenberg
  *
+ *
  * Copyright (C) 2010 Saarland University
- * Released under the GPL
+ *
+ * This file is part of sseOpenCLDriver.
+ *
+ * jitRT is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * jitRT is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with jitRT.  If not, see <http://www.gnu.org/licenses/>.
+ *
  */
 #include <assert.h>
 #include <iostream> // std::cout
@@ -16,14 +32,15 @@
 
 #ifdef __APPLE__
 #include <OpenCL/cl_platform.h>
+#include <OpenCL/cl.h>
 #else
 #include <CL/cl_platform.h> // e.g. for CL_API_ENTRY
 #include <CL/cl.h>          // e.g. for cl_platform_id
 #endif
 
 // debug output
-//#define SSE_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
-#define SSE_OPENCL_DRIVER_DEBUG(x)
+#define SSE_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+//#define SSE_OPENCL_DRIVER_DEBUG(x)
 
 //#define SSE_OPENCL_DRIVER_USE_CUSTOM_WRAPPER // required for 32bit (?)
 
@@ -32,6 +49,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+
+#define CL_CONSTANT 0x3 // does not exist in specification 1.0
+#define CL_PRIVATE 0x4 // does not exist in specification 1.0
+
 
 ///////////////////////////////////////////////////////////////////////////
 //                 OpenCL Runtime Implementation                         //
@@ -175,7 +197,6 @@ namespace {
 #else
 	inline size_t get_global_id(cl_uint D) {
 		assert (D < dimensions);
-		//return currentGlobal[D];
 		return currentGlobal[D]*4;
 	}
 #endif
@@ -332,6 +353,9 @@ namespace {
 	}
 #endif
 
+	llvm::Function* __generateKernelWrapper(const std::string& wrapper_name, llvm::Function* f_SIMD, llvm::Module* mod) {
+		return jitRT::generateFunctionWrapper(wrapper_name, f_SIMD, mod);
+	}
 	void __resolveRuntimeCalls(llvm::Module* mod) {
 		std::vector< std::pair<llvm::Function*, void*> > funs;
 		funs.push_back(std::make_pair(jitRT::getFunction("get_work_dim", mod), (void*)get_work_dim));
@@ -353,6 +377,16 @@ namespace {
 			if (funDecl) jitRT::replaceAllUsesWith(funDecl, jitRT::createFunctionPointer(funDecl, funImpl));
 		}
 	}
+
+
+	inline cl_uint __convertLLVMAddressSpace(cl_uint llvm_address_space) {
+		switch (llvm_address_space) {
+			case 0 : return CL_PRIVATE;
+			case 1 : return CL_GLOBAL;
+			default : return llvm_address_space;
+		}
+	}
+
 }
 
 
@@ -453,8 +487,6 @@ struct _cl_program {
 };
 
 
-#define CL_CONSTANT 0x3 // does not exist in specification 1.0
-#define CL_PRIVATE 0x4 // does not exist in specification 1.0
 struct _cl_kernel_arg {
 private:
 	size_t element_size; // size of one item in bytes
@@ -1016,14 +1048,6 @@ clGetProgramBuildInfo(cl_program            program,
 
 /* Kernel Object APIs */
 
-inline cl_uint __convertLLVMAddressSpace(cl_uint llvm_address_space) {
-	switch (llvm_address_space) {
-		case 0 : return CL_PRIVATE;
-		case 1 : return CL_GLOBAL;
-		default : return llvm_address_space;
-	}
-}
-
 // -> compile bitcode of function from .bc file to native code
 // -> store void* in _cl_kernel object
 CL_API_ENTRY cl_kernel CL_API_CALL
@@ -1046,7 +1070,7 @@ clCreateKernel(cl_program      program,
 	llvm::Function* f = jitRT::getFunction(new_kernel_name, module);
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
 
-	// optimize kernel
+	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
 	jitRT::optimizeFunction(f);
 
 	program->function = f;
@@ -1079,11 +1103,16 @@ clCreateKernel(cl_program      program,
 	llvm::Function* f_SIMD = jitRT::getFunction(kernel_simd_name, module);
 	program->function_SIMD = f_SIMD;
 
+	jitRT::printFunction(f);
+
 	// packetize scalar function into SIMD function
 	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, true);
+	jitRT::printFunction(f_SIMD);
 
 	strs2 << "_wrapper";
 	const std::string wrapper_name = strs2.str();
+
+	__generateKernelWrapper(wrapper_name, f_SIMD, module);
 
 #endif
 
@@ -1101,7 +1130,8 @@ clCreateKernel(cl_program      program,
 	// inline all calls inside wrapper_fn
 	jitRT::inlineFunctionCalls(wrapper_fn);
 	// optimize wrapper with inlined kernel
-	//jitRT::optimizeFunction(wrapper_fn); //segfaults!
+	jitRT::optimizeFunction(wrapper_fn);
+	SSE_OPENCL_DRIVER_DEBUG( jitRT::printFunction(wrapper_fn); );
 
 	program->function_wrapper = wrapper_fn;
 
@@ -1572,6 +1602,10 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		memcpy(cur_pos, &data, data_size);
 		current_size += data_size;
 		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    new size : " << current_size << "\n"; );
+
+		const llvm::Type* argType = jitRT::getArgumentType(kernel->get_program()->function_wrapper, 0);
+		std::cout << "      "; jitRT::printType(argType);
+		std::cout << "\n      struct type size (LLVM): " << jitRT::getTypeSizeInBits(kernel->get_context()->targetData, argType)/8 << "\n";
 	}
 	SSE_OPENCL_DRIVER_DEBUG( std::cout << "copying of arguments finished.\n"; );
 
@@ -1621,27 +1655,47 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	SSE_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
 #else
 	const size_t num_iterations = *global_work_size / *local_work_size; // = #groups
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "executing kernel (#iterations: " << num_total_iterations << ")...\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
+	std::cout << "global_size: " << get_global_size(0) << "\n";
 
-	for (unsigned i=0; i<num_iterations; ++i) {
+//	for (unsigned i=0; i<num_iterations; ++i) {
+	for (unsigned i=0; i<2; ++i) {
 		std::cout << "\niteration " << i << "\n";
 		// update runtime environment
 		//this is not correct, work_dim is not the current one, but the number of dimensions!
 #ifdef XXX
 		setCurrentGlobal(work_dim-1, _mm_set_epi32(i*4+3, i*4+2, i*4+1, i*4));
+		printf("current global: %d %d %d %d\n", i*4+3, i*4+2, i*4+1, i*4);
+		__m128i gid = get_global_id(0);
+		printf("get_global_id: %d %d %d %d\n", ((unsigned*)gid)[0], ((unsigned*)gid)[1], ((unsigned*)gid)[2], ((unsigned*)gid)[3]);
 #else
 		setCurrentGlobal(work_dim-1, i);
+		std::cout << "current global: " << i << "\n";
+		std::cout << "get_global_id: " << get_global_id(0) << "\n";
 #endif
 		setCurrentGroup(work_dim-1, i);
 		setCurrentLocal(work_dim-1, _mm_set_epi32(3, 2, 1, 0)); // ??
 
-		//printf("ids: %d %d %d %d\n", ((unsigned*)&id)[0], ((unsigned*)&id)[1], ((unsigned*)&id)[2], ((unsigned*)&id)[3]);
-		printf("ids: %d %d %d %d\n", i*4, i*4+1, i*4+2, i*4+3);
-		printf("global_size: %d\n", get_global_size(0));
-		printf("get_global_id: %d\n", get_global_id(0));
+		SSE_OPENCL_DRIVER_DEBUG(
+			//hardcoded debug output
+			typedef struct { __m128* input; __m128* output; unsigned count; } tt;
+			//std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
+			//std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
+			const __m128 in = ((tt*)argument_struct)->input[i];
+			const __m128 out = ((tt*)argument_struct)->output[i];
+			printf("input: %f %f %f %f\n", ((float*)&in)[0], ((float*)&in)[1], ((float*)&in)[2], ((float*)&in)[3]);
+			//printf("output: %f %f %f %f\n", ((float*)&out)[0], ((float*)&out)[1], ((float*)&out)[2], ((float*)&out)[3]);
+		);
 
 		// call kernel
 		typedPtr(argument_struct);
+
+		SSE_OPENCL_DRIVER_DEBUG(
+			//hardcoded debug output
+			typedef struct { __m128* input; __m128* output; unsigned count; } tt;
+			const __m128 res = ((tt*)argument_struct)->output[i];
+			printf("result: %f %f %f %f\n", ((float*)&res)[0], ((float*)&res)[1], ((float*)&res)[2], ((float*)&res)[3]);
+		);
 	}
 	SSE_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
 #endif

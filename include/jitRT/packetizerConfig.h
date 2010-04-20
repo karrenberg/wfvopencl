@@ -1,3 +1,27 @@
+/**
+ * @file   packetizerConfig.h
+ * @date   13.10.2009
+ * @author Ralf Karrenberg
+ *
+ *
+ * Copyright (C) 2008, 2009, 2010 Saarland University
+ *
+ * This file is part of jitRT.
+ *
+ * jitRT is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * jitRT is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with jitRT.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
 #ifndef _PACKETIZERCONFIG_H
 #define	_PACKETIZERCONFIG_H
 
@@ -72,16 +96,16 @@
 #endif
 
 
-// replace unsupported constructs (e.g. types i64, double, 
-// instructions sext/zext/...) without security checks
-// (default: activated)
+// prevent replacing of unsupported constructs (e.g. types i64, double,
+// instructions sext/zext/...)
+// (default: deactivated)
 
-#define UNCHECKED_REPLACE_UNSUPPORTED_CONSTRUCTS //executes transformFunction() which removes all zext/sext/i64/double
-#ifdef UNCHECKED_REPLACE_UNSUPPORTED_CONSTRUCTS
+//#define PACKETIZER_DO_NOT_REPLACE_UNSUPPORTED_CONSTRUCTS //executes transformFunction() which removes all zext/sext/i64/double
+#ifdef PACKETIZER_DO_NOT_REPLACE_UNSUPPORTED_CONSTRUCTS
     #ifndef _MSC_VER
-        #warning "WARNING: unchecked replacing of i64/double/sext/zext/fpext activated!"
+        #warning "WARNING: packetizer will not attempt to replace unsupported constructs (e.g. sext/zext/fpext, values of types i64/double, etc.)!"
     #else
-        //#pragma WARNING ( unchecked replacing of i64/double/sext/zext/fpext activated! )
+        //#pragma WARNING ( packetizer will not attempt to replace unsupported constructs (e.g. sext/zext/fpext, values of types i64/double, etc.)! )
     #endif
 #endif
 

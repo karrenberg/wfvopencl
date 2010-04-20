@@ -1,8 +1,26 @@
-/*
- * File:   llvmWrapper.h
- * Author: karrenberg
+/**
+ * @file   llvmWrapper.h
+ * @date   10.12.2008
+ * @author Ralf Karrenberg
  *
- * Created on December 10, 2008, 11:48 AM
+ *
+ * Copyright (C) 2008, 2009, 2010 Saarland University
+ *
+ * This file is part of jitRT.
+ *
+ * jitRT is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * jitRT is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with jitRT.  If not, see <http://www.gnu.org/licenses/>.
+ *
  */
 #ifndef _LLVMWRAPPER_H
 #define	_LLVMWRAPPER_H
@@ -147,6 +165,8 @@ namespace jitRT {
 	JITRT_API unsigned getNumArgs(const llvm::Function* f);
 	JITRT_API const llvm::Type* getArgumentType(const llvm::Function* f, const unsigned arg_index);
 	JITRT_API unsigned getAddressSpace(const llvm::Type* type);
+
+	JITRT_API llvm::Function* generateFunctionWrapper(const std::string& wrapper_name, llvm::Function* f, llvm::Module* mod);
 
     //llvmCloning
     JITRT_API llvm::Module * cloneModule(const llvm::Module*);
