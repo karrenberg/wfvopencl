@@ -26,7 +26,6 @@
 #include <iostream> // std::cout
 #include <sstream>  // std::stringstream
 #include <string.h> // memcpy
-#include <stdio.h> //printf :p
 
 #include <jitRT/llvmWrapper.h> // packetizer & LLVM wrapper ('jitRT')
 
@@ -42,7 +41,7 @@
 #define SSE_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
 //#define SSE_OPENCL_DRIVER_DEBUG(x)
 
-//#define SSE_OPENCL_DRIVER_USE_CUSTOM_WRAPPER // required for 32bit (?)
+//#define SSE_OPENCL_DRIVER_USE_CLC_WRAPPER
 
 //#define SSE_OPENCL_DRIVER_NO_PACKETIZATION
 
@@ -53,7 +52,6 @@ extern "C" {
 
 #define CL_CONSTANT 0x3 // does not exist in specification 1.0
 #define CL_PRIVATE 0x4 // does not exist in specification 1.0
-
 
 ///////////////////////////////////////////////////////////////////////////
 //                 OpenCL Runtime Implementation                         //
@@ -154,7 +152,12 @@ namespace {
 			localThreads[i] = lThreads[i];
 		}
 	}
-	void initializeOpenCL(const cl_uint dim, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
+	void initializeOpenCL(
+			const cl_uint dim,
+			const cl_uint simdDim,
+			size_t* gThreads,
+			size_t* lThreads)
+	{
 		assert (dim < 4 && "max # dimensions is 3!");
 		dimensions = dim;
 
@@ -178,50 +181,26 @@ namespace {
 
 	// packetized implementation
 	//
-//#define XXX
-#ifdef XXX
-	__m128i* currentGlobal; // 0 -> globalThreads[D] -1
-#else
 	size_t* currentGlobal; // 0 -> globalThreads[D] -1
-#endif
 	__m128i* currentLocal;  // 0 -> SIMD width -1
 
 	cl_uint simdDimension;
 
-#ifdef XXX
-	inline __m128i get_global_id(cl_uint D) {
-		assert (D < dimensions);
-		return currentGlobal[D];
-		//return _mm_mul_epu32(currentGlobal[D], _mm_set1_epi32(4));
-	}
-#else
 	inline size_t get_global_id(cl_uint D) {
 		assert (D < dimensions);
-		return currentGlobal[D]*4;
+		return currentGlobal[D];
 	}
-#endif
 	inline __m128i get_local_id(cl_uint D) {
 		assert (D < dimensions);
 		return currentLocal[D];
 	}
 
 
-#ifdef XXX
-	inline void setCurrentGlobal(cl_uint D, __m128i id) {
-		assert (D < dimensions);
-		assert (((unsigned*)&id)[0] < get_global_size(D));
-		assert (((unsigned*)&id)[1] < get_global_size(D));
-		assert (((unsigned*)&id)[2] < get_global_size(D));
-		assert (((unsigned*)&id)[3] < get_global_size(D));
-		currentGlobal[D] = id;
-	}
-#else
 	inline void setCurrentGlobal(cl_uint D, size_t id) {
 		assert (D < dimensions);
 		assert (id < get_global_size(D));
 		currentGlobal[D] = id;
 	}
-#endif
 	inline void setCurrentLocal(cl_uint D, __m128i id) {
 		assert (D < dimensions);
 		assert (((unsigned*)&id)[0] < get_local_size(D));
@@ -244,48 +223,59 @@ namespace {
 			const size_t globalThreadsDimI = gThreads[i];
 			globalThreadNum += globalThreadsDimI;
 			alignedGlobalDims[i] = (globalThreadsDimI % simdWidth == 0);
-			// TODO: this should be wrong... global thread number does not change regardless of SIMD usage...
-			//globalThreads[i] = i == simdDimension ? (globalThreadsDimI / simdWidth) : globalThreadsDimI;
 			globalThreads[i] = globalThreadsDimI;
 
 			const size_t localThreadsDimI = lThreads[i];
 			localThreadNum += localThreadsDimI;
 			alignedLocalDims[i] = (localThreadsDimI % simdWidth == 0);
-			// TODO: this should be wrong... global thread number does not change regardless of SIMD usage...
-			//localThreads[i] = i == simdDimension ? (localThreadsDimI / simdWidth) : localThreadsDimI;
 			localThreads[i] = localThreadsDimI;
 
 			if (i == simdDimension && !alignedGlobalDims[i]) {
-				std::cerr << "ERROR: chosen SIMD dimension " << i << " is globally not dividable by " << simdWidth << " (global dimension)!\n";
+				std::cerr << "ERROR: chosen SIMD dimension " << i
+						<< " is globally not dividable by " << simdWidth
+						<< " (global dimension)!\n";
 				error = true;
 			}
 			if (i == simdDimension && !alignedLocalDims[i]) {
-				std::cerr << "ERROR: chosen SIMD dimension " << i << " is locally not dividable by " << simdWidth << " (work-group dimension)!\n";
+				std::cerr << "ERROR: chosen SIMD dimension " << i
+						<< " is locally not dividable by " << simdWidth
+						<< " (work-group dimension)!\n";
 				error = true;
 			}
 			if (globalThreadsDimI % localThreadsDimI != 0) {
-				std::cerr << "ERROR: global dimension " << i << " not dividable by local dimension (" << globalThreadsDimI << " / " << localThreadsDimI << ")!\n";
+				std::cerr << "ERROR: global dimension " << i
+						<< " not dividable by local dimension ("
+						<< globalThreadsDimI << " / " << localThreadsDimI
+						<< ")!\n";
 				error = true;
 			}
 		}
 		if (globalThreadNum % simdWidth != 0) {
-			std::cerr << "ERROR: global number of threads is not dividable by " << simdWidth << "!\n";
+			std::cerr << "ERROR: global number of threads is not dividable by "
+					<< simdWidth << "!\n";
 			error = true;
 		}
 		if (localThreadNum % simdWidth != 0) {
-			std::cerr << "ERROR: number of threads in a group is not dividable by " << simdWidth << "!\n";
+			std::cerr << "ERROR: number of threads in a group is not dividable"
+					"by " << simdWidth << "!\n";
 			error = true;
 		}
 
 		if (error) exit(-1);
 	}
-	void initializeOpenCL(const cl_uint dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
+	void initializeOpenCL(
+			const cl_uint dims,
+			const cl_uint simdDim,
+			size_t* gThreads,
+			size_t* lThreads)
+	{
 		if (dims > 3) {
 			std::cerr << "ERROR: max # dimensions is 3!\n";
 			exit(-1);
 		}
 		if (simdDim > dims) {
-			std::cerr << "ERROR: chosen SIMD dimension out of bounds (" << simdWidth << " > " << dims << ")!\n";
+			std::cerr << "ERROR: chosen SIMD dimension out of bounds ("
+					<< simdWidth << " > " << dims << ")!\n";
 			exit(-1);
 		}
 		dimensions = dims;
@@ -294,28 +284,16 @@ namespace {
 		globalThreads = new size_t[dimensions]();
 		localThreads = new size_t[dimensions]();
 
-#ifdef XXX
-		currentGlobal = new __m128i[dimensions]();
-#else
 		currentGlobal = new size_t[dimensions]();
-#endif
 		currentLocal = new __m128i[dimensions]();
 		currentGroup = new size_t[dimensions]();
 
 		for (cl_uint i=0; i<dimensions; ++i) {
 			if (i == simdDimension) {
-#ifdef XXX
-				currentGlobal[i] = _mm_set_epi32(0, 1, 2, 3);
-#else
 				currentGlobal[i] = 0;
-#endif
 				currentLocal[i] = _mm_set_epi32(0, 1, 2, 3);
 			} else {
-#ifdef XXX
-				currentGlobal[i] = _mm_set_epi32(0, 0, 0, 0);
-#else
 				currentGlobal[i] = 0;
-#endif
 				currentLocal[i] = _mm_set_epi32(0, 0, 0, 0);
 			}
 			currentGroup[i] = 0;
@@ -325,59 +303,108 @@ namespace {
 	}
 
 	
-	bool __packetizeKernelFunction(const std::string& kernelName, const std::string& targetKernelName, llvm::Module* mod, const cl_uint packetizationSize, const bool use_sse41, const bool verbose) {
+	bool __packetizeKernelFunction(
+			const std::string& kernelName,
+			const std::string& targetKernelName,
+			llvm::Module* mod,
+			const cl_uint packetizationSize,
+			const bool use_sse41,
+			const bool verbose)
+	{
 		if (!jitRT::getFunction(kernelName, mod)) {
-			std::cerr << "ERROR: source function '" << kernelName << "' not found in module!\n";
+			std::cerr << "ERROR: source function '" << kernelName
+					<< "' not found in module!\n";
 			return false;
 		}
 		if (!jitRT::getFunction(targetKernelName, mod)) {
-			std::cerr << "ERROR: target function '" << targetKernelName  << "' not found in module!\n";
+			std::cerr << "ERROR: target function '" << targetKernelName
+					<< "' not found in module!\n";
 			return false;
 		}
 
 		jitRT::Packetizer* packetizer = jitRT::getPacketizer(use_sse41, verbose);
-		jitRT::addFunctionToPacketizer(packetizer, kernelName, targetKernelName, packetizationSize);
+		jitRT::addFunctionToPacketizer(
+				packetizer,
+				kernelName,
+				targetKernelName,
+				packetizationSize);
 
-		//jitRT::addNativeFunctionToPacketizer(packetizer, "get_global_id", -1, jitRT::getFunction("get_global_id", mod), true);
-		jitRT::addNativeFunctionToPacketizer(packetizer, "get_global_id", -1, jitRT::getFunction("get_global_id_SIMD", mod), true);
-		jitRT::addNativeFunctionToPacketizer(packetizer, "get_local_id", -1, jitRT::getFunction("get_local_id_SIMD", mod), true);
+		jitRT::addNativeFunctionToPacketizer(
+				packetizer,
+				"get_global_id",
+				-1,
+				jitRT::getFunction("get_global_id_SIMD", mod),
+				true);
+		jitRT::addNativeFunctionToPacketizer(
+				packetizer,
+				"get_local_id",
+				-1,
+				jitRT::getFunction("get_local_id_SIMD", mod),
+				true);
 
 		jitRT::runPacketizer(packetizer, mod);
 
 		if (!jitRT::getFunction(targetKernelName, mod)) {
-			std::cerr << "ERROR: packetized target function not found in module!\n";
+			std::cerr << "ERROR: packetized target function not found in"
+					"module!\n";
 			return false;
 		}
 
 		return true;
 	}
+
 #endif
 
-	llvm::Function* __generateKernelWrapper(const std::string& wrapper_name, llvm::Function* f_SIMD, llvm::Module* mod) {
+	// common functionality, with or without packetization
+
+	llvm::Function* __generateKernelWrapper(
+			const std::string& wrapper_name,
+			llvm::Function* f_SIMD,
+			llvm::Module* mod)
+	{
 		return jitRT::generateFunctionWrapper(wrapper_name, f_SIMD, mod);
 	}
 	void __resolveRuntimeCalls(llvm::Module* mod) {
 		std::vector< std::pair<llvm::Function*, void*> > funs;
-		funs.push_back(std::make_pair(jitRT::getFunction("get_work_dim", mod), (void*)get_work_dim));
-		funs.push_back(std::make_pair(jitRT::getFunction("get_global_size", mod), (void*)get_global_size));
-		funs.push_back(std::make_pair(jitRT::getFunction("get_global_id", mod), (void*)get_global_id));
-		funs.push_back(std::make_pair(jitRT::getFunction("get_local_size", mod), (void*)get_local_size));
-		funs.push_back(std::make_pair(jitRT::getFunction("get_local_id", mod), (void*)get_local_id));
-		funs.push_back(std::make_pair(jitRT::getFunction("get_num_groups", mod), (void*)get_num_groups));
-		funs.push_back(std::make_pair(jitRT::getFunction("get_group_id", mod), (void*)get_group_id));
+		funs.push_back(std::make_pair(
+				jitRT::getFunction("get_work_dim", mod),
+				(void*)get_work_dim));
+		funs.push_back(std::make_pair(
+				jitRT::getFunction("get_global_size", mod),
+				(void*)get_global_size));
+		funs.push_back(std::make_pair(
+				jitRT::getFunction("get_global_id", mod),
+				(void*)get_global_id));
+		funs.push_back(std::make_pair(
+				jitRT::getFunction("get_local_size", mod),
+				(void*)get_local_size));
+		funs.push_back(std::make_pair(
+				jitRT::getFunction("get_local_id", mod),
+				(void*)get_local_id));
+		funs.push_back(std::make_pair(
+				jitRT::getFunction("get_num_groups", mod),
+				(void*)get_num_groups));
+		funs.push_back(std::make_pair(
+				jitRT::getFunction("get_group_id", mod),
+				(void*)get_group_id));
 
 #ifndef SSE_OPENCL_DRIVER_NO_PACKETIZATION
-		funs.push_back(std::make_pair(jitRT::getFunction("get_global_id_SIMD", mod), (void*)get_global_id));
+		funs.push_back(std::make_pair(
+				jitRT::getFunction("get_global_id_SIMD", mod),
+				(void*)get_global_id));
 #endif
 
 		for (cl_uint i=0, e=funs.size(); i<e; ++i) {
 			llvm::Function* funDecl = funs[i].first;
 			void* funImpl = funs[i].second;
 
-			if (funDecl) jitRT::replaceAllUsesWith(funDecl, jitRT::createFunctionPointer(funDecl, funImpl));
+			if (funDecl) {
+				jitRT::replaceAllUsesWith(
+						funDecl,
+						jitRT::createFunctionPointer(funDecl, funImpl));
+			}
 		}
 	}
-
 
 	inline cl_uint __convertLLVMAddressSpace(cl_uint llvm_address_space) {
 		switch (llvm_address_space) {
@@ -399,9 +426,9 @@ struct _cl_device_id {};
 
 /*
 An OpenCL context is created with one or more devices. Contexts
-are used by the OpenCL runtime for managing objects such as command-queues, memory,
-program and kernel objects and for executing kernels on one or more devices specified in the
-context.
+are used by the OpenCL runtime for managing objects such as command-queues,
+memory, program and kernel objects and for executing kernels on one or more
+devices specified in the context.
 */
 struct _cl_context {
 	llvm::TargetData* targetData;
@@ -409,26 +436,30 @@ struct _cl_context {
 };
 
 /*
-OpenCL objects such as memory, program and kernel objects are created using a context.
-Operations on these objects are performed using a command-queue. The command-queue can be
-used to queue a set of operations (referred to as commands) in order. Having multiple
-command-queues allows applications to queue multiple independent commands without
-requiring synchronization. Note that this should work as long as these objects are not being
-shared. Sharing of objects across multiple command-queues will require the application to
-perform appropriate synchronization. This is described in Appendix A.
+OpenCL objects such as memory, program and kernel objects are created using a
+context.
+Operations on these objects are performed using a command-queue. The
+command-queue can be used to queue a set of operations (referred to as commands)
+in order. Having multiple command-queues allows applications to queue multiple
+independent commands without requiring synchronization. Note that this should
+work as long as these objects are not being shared. Sharing of objects across
+multiple command-queues will require the application to perform appropriate
+synchronization. This is described in Appendix A.
 */
 struct _cl_command_queue {
 	_cl_context* context;
 };
 
 /*
-Memory objects are categorized into two types: buffer objects, and image objects. A buffer
-object stores a one-dimensional collection of elements whereas an image object is used to store a
-two- or three- dimensional texture, frame-buffer or image.
-Elements of a buffer object can be a scalar data type (such as an int, float), vector data type, or a
-user-defined structure. An image object is used to represent a buffer that can be used as a texture
-or a frame-buffer. The elements of an image object are selected from a list of predefined image
-formats. The minimum number of elements in a memory object is one.
+Memory objects are categorized into two types: buffer objects, and image
+objects. A buffer object stores a one-dimensional collection of elements whereas
+an image object is used to store a two- or three- dimensional texture,
+frame-buffer or image.
+Elements of a buffer object can be a scalar data type (such as an int, float),
+vector data type, or a user-defined structure. An image object is used to
+represent a buffer that can be used as a texture or a frame-buffer. The elements
+of an image object are selected from a list of predefined image formats. The
+minimum number of elements in a memory object is one.
 */
 struct _cl_mem {
 private:
@@ -436,14 +467,19 @@ private:
 	size_t size; //entire size in bytes
 	void* data;
 public:
-	_cl_mem(_cl_context* ctx, size_t bytes, void* values) : context(ctx), size(bytes), data(values) {}
+	_cl_mem(_cl_context* ctx, size_t bytes, void* values)
+			: context(ctx), size(bytes), data(values) {}
 	
 	inline _cl_context* get_context() const { return context; }
 	inline void* get_data() const { return data; }
 	inline size_t get_size() const { return size; }
 
 	inline void set_data(void* values) { data = values; }
-	inline void set_data(const void* values, const size_t bytes, const size_t offset=0) {
+	inline void set_data(
+			const void* values,
+			const size_t bytes,
+			const size_t offset=0)
+	{
 		assert (bytes+offset <= size);
 		if (offset == 0) memcpy(data, values, bytes);
 		else {
@@ -455,31 +491,34 @@ public:
 };
 
 /*
-A sampler object describes how to sample an image when the image is read in the kernel. The
-built-in functions to read from an image in a kernel take a sampler as an argument. The sampler
-arguments to the image read function can be sampler objects created using OpenCL functions
-and passed as argument values to the kernel or can be samplers declared inside a kernel. In this
-section we discuss how sampler objects are created using OpenCL functions.
+A sampler object describes how to sample an image when the image is read in the
+kernel. The built-in functions to read from an image in a kernel take a sampler
+as an argument. The sampler arguments to the image read function can be sampler
+objects created using OpenCL functions and passed as argument values to the
+kernel or can be samplers declared inside a kernel. In this section we discuss
+how sampler objects are created using OpenCL functions.
 */
 struct _cl_sampler {
 	_cl_context* context;
 };
 
 /*
-An OpenCL program consists of a set of kernels that are identified as functions declared with
-the __kernel qualifier in the program source. OpenCL programs may also contain auxiliary
-functions and constant data that can be used by __kernel functions. The program executable
-can be generated online or offline by the OpenCL compiler for the appropriate target device(s).
+An OpenCL program consists of a set of kernels that are identified as functions
+declared with the __kernel qualifier in the program source. OpenCL programs may
+also contain auxiliary functions and constant data that can be used by __kernel
+functions. The program executable can be generated online or offline by the
+OpenCL compiler for the appropriate target device(s).
 A program object encapsulates the following information:
        An associated context.
        A program source or binary.
-       The latest successfully built program executable, the list of devices for which the
-       program executable is built, the build options used and a build log.
+       The latest successfully built program executable, the list of devices for
+       which the program executable is built, the build options used and a build
+       log.
        The number of kernel objects currently attached.
 */
 struct _cl_program {
 	_cl_context* context;
-	void* clProgram;
+	const char* fileName;
 	llvm::Module* module;
 	const llvm::Function* function;
 	const llvm::Function* function_SIMD;
@@ -495,9 +534,18 @@ private:
 	bool uniform;
 
 public:
-	_cl_kernel_arg() : element_size(0), address_space(0), data(NULL), uniform(false) {}
-	_cl_kernel_arg(const size_t _size, const cl_uint _address_space, const void* _data, const bool _uniform)
-		: element_size(_size), address_space(_address_space), data(_data), uniform(_uniform) {}
+	_cl_kernel_arg()
+		: element_size(0), address_space(0), data(NULL), uniform(false) {}
+	_cl_kernel_arg(
+			const size_t _size,
+			const cl_uint _address_space,
+			const void* _data,
+			const bool _uniform)
+		: element_size(_size),
+		address_space(_address_space),
+		data(_data),
+		uniform(_uniform)
+	{}
 
 	inline size_t get_element_size() const { return element_size; }
 	inline cl_uint get_address_space() const { return address_space; }
@@ -505,26 +553,38 @@ public:
 	inline const void* get_data_raw() {
 		assert(data);
 		switch (address_space) {
-			case CL_PRIVATE: return data;
-			case CL_GLOBAL: {
+			case CL_PRIVATE:
+				return data;
+			case CL_GLOBAL:
 				const _cl_mem* mem = *(const _cl_mem**)data;
 				return mem->get_data();
-			}
-			case CL_LOCAL: assert (false && "local address space currently unsupported!"); return NULL;
-			case CL_CONSTANT: assert (false && "constant address space currently unsupported!"); return NULL;
-			default: assert (false && "bad address space found!"); return NULL;
+			case CL_LOCAL:
+				assert (false && "local address space not supported yet!");
+				return NULL;
+			case CL_CONSTANT:
+				assert (false && "constant address space not supported yet!");
+				return NULL;
+			default:
+				assert (false && "bad address space found!");
+				return NULL;
 		}
 	}
 	inline size_t get_full_size() const {
 		switch (address_space) {
-			case CL_PRIVATE: return element_size;
-			case CL_GLOBAL: {
+			case CL_PRIVATE:
+				return element_size;
+			case CL_GLOBAL:
 				const _cl_mem* mem = *(const _cl_mem**)data;
 				return mem->get_size();
-			}
-			case CL_LOCAL: assert (false && "local address space currently unsupported!"); return NULL;
-			case CL_CONSTANT: assert (false && "constant address space currently unsupported!"); return NULL;
-			default: assert (false && "bad address space found!"); return NULL;
+			case CL_LOCAL:
+				assert (false && "local address space not supported yet!");
+				return NULL;
+			case CL_CONSTANT:
+				assert (false && "constant address space not supported yet!");
+				return NULL;
+			default:
+				assert (false && "bad address space found!");
+				return NULL;
 		}
 	}
 
@@ -532,10 +592,10 @@ public:
 };
 
 /*
-A kernel is a function declared in a program. A kernel is identified by the __kernel qualifier
-applied to any function in a program. A kernel object encapsulates the specific __kernel
-function declared in a program and the argument values to be used when executing this
-__kernel function.
+A kernel is a function declared in a program. A kernel is identified by the
+__kernel qualifier applied to any function in a program. A kernel object
+encapsulates the specific __kernel function declared in a program and the
+argument values to be used when executing this __kernel function.
 */
 struct _cl_kernel {
 private:
@@ -546,7 +606,13 @@ private:
 	cl_uint num_args;
 
 public:
-	_cl_kernel() : context(NULL), program(NULL), compiled_function(NULL), args(NULL), num_args(0) {}
+	_cl_kernel()
+		: context(NULL),
+		program(NULL),
+		compiled_function(NULL),
+		args(NULL),
+		num_args(0)
+	{}
 
 	inline void set_context(_cl_context* ctx) {
 		assert (ctx);
@@ -565,7 +631,13 @@ public:
 		num_args = num;
 		args = new _cl_kernel_arg[num]();
 	}
-	inline void set_arg(const cl_uint arg_index, const size_t size, const cl_uint address_space, const void* data, const bool uniform) {
+	inline void set_arg(
+			const cl_uint arg_index,
+			const size_t size,
+			const cl_uint address_space,
+			const void* data,
+			const bool uniform)
+	{
 		assert (args && "set_num_args() has to be called before set_arg()!");
 		args[arg_index] = _cl_kernel_arg(size, address_space, data, uniform);
 	}
@@ -633,7 +705,12 @@ clGetPlatformIDs(cl_uint          num_entries,
                  cl_platform_id * platforms,
                  cl_uint *        num_platforms) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	if (!platforms && !num_platforms) return CL_INVALID_VALUE;
+	if (platforms && num_entries == 0) return CL_INVALID_VALUE;
+
+	if (platforms) platforms[0] = new _cl_platform_id();
+	if (num_platforms) *num_platforms = 1;
+
 	return CL_SUCCESS;
 }
 
@@ -644,7 +721,29 @@ clGetPlatformInfo(cl_platform_id   platform,
                   void *           param_value,
                   size_t *         param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	if (!platform) return CL_INVALID_PLATFORM; //effect implementation defined
+	if (param_value && param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
+
+	switch (param_name) {
+		case CL_PLATFORM_PROFILE:
+			if (param_value) param_value = (void*)"FULL_PROFILE"; //or "EMBEDDED_PROFILE"
+			break;
+		case CL_PLATFORM_VERSION:
+			if (param_value) param_value = (void*)"OpenCL 1.0 SSE OPENCL DRIVER";
+			break;
+		case CL_PLATFORM_NAME:
+			if (param_value) param_value = (void*)"cpu";
+			break;
+		case CL_PLATFORM_VENDOR:
+			if (param_value) param_value = (void*)"Saarland University";
+			break;
+		case CL_PLATFORM_EXTENSIONS:
+			if (param_value) param_value = (void*)"";
+			break;
+		default:
+			return CL_INVALID_VALUE;
+	}
+
 	return CL_SUCCESS;
 }
 
@@ -698,8 +797,12 @@ clCreateContextFromType(const cl_context_properties * properties,
                         void *                        user_data,
                         cl_int *                      errcode_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
-	return NULL;
+	if (!pfn_notify && user_data) { *errcode_ret = CL_INVALID_VALUE; return NULL; }
+
+	if (device_type != CL_DEVICE_TYPE_CPU) { *errcode_ret = CL_DEVICE_NOT_AVAILABLE; return NULL; }
+
+	*errcode_ret = CL_SUCCESS;
+	return new _cl_context();
 }
 
 CL_API_ENTRY cl_int CL_API_CALL
@@ -723,7 +826,7 @@ clGetContextInfo(cl_context         context,
                  void *             param_value,
                  size_t *           param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clGetContextInfo()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -943,6 +1046,7 @@ clCreateProgramWithSource(cl_context        context,
 	errcode_ret = CL_SUCCESS;
 	_cl_program* p = new _cl_program();
 	p->context = context;
+	p->fileName = strings[0];
 	return p;
 }
 
@@ -1002,15 +1106,11 @@ clBuildProgram(cl_program           program,
 	//TODO: read .cl representation, invoke clc, invoke llvm-as
 	// alternative: link libClang and use it directly from here :)
 
-	//llvm::Module* mod = jitRT::createModuleFromFile("sseOpenCL.tmp.module.bc");
+	//llvm::Module* mod = jitRT::createModuleFromFile("sseOpenCL.tmp.mod.bc");
 
 	//FIXME: hardcoded for testing ;)
-	llvm::Module* mod = jitRT::createModuleFromFile("simpleTest.bc");
+	llvm::Module* mod = jitRT::createModuleFromFile(program->fileName);
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
-
-	// initialize context
-	program->context->targetData = jitRT::getTargetData(mod); //this still has wrong data layout if module was generated for 32bit!
-	//program->context->engine = jitRT::getExecutionEngine(mod);
 
 	program->module = mod;
 	return CL_SUCCESS;
@@ -1077,18 +1177,20 @@ clCreateKernel(cl_program      program,
 
 #ifdef SSE_OPENCL_DRIVER_NO_PACKETIZATION
 
-	#ifdef SSE_OPENCL_DRIVER_USE_CUSTOM_WRAPPER
-	// USE HAND-WRITTEN WRAPPER
-	//
-	std::stringstream strs2;
-	strs2 << kernel_name << "_wrapper";
-	const std::string wrapper_name = strs2.str();
-	#else
+	#ifdef SSE_OPENCL_DRIVER_USE_CLC_WRAPPER
 	// USE CLC-GENERATED WRAPPER
 	//
 	std::stringstream strs2;
 	strs2 << "__OpenCL_" << kernel_name << "_stub";
 	const std::string wrapper_name = strs2.str();
+	#else
+	// USE HAND-WRITTEN WRAPPER
+	//
+	std::stringstream strs2;
+	strs2 << kernel_name << "_wrapper";
+	const std::string wrapper_name = strs2.str();
+
+	__generateKernelWrapper(wrapper_name, f, module);
 	#endif
 
 #else
@@ -1103,11 +1205,11 @@ clCreateKernel(cl_program      program,
 	llvm::Function* f_SIMD = jitRT::getFunction(kernel_simd_name, module);
 	program->function_SIMD = f_SIMD;
 
-	jitRT::printFunction(f);
+	//jitRT::printFunction(f);
 
 	// packetize scalar function into SIMD function
-	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, true);
-	jitRT::printFunction(f_SIMD);
+	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, false);
+	//jitRT::printFunction(f_SIMD);
 
 	strs2 << "_wrapper";
 	const std::string wrapper_name = strs2.str();
@@ -1131,7 +1233,7 @@ clCreateKernel(cl_program      program,
 	jitRT::inlineFunctionCalls(wrapper_fn);
 	// optimize wrapper with inlined kernel
 	jitRT::optimizeFunction(wrapper_fn);
-	SSE_OPENCL_DRIVER_DEBUG( jitRT::printFunction(wrapper_fn); );
+	//SSE_OPENCL_DRIVER_DEBUG( jitRT::printFunction(wrapper_fn); );
 
 	program->function_wrapper = wrapper_fn;
 
@@ -1276,7 +1378,7 @@ CL_API_ENTRY cl_int CL_API_CALL
 clWaitForEvents(cl_uint             num_events,
                 const cl_event *    event_list) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clWaitForEvents()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1301,7 +1403,7 @@ clRetainEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseEvent()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1604,8 +1706,8 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    new size : " << current_size << "\n"; );
 
 		const llvm::Type* argType = jitRT::getArgumentType(kernel->get_program()->function_wrapper, 0);
-		std::cout << "      "; jitRT::printType(argType);
-		std::cout << "\n      struct type size (LLVM): " << jitRT::getTypeSizeInBits(kernel->get_context()->targetData, argType)/8 << "\n";
+		SSE_OPENCL_DRIVER_DEBUG( std::cout << "      LLVM type: "; jitRT::printType(argType); );
+		SSE_OPENCL_DRIVER_DEBUG( std::cout << "\n      LLVM type size: " << jitRT::getTypeSizeInBits(kernel->get_context()->targetData, argType)/8 << "\n"; );
 	}
 	SSE_OPENCL_DRIVER_DEBUG( std::cout << "copying of arguments finished.\n"; );
 
@@ -1619,7 +1721,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 #ifdef SSE_OPENCL_DRIVER_NO_PACKETIZATION
 	//this is not correct, global_work_size is an array of size of the number of dimensions!
 	const size_t num_iterations = *global_work_size; // = total # threads
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "executing kernel (#iterations: " << num_total_iterations << ")...\n"; );
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
 
 	for (unsigned i=0; i<num_iterations; ++i) {
 		// update runtime environment
@@ -1630,7 +1732,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 
 
 		SSE_OPENCL_DRIVER_DEBUG(
-			//hardcoded debug output
+			//hardcoded debug output for simpleTest
 			typedef struct { float* input; float* output; unsigned count; } tt;
 			std::cout << "\niteration " << i << "\n";
 			std::cout << "  global id: " << get_global_id(work_dim-1) << "\n";
@@ -1638,9 +1740,9 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			std::cout << "  group id: " << get_group_id(work_dim-1) << "\n";
 			std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
 			std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
-			std::cout << "  input : " << ((tt*)argument_struct)->input[i] << "\n";
-			std::cout << "  output: " << ((tt*)argument_struct)->output[i] << "\n";
-			std::cout << "  count : " << ((tt*)argument_struct)->count << "\n";
+			//std::cout << "  input : " << ((tt*)argument_struct)->input[i] << "\n";
+			//std::cout << "  output: " << ((tt*)argument_struct)->output[i] << "\n";
+			//std::cout << "  count : " << ((tt*)argument_struct)->count << "\n";
 		);
 
 		// call kernel
@@ -1649,42 +1751,33 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		SSE_OPENCL_DRIVER_DEBUG(
 			//hardcoded debug output
 			typedef struct { float* input; float* output; unsigned count; } tt;
-			std::cout << "  result: " << ((tt*)argument_struct)->output[i] << "\n";
+			//std::cout << "  result: " << ((tt*)argument_struct)->output[i] << "\n";
 		);
 	}
 	SSE_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
 #else
 	const size_t num_iterations = *global_work_size / *local_work_size; // = #groups
 	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
-	std::cout << "global_size: " << get_global_size(0) << "\n";
+	SSE_OPENCL_DRIVER_DEBUG( std::cout << "global_size: " << get_global_size(0) << "\n"; );
 
-//	for (unsigned i=0; i<num_iterations; ++i) {
-	for (unsigned i=0; i<2; ++i) {
-		std::cout << "\niteration " << i << "\n";
+	for (unsigned i=0; i<num_iterations; ++i) {
 		// update runtime environment
 		//this is not correct, work_dim is not the current one, but the number of dimensions!
-#ifdef XXX
-		setCurrentGlobal(work_dim-1, _mm_set_epi32(i*4+3, i*4+2, i*4+1, i*4));
-		printf("current global: %d %d %d %d\n", i*4+3, i*4+2, i*4+1, i*4);
-		__m128i gid = get_global_id(0);
-		printf("get_global_id: %d %d %d %d\n", ((unsigned*)gid)[0], ((unsigned*)gid)[1], ((unsigned*)gid)[2], ((unsigned*)gid)[3]);
-#else
 		setCurrentGlobal(work_dim-1, i);
-		std::cout << "current global: " << i << "\n";
-		std::cout << "get_global_id: " << get_global_id(0) << "\n";
-#endif
 		setCurrentGroup(work_dim-1, i);
 		setCurrentLocal(work_dim-1, _mm_set_epi32(3, 2, 1, 0)); // ??
 
 		SSE_OPENCL_DRIVER_DEBUG(
-			//hardcoded debug output
+			//hardcoded debug output for simpleTest
 			typedef struct { __m128* input; __m128* output; unsigned count; } tt;
-			//std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
-			//std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
-			const __m128 in = ((tt*)argument_struct)->input[i];
-			const __m128 out = ((tt*)argument_struct)->output[i];
-			printf("input: %f %f %f %f\n", ((float*)&in)[0], ((float*)&in)[1], ((float*)&in)[2], ((float*)&in)[3]);
-			//printf("output: %f %f %f %f\n", ((float*)&out)[0], ((float*)&out)[1], ((float*)&out)[2], ((float*)&out)[3]);
+			std::cout << "\niteration " << i << "\n";
+			std::cout << "  current global: " << i << "\n";
+			std::cout << "  get_global_id: " << get_global_id(0) << "\n";
+			std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
+			std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
+			//const __m128 in = ((tt*)argument_struct)->input[i];
+			//const __m128 out = ((tt*)argument_struct)->output[i];
+			//std::cout << "  input: " << ((float*)&in)[0] << " " << ((float*)&in)[1] << " " << ((float*)&in)[2] << " " << ((float*)&in)[3] << "\n";
 		);
 
 		// call kernel
@@ -1693,8 +1786,8 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		SSE_OPENCL_DRIVER_DEBUG(
 			//hardcoded debug output
 			typedef struct { __m128* input; __m128* output; unsigned count; } tt;
-			const __m128 res = ((tt*)argument_struct)->output[i];
-			printf("result: %f %f %f %f\n", ((float*)&res)[0], ((float*)&res)[1], ((float*)&res)[2], ((float*)&res)[3]);
+			//const __m128 res = ((tt*)argument_struct)->output[i];
+			//std::cout << "  result: " << ((float*)&res)[0] << " " << ((float*)&res)[1] << " " << ((float*)&res)[2] << " " << ((float*)&res)[3] << "\n";
 		);
 	}
 	SSE_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );

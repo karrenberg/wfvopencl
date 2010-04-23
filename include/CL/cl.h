@@ -179,7 +179,7 @@ typedef struct _cl_image_format {
 #define CL_DEVICE_ADDRESS_BITS                      0x100D
 #define CL_DEVICE_MAX_READ_IMAGE_ARGS               0x100E
 #define CL_DEVICE_MAX_WRITE_IMAGE_ARGS              0x100F
-#define CL_DEVICE_MAX_MEM_ALLOC_SIZE                0x1010
+#define CL_DEVICE_MAX_MEM_ALLOC_SIZE                0x989680 //modified from 0x1010
 #define CL_DEVICE_IMAGE2D_MAX_WIDTH                 0x1011
 #define CL_DEVICE_IMAGE2D_MAX_HEIGHT                0x1012
 #define CL_DEVICE_IMAGE3D_MAX_WIDTH                 0x1013

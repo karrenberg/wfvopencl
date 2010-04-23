@@ -114,7 +114,7 @@ int main(int argc, char** argv)
     unsigned int count = DATA_SIZE;
     for(i = 0; i < count; i++) {
         data[i] = rand() / (float)RAND_MAX;
-		//if (i < 10) printf("  data[%d] = %f\n", i, data[i]);
+		//if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
 	}
 
     // Connect to a compute device
@@ -147,7 +147,9 @@ int main(int argc, char** argv)
 
     // Create the compute program from the source buffer
     //
-    program = clCreateProgramWithSource(context, 1, (const char **) & KernelSource, NULL, &err);
+    //program = clCreateProgramWithSource(context, 1, (const char **) & KernelSource, NULL, &err);
+    const char * source = "simpleTest_Kernels.bc";
+    program = clCreateProgramWithSource(context, 1, &source, NULL, &err);
     if (!program)
     {
         printf("Error: Failed to create compute program!\n");
@@ -246,14 +248,12 @@ int main(int argc, char** argv)
     correct = 0;
     for(i = 0; i < count; i++)
     {
-        if(results[i] == data[i])// * data[i])
+        if(results[i] == data[i] * data[i]) {
+			//printf("results[%d]: %f (correct)\n", i, results[i]);
             correct++;
-
-//		if (i < 10) {
-//			printf("  result[%d] = %f", i, results[i]);
-//			if (results[i] == data[i] * data[i]) printf(" - CORRECT!\n");
-//			else printf(" - WRONG (expected: %f)\n", data[i] * data[i]);
-//		}
+		} else {
+			//printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], data[i] * data[i]);
+		}
     }
 
     // Print a brief summary detailing the results
