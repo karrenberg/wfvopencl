@@ -17,10 +17,11 @@ env.Append(LIBPATH = env.Split("-Llib"))
 #env.Command(os.path.join(env['ENV']['JITRT_INC'], 'jitRT/llvmWrapper.h'), 'include/jitRT/llvmWrapper.h', "cp $SOURCE $TARGET")
 
 # build SSE OpenCL Driver
-env.Object(target='build/obj/sseOpenCLDriver', source='src/sseOpenCLDriver.cpp')
+SSEOpenCLDriver = env.Object(target='build/obj/sseOpenCLDriver', source='src/sseOpenCLDriver.cpp')
 
 # build AMD-ATI SDKUtil as a static library
-env.StaticLibrary(target='lib/SDKUtil', source=Split('test/SDKUtil/SDKApplication.cpp test/SDKUtil/SDKBitMap.cpp test/SDKUtil/SDKCommandArgs.cpp test/SDKUtil/SDKCommon.cpp test/SDKUtil/SDKFile.cpp'))
+SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=Split('test/SDKUtil/SDKApplication.cpp test/SDKUtil/SDKBitMap.cpp test/SDKUtil/SDKCommandArgs.cpp test/SDKUtil/SDKCommon.cpp test/SDKUtil/SDKFile.cpp'))
+
 
 # build simpleTest
 #env.Append(LIBPATH = env['ENV']['JITRT_LIB'])
@@ -29,24 +30,29 @@ env.Program(target='build/bin/simpleTest', source=Split('build/obj/simpleTest.o 
 
 # build NBody simulation
 env.Object(target='build/obj/NBody', source='test/NBody.cpp')
-env.Program(target='build/bin/NBody', source=Split('build/obj/NBody.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil', 'glut'])
+Test_NBody = env.Program(target='build/bin/NBody', source=Split('build/obj/NBody.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil', 'glut'])
+env.Depends(Test_NBody, SDKUtil)
 
 # build Mandelbrot application
 env.Object(target='build/obj/Mandelbrot', source='test/Mandelbrot.cpp')
 env.Object(target='build/obj/MandelbrotDisplay', source='test/MandelbrotDisplay.cpp')
-env.Program(target='build/bin/Mandelbrot', source=Split('build/obj/Mandelbrot.o build/obj/MandelbrotDisplay.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil', 'glut', 'GLEW'])
+Test_Mandelbrot = env.Program(target='build/bin/Mandelbrot', source=Split('build/obj/Mandelbrot.o build/obj/MandelbrotDisplay.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil', 'glut', 'GLEW'])
+env.Depends(Test_Mandelbrot, SDKUtil)
 
 # build SimpleConvolution application
 env.Object(target='build/obj/SimpleConvolution', source='test/SimpleConvolution.cpp')
-env.Program(target='build/bin/SimpleConvolution', source=Split('build/obj/SimpleConvolution.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+Test_SimpleConvolution = env.Program(target='build/bin/SimpleConvolution', source=Split('build/obj/SimpleConvolution.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+env.Depends(Test_SimpleConvolution, SDKUtil)
 
 # build FastWalshTransform application
 env.Object(target='build/obj/FastWalshTransform', source='test/FastWalshTransform.cpp')
-env.Program(target='build/bin/FastWalshTransform', source=Split('build/obj/FastWalshTransform.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+Test_FastWalshTransform = env.Program(target='build/bin/FastWalshTransform', source=Split('build/obj/FastWalshTransform.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+env.Depends(Test_FastWalshTransform, SDKUtil)
 
 # build BitonicSort application
 env.Object(target='build/obj/BitonicSort', source='test/BitonicSort.cpp')
-env.Program(target='build/bin/BitonicSort', source=Split('build/obj/BitonicSort.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+Test_BitonicSort = env.Program(target='build/bin/BitonicSort', source=Split('build/obj/BitonicSort.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+env.Depends(Test_BitonicSort, SDKUtil)
 
 
 # build bitcode from OpenCL files
