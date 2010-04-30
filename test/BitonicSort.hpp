@@ -90,14 +90,10 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef MANDELBROT_H_
-#define MANDELBROT_H_
-
-
-
+#ifndef BITONICSORT_H_
+#define BITONICSORT_H_
 
 #include <CL/cl.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -108,35 +104,30 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKFile.hpp>
 
 /**
- * Mandelbrot 
- * Class implements OpenCL Mandelbrot sample
+ * BitonicSort 
+ * Class implements OpenCL  Bitonic Sort sample
  * Derived from SDKSample base class
  */
 
-class Mandelbrot : public SDKSample
+class BitonicSort : public SDKSample
 {
-    cl_uint                  seed;       /**< Seed value for random number generation */
-    cl_double           setupTime;       /**< Time for setting up Opencl */
-    cl_double     totalKernelTime;       /**< Time for kernel execution */
-    cl_double    totalProgramTime;       /**< Time for program execution */
-    cl_double referenceKernelTime;       /**< Time for reference implementation */
-    cl_int    *verificationOutput;       /**< Output array from reference implementation */
-    cl_int              scale_int;       /**< for command line arguments */
-    cl_float                scale;       /**< paramters of mandelbrot */
-    cl_uint         maxIterations;       /**< paramters of mandelbrot */
-    cl_context            context;       /**< CL context */
-    cl_device_id         *devices;       /**< CL device list */
-    cl_mem           outputBuffer;       /**< CL memory buffer */
-    cl_command_queue commandQueue;       /**< CL command queue */
-    cl_program            program;       /**< CL program  */
-    cl_kernel              kernel;       /**< CL kernel */
-    cl_int                 width;        /**< width of the output image */
-    cl_int                height;        /**< height of the output image */
-    size_t    kernelWorkGroupSize;       /**< Group Size returned by kernel */
-    int                iterations;       /**< Number of iterations for kernel execution */
-
-public:
-    cl_int *output;                      /**< Output array */
+    cl_uint                  seed;    /**< Seed value for random number generation */
+    cl_double           setupTime;    /**< Time for setting up OpenCL */
+    cl_double     totalKernelTime;    /**< Time for kernel execution */
+    cl_double    totalProgramTime;    /**< Time for program execution */
+    cl_double referenceKernelTime;    /**< Time for reference implementation */
+    cl_uint        sortDescending;    /**< Flag to indicate sorting order */
+    cl_uint                *input;    /**< Input array */
+    cl_int                 length;    /**< length of the array */
+    cl_uint    *verificationInput;    /**< Input array for reference implementation */
+    cl_context            context;    /**< CL context */
+    cl_device_id         *devices;    /**< CL device list */
+    cl_mem            inputBuffer;    /**< CL memory buffer */
+    cl_command_queue commandQueue;    /**< CL command queue */
+    cl_program            program;    /**< CL program  */
+    cl_kernel              kernel;    /**< CL kernel */
+    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
+    int                iterations;    /**< Number of iterations to execute kernel */
 
 public:
     /** 
@@ -144,15 +135,13 @@ public:
      * Initialize member variables
      * @param name name of sample (string)
      */
-    Mandelbrot(std::string name)
+    BitonicSort(std::string name)
         : SDKSample(name)    {
             seed = 123;
-            output = NULL;
-            verificationOutput = NULL;
-            scale = 3.0f;
-            scale_int = (int)scale;
-            maxIterations = 20;
-            width = 256;
+            sortDescending = 0;
+            input = NULL;
+            verificationInput = NULL;
+            length = 64;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -163,15 +152,13 @@ public:
      * Initialize member variables
      * @param name name of sample (const char*)
      */
-    Mandelbrot(const char* name)
+    BitonicSort(const char* name)
         : SDKSample(name)    {
             seed = 123;
-            output = NULL;
-            verificationOutput = NULL;
-            scale = 3.0f;
-            scale_int = (int)scale;
-            maxIterations = 20;
-            width = 256;
+            sortDescending = 0;
+            input = NULL;
+            verificationInput = NULL;
+            length = 64;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -181,7 +168,7 @@ public:
      * Allocate and initialize host memory array with random values
      * @return 1 on success and 0 on failure
      */
-    int setupMandelbrot();
+    int setupBitonicSort();
 
     /**
      * OpenCL related initialisations. 
@@ -199,21 +186,24 @@ public:
      */
     int runCLKernels();
 
+    /**
+     * Helper to swap two values if first one is greater
+     * @param a an unsigned int value
+     * @param b an unsigned int value
+     */
+    void swapIfFirstIsGreater(cl_uint *a, cl_uint *b);
 
     /**
-     * Mandelbrot image generated with CPU reference implementation
-     * @param verificationOutput mandelbrot images is stored in this
-     * @param mandelbrotImage    mandelbrot images is stored in this
-     * @param scale              Represents the distance from which the fractal 
-     *                           is being seen if this is greater more area and 
-     *                           less detail is seen           
-     * @param maxIterations      More iterations gives more accurate mandelbrot image 
-     * @param width              size of the image 
+     * Reference CPU implementation of Bitonic Sort
+     * for performance comparison
+     * @param input the input array
+     * @param length length of the array
+     * @param sortIncreasing flag to indicate sorting order
      */
-    void mandelbrotCPUReference(cl_int * verificationOutput, 
-                                cl_float scale, 
-                                cl_uint maxIterations, 
-                                cl_int width);
+    void bitonicSortCPUReference(
+        cl_uint * input, 
+        const cl_uint length, 
+        const cl_bool sortIncreasing);
 
     /**
      * Override from SDKSample. Print sample stats.
@@ -234,7 +224,7 @@ public:
 
     /**
      * Override from SDKSample
-     * Run OpenCL Mandelbrot Sample
+     * Run OpenCL Bitonic Sort
      */
     int run();
 
@@ -250,25 +240,6 @@ public:
      */
     int verifyResults();
 
-    /*
-     * get window Width
-     */
-    cl_uint getWidth(void);
-
-    /*
-     * get window Height
-     */
-    cl_uint getHeight(void);
-    
-    /*
-     * get pixels to be displayed
-     */
-    cl_int * getPixels(void);
-    
-    /*
-     * if showWindow returns true then a window with mandelbrot set is displayed
-     */
-    cl_bool showWindow(void);
 };
 
 

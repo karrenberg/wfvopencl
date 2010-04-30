@@ -16,8 +16,11 @@ env.Append(LIBPATH = env.Split("-Llib"))
 
 #env.Command(os.path.join(env['ENV']['JITRT_INC'], 'jitRT/llvmWrapper.h'), 'include/jitRT/llvmWrapper.h', "cp $SOURCE $TARGET")
 
+# build SSE OpenCL Driver
 env.Object(target='build/obj/sseOpenCLDriver', source='src/sseOpenCLDriver.cpp')
 
+# build AMD-ATI SDKUtil as a static library
+env.StaticLibrary(target='lib/SDKUtil', source=Split('test/SDKUtil/SDKApplication.cpp test/SDKUtil/SDKBitMap.cpp test/SDKUtil/SDKCommandArgs.cpp test/SDKUtil/SDKCommon.cpp test/SDKUtil/SDKFile.cpp'))
 
 # build simpleTest
 #env.Append(LIBPATH = env['ENV']['JITRT_LIB'])
@@ -26,12 +29,25 @@ env.Program(target='build/bin/simpleTest', source=Split('build/obj/simpleTest.o 
 
 # build NBody simulation
 env.Object(target='build/obj/NBody', source='test/NBody.cpp')
-env.Program(target='build/bin/NBody', source=Split('build/obj/NBody.o build/obj/sseOpenCLDriver.o'), LIBS=['glut', 'jitRT'])
+env.Program(target='build/bin/NBody', source=Split('build/obj/NBody.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil', 'glut'])
 
 # build Mandelbrot application
 env.Object(target='build/obj/Mandelbrot', source='test/Mandelbrot.cpp')
 env.Object(target='build/obj/MandelbrotDisplay', source='test/MandelbrotDisplay.cpp')
-env.Program(target='build/bin/Mandelbrot', source=Split('build/obj/Mandelbrot.o build/obj/MandelbrotDisplay.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'glut', 'GLEW'])
+env.Program(target='build/bin/Mandelbrot', source=Split('build/obj/Mandelbrot.o build/obj/MandelbrotDisplay.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil', 'glut', 'GLEW'])
+
+# build SimpleConvolution application
+env.Object(target='build/obj/SimpleConvolution', source='test/SimpleConvolution.cpp')
+env.Program(target='build/bin/SimpleConvolution', source=Split('build/obj/SimpleConvolution.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+
+# build FastWalshTransform application
+env.Object(target='build/obj/FastWalshTransform', source='test/FastWalshTransform.cpp')
+env.Program(target='build/bin/FastWalshTransform', source=Split('build/obj/FastWalshTransform.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+
+# build BitonicSort application
+env.Object(target='build/obj/BitonicSort', source='test/BitonicSort.cpp')
+env.Program(target='build/bin/BitonicSort', source=Split('build/obj/BitonicSort.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+
 
 # build bitcode from OpenCL files
 
@@ -51,3 +67,11 @@ env.Command('NBody_Kernels.bc', 'NBody_Kernels.ll', "llvm-as $SOURCE -o $TARGET"
 env.Command('Mandelbrot_Kernels.ll', 'test/Mandelbrot_Kernels.cl', "clc --msse2 $SOURCE")
 env.Command('Mandelbrot_Kernels.bc', 'Mandelbrot_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
 
+env.Command('SimpleConvolution_Kernels.ll', 'test/SimpleConvolution_Kernels.cl', "clc --msse2 $SOURCE")
+env.Command('SimpleConvolution_Kernels.bc', 'SimpleConvolution_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
+
+env.Command('FastWalshTransform_Kernels.ll', 'test/FastWalshTransform_Kernels.cl', "clc --msse2 $SOURCE")
+env.Command('FastWalshTransform_Kernels.bc', 'FastWalshTransform_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
+
+env.Command('BitonicSort_Kernels.ll', 'test/BitonicSort_Kernels.cl', "clc --msse2 $SOURCE")
+env.Command('BitonicSort_Kernels.bc', 'BitonicSort_Kernels.ll', "llvm-as $SOURCE -o $TARGET")

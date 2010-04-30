@@ -16,7 +16,6 @@ __kernel void mandelbrot (__global int * mandelbrotImage,
                           )
 {
     int tid = get_global_id(0);
-	printf("tid = %d\n", tid);
     
     int i = tid%width;
     int j = tid/width; 
@@ -42,28 +41,4 @@ __kernel void mandelbrot (__global int * mandelbrotImage,
         y2 = y*y;
     }
     mandelbrotImage[tid] = 255*iter/maxIterations;    
-}
-
-
-__kernel void mandelbrot_SIMD (__global int4 * mandelbrotImage,
-                          const    float scale,
-                          const    uint maxIterations,
-                          const    int width
-                          );
-
-
-// native simd function declarations for get_global_id
-//
-//uint4 get_global_id_SIMD(uint);
-uint get_global_id_SIMD(uint);
-uint4 get_local_id_SIMD(uint);
-
-
-// fake call function to prevent deletion of declarations
-// must never be called!
-//
-void __fakeCall(__global float4 * f4, __global int4 * i4, const uint4 ui4, const unsigned z) {
-	mandelbrot_SIMD(i4, 0.f, 1, 1);
-	get_global_id_SIMD(0);
-	get_local_id_SIMD(0);
 }

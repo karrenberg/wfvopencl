@@ -94,16 +94,18 @@ jurisdiction and venue of these courts.
 #define NBODY_H_
 
 #if defined(__APPLE__) || defined(__MACOSX)
-//#include <OpenCL/cl.h>
-#include <OpenCL/opencl.h>
+#include <OpenCL/cl.h>
 #else
-//#include <CL/cl.h>
-#include <CL/opencl.h>
+#include <CL/cl.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <SDKUtil/SDKCommon.hpp>
+#include <SDKUtil/SDKApplication.hpp>
+#include <SDKUtil/SDKCommandArgs.hpp>
+#include <SDKUtil/SDKFile.hpp>
 
 #define GROUP_SIZE 256
 
@@ -113,7 +115,7 @@ jurisdiction and venue of these courts.
 * Derived from SDKSample base class
 */
 
-class NBody
+class NBody : public SDKSample
 {
     cl_double setupTime;                /**< time taken to setup OpenCL resources and building kernel */
     cl_double kernelTime;               /**< time taken to run kernel and read result back */
@@ -143,11 +145,6 @@ class NBody
     cl_int numParticles;
     int iterations;
 
-	//custom
-	static const bool quiet = false;
-	static const bool timing = false;
-	static const bool verify = false;
-
 private:
 
     float random(float randMax, float randMin);
@@ -157,11 +154,12 @@ public:
     /** 
     * Constructor 
     * Initialize member variables
+    * @param name name of sample (string)
     */
-    explicit NBody()
-        : setupTime(0),
+    explicit NBody(std::string name)
+        : SDKSample(name),
+        setupTime(0),
         kernelTime(0),
-        maxWorkItemSizes(NULL),
         delT(0.005f),
         espSqr(50.0f),
         initPos(NULL),
@@ -170,6 +168,31 @@ public:
         refPos(NULL),
         refVel(NULL),
         devices(NULL),
+        maxWorkItemSizes(NULL),
+        groupSize(GROUP_SIZE),
+        iterations(1)
+    {
+        numParticles = 1024;
+    }
+
+    /** 
+    * Constructor 
+    * Initialize member variables
+    * @param name name of sample (const char*)
+    */
+    explicit NBody(const char* name)
+        : SDKSample(name),
+        setupTime(0),
+        kernelTime(0),
+        delT(0.005f),
+        espSqr(50.0f),
+        initPos(NULL),
+        initVel(NULL),
+        vel(NULL),
+        refPos(NULL),
+        refVel(NULL),
+        devices(NULL),
+        maxWorkItemSizes(NULL),
         groupSize(GROUP_SIZE),
         iterations(1)
     {

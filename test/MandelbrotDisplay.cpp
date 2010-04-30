@@ -100,11 +100,8 @@ jurisdiction and venue of these courts.
 #include <cstdlib>
 #include <cstdio>
 
-#define SDK_FAILURE -1
-#define SDK_SUCCESS 0
-
 /* An instance of the Mandelbrot Class */
-Mandelbrot clMandelbrot;
+Mandelbrot clMandelbrot("OpenCL Mandelbrot fractal");
 
 /* Window height, Window Width and the pixels to be displayed */
 int width;
@@ -201,8 +198,8 @@ main(int argc, char * argv[])
 {
     /* initalise and run the mandelbrot kernel */
     clMandelbrot.initialize();
-//    if(!clMandelbrot.parseCommandLine(argc, argv))
-//        return SDK_FAILURE;
+    if(!clMandelbrot.parseCommandLine(argc, argv))
+        return SDK_FAILURE;
     if(clMandelbrot.setup()!=SDK_SUCCESS)
         return SDK_FAILURE;
     if(clMandelbrot.run()!=SDK_SUCCESS)

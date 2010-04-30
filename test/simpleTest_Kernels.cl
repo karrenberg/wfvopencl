@@ -14,6 +14,7 @@ __kernel void square(
 	//printf("result: %f\n", output[i]);
 }
 
+/*
 // target function for packetization
 //
 void square_SIMD(
@@ -23,11 +24,10 @@ void square_SIMD(
     const unsigned int count); // const = uniform -> type remains scalar
 
 
-
 // native simd function declarations for get_global_id
 //
-//uint4 get_global_id_SIMD(uint);
-uint get_global_id_SIMD(uint);
+uint get_global_id_split(uint);
+uint4 get_global_id_SIMD(uint);
 uint4 get_local_id_SIMD(uint);
 
 
@@ -37,6 +37,8 @@ uint4 get_local_id_SIMD(uint);
 void __fakeCall(__global float4 * x, const uint4 y, const unsigned z) {
 	//square_SIMD(x, x, y);
 	square_SIMD(x, x, z);
+	get_global_id_split(0);
 	get_global_id_SIMD(0);
 	get_local_id_SIMD(0);
 }
+*/

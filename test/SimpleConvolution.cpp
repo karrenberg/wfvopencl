@@ -90,52 +90,94 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#include "Mandelbrot.hpp"
+#include "SimpleConvolution.hpp"
 
-int 
-Mandelbrot::setupMandelbrot()
+int SimpleConvolution::setupSimpleConvolution()
 {
-    cl_uint sizeBytes;
+    cl_uint inputSizeBytes;
 
     /* allocate and init memory used by host */
-    sizeBytes = width * height * sizeof(cl_int);
-    output = (cl_int *) malloc(sizeBytes);
-    if(output==NULL)    
+    inputSizeBytes = width * height * sizeof(cl_uint);
+    input  = (cl_uint *) malloc(inputSizeBytes);
+    if(input==NULL)   
+    { 
+        sampleCommon->error("Failed to allocate host memory. (input)");
+        return SDK_FAILURE;
+    }
+
+    output = (cl_uint  *) malloc(inputSizeBytes);
+    if(output==NULL)   
     { 
         sampleCommon->error("Failed to allocate host memory. (output)");
         return SDK_FAILURE;
     }
 
-    if(verify)
-    {
-        verificationOutput = (cl_int *)malloc(sizeBytes);
-        if(verificationOutput==NULL)    
-        { 
-            sampleCommon->error("Failed to allocate host memory. (verificationOutput)");
-            return SDK_FAILURE;
-        }
+    cl_uint maskSizeBytes = maskWidth * maskHeight * sizeof(cl_float);
 
+    mask = (cl_float  *) malloc(maskSizeBytes);
+
+    /* 
+     * random initialisation of input 
+     */
+    sampleCommon->fillRandom<cl_uint >(input, width, height, 0, 255);
+
+    /*
+     * Fill a blurr filter or some other filter of your choice
+     */
+    for(cl_uint i=0; i < maskWidth*maskHeight; i++)
+        mask[i] = 0;
+
+    cl_float val = 1.0f/(maskWidth * 2.0f - 1.0f);
+
+    for(cl_uint i=0; i < maskWidth; i++) 
+    {
+        cl_uint y = maskHeight/2;
+        mask[y*maskWidth + i] = val;
     }
+
+    for(cl_uint i=0; i < maskHeight; i++)
+    {
+        cl_uint x = maskWidth/2;
+        mask[i*maskWidth + x] = val;
+    }
+
+    /* 
+     * Unless quiet mode has been enabled, print the INPUT array.
+     */
+    if(!quiet) 
+    {
+        sampleCommon->printArray<cl_uint >(
+                "Original Input", 
+                input, 
+                width, 
+                1);
+        sampleCommon->printArray<cl_float >(
+                "mask", 
+                mask, 
+                maskWidth, 
+                maskHeight);
+    }
+
     return SDK_SUCCESS;
 }
 
 int
-Mandelbrot::setupCL(void)
+SimpleConvolution::setupCL(void)
 {
     cl_int status = 0;
     size_t deviceListSize;
 
     cl_device_type dType;
     
-    //if(deviceType.compare("cpu") == 0)
-    //{
+    if(deviceType.compare("cpu") == 0)
+    {
         dType = CL_DEVICE_TYPE_CPU;
-    //}
-    //else //deviceType = "gpu"
-    //{
-        //dType = CL_DEVICE_TYPE_GPU;
-    //}
-    
+    }
+    else //deviceType = "gpu" 
+    {
+        dType = CL_DEVICE_TYPE_GPU;
+    }
+
     /*
      * Have a look at the available platforms and pick either
      * the AMD one if available or a reasonable default.
@@ -262,10 +304,22 @@ Mandelbrot::setupCL(void)
             return SDK_FAILURE;
     }
 
+    inputBuffer = clCreateBuffer(
+            context, 
+            CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
+            sizeof(cl_uint ) * width * height,
+            input, 
+            &status);
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS,
+                "clCreateBuffer failed. (inputBuffer)"))
+        return SDK_FAILURE;
+
     outputBuffer = clCreateBuffer(
             context, 
             CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR,
-            sizeof(cl_float) * width * height,
+            sizeof(cl_uint ) * width * height,
             output, 
             &status);
     if(!sampleCommon->checkVal(
@@ -274,12 +328,24 @@ Mandelbrot::setupCL(void)
                 "clCreateBuffer failed. (outputBuffer)"))
         return SDK_FAILURE;
 
+    maskBuffer = clCreateBuffer(
+            context, 
+            CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
+            sizeof(cl_float ) * maskWidth * maskHeight,
+            mask, 
+            &status);
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS,
+                "clCreateBuffer failed. (maskBuffer)"))
+        return SDK_FAILURE;
+
     /* create a CL program using the kernel source */
     //streamsdk::SDKFile kernelFile;
     //std::string kernelPath = sampleCommon->getPath();
-    //kernelPath.append("Mandelbrot_Kernels.cl");
+    //kernelPath.append("SimpleConvolution_Kernels.cl");
     //kernelFile.open(kernelPath.c_str());
-    const char * source = "Mandelbrot_Kernels.bc"; //kernelFile.source().c_str();
+    const char * source = "SimpleConvolution_Kernels.bc"; //kernelFile.source().c_str();
     size_t sourceSize[] = { strlen(source) };
     program = clCreateProgramWithSource(
         context,
@@ -302,7 +368,7 @@ Mandelbrot::setupCL(void)
         return SDK_FAILURE;
 
     /* get a kernel object handle for a kernel with the given name */
-    kernel = clCreateKernel(program, "mandelbrot", &status);
+    kernel = clCreateKernel(program, "simpleConvolution", &status);
     if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
@@ -314,7 +380,7 @@ Mandelbrot::setupCL(void)
 
 
 int 
-Mandelbrot::runCLKernels(void)
+SimpleConvolution::runCLKernels(void)
 {
     cl_int   status;
     cl_event events[2];
@@ -353,8 +419,19 @@ Mandelbrot::runCLKernels(void)
     status = clSetKernelArg(
                     kernel, 
                     0, 
-                    sizeof(cl_mem),
-                   (void *)&outputBuffer);
+                    sizeof(cl_mem), 
+                    (void *)&outputBuffer);
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS,
+                "clSetKernelArg failed. (outputBuffer)"))
+        return SDK_FAILURE;
+
+    status = clSetKernelArg(
+                    kernel, 
+                    1, 
+                    sizeof(cl_mem), 
+                    (void *)&inputBuffer);
     if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
@@ -363,37 +440,41 @@ Mandelbrot::runCLKernels(void)
 
     status = clSetKernelArg(
                     kernel, 
-                    1, 
-                    sizeof(cl_float), 
-                    (void *)&scale);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (scale)"))
-        return SDK_FAILURE;
-
-    status = clSetKernelArg(
-                    kernel, 
                     2, 
-                    sizeof(cl_uint), 
-                    (void *)&maxIterations);
+                    sizeof(cl_mem), 
+                    (void *)&maskBuffer);
     if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
-                "clSetKernelArg failed. (maxIterations)"))
+                "clSetKernelArg failed. (maskBuffer)"))
         return SDK_FAILURE;
 
-    /* width - i.e number of elements in the array */
+
+	cl_uint2 inputDimensions = {width, height};
+	cl_uint2 maskDimensions  = {maskWidth, maskHeight};
+
     status = clSetKernelArg(
                     kernel, 
                     3, 
-                    sizeof(cl_int), 
-                    (void *)&width);
+                    sizeof(cl_uint2), 
+                    (void *)&inputDimensions);
     if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
-                "clSetKernelArg failed. (width)"))
+                "clSetKernelArg failed. (inputDimensions)"))
         return SDK_FAILURE;
+
+    status = clSetKernelArg(
+                    kernel, 
+                    4, 
+                    sizeof(cl_uint2), 
+                    (void *)&maskDimensions);
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS,
+                "clSetKernelArg failed. (maskDimensions)"))
+        return SDK_FAILURE;
+
 
     /* 
      * Enqueue a kernel run call.
@@ -423,14 +504,14 @@ Mandelbrot::runCLKernels(void)
                 CL_SUCCESS,
                 "clWaitForEvents failed."))
         return SDK_FAILURE;
-    
+
     /* Enqueue readBuffer*/
     status = clEnqueueReadBuffer(
                 commandQueue,
                 outputBuffer,
                 CL_TRUE,
                 0,
-                width * height * sizeof(cl_float),
+                width * height * sizeof(cl_uint),
                 output,
                 0,
                 NULL,
@@ -454,77 +535,113 @@ Mandelbrot::runCLKernels(void)
 }
 
 /**
-* Mandelbrot fractal generated with CPU reference implementation
-*/
+ * Reference CPU implementation of Simple Convolution 
+ * for performance comparison
+ */
 void 
-Mandelbrot::mandelbrotCPUReference(cl_int * verificationOutput,
-                                   cl_float  mscale, 
-                                   cl_uint maxIter, 
-                                   cl_int w)
-
+SimpleConvolution::simpleConvolutionCPUReference(cl_uint  *output,
+                                                 const cl_uint  *input,
+                                                 const cl_float *mask,
+                                                 const cl_uint  width,
+                                                 const cl_uint height,
+                                                 const cl_uint maskWidth,
+                                                 const cl_uint maskHeight)
 {
-    for(cl_int j=0; j < w ; ++j)
-        for(cl_int i=0; i < w; ++i)
+    cl_uint vstep = (maskWidth  -1)/2;
+    cl_uint hstep = (maskHeight -1)/2;
+
+    /*
+     * for each pixel in the input
+     */
+    for(cl_uint x = 0; x < width; x++)
+        for(cl_uint y = 0; y < height; y++)
         {
-            cl_float x0 = ((i*mscale) - (mscale/2*w))/w;
-            cl_float y0 = ((j*mscale) - (mscale/2*w))/w;
+            /*
+             * find the left, right, top and bottom indices such that
+             * the indices do not go beyond image boundaires
+             */
+            cl_uint left    = (x           <  vstep) ? 0         : (x - vstep);
+            cl_uint right   = ((x + vstep) >= width) ? width - 1 : (x + vstep); 
+            cl_uint top     = (y           <  hstep) ? 0         : (y - hstep);
+            cl_uint bottom  = ((y + hstep) >= height)? height - 1: (y + hstep); 
 
-            cl_float x = x0;
-            cl_float y = y0;
+            /*
+             * initializing wighted sum value
+             */
+            cl_float sumFX = 0;
 
-            cl_float x2 = x*x;
-            cl_float y2 = y*y;
-
-            cl_float scaleSquare= mscale*mscale;
-
-            cl_uint iter=0;
-            for(iter=0; (x2+y2 <= scaleSquare) && (iter < maxIter); ++iter)
-            {
-                y = 2 * x*y + y0;
-                x = x2 - y2   + x0;
-
-                x2 = x*x;
-                y2 = y*y;
-            }
-            verificationOutput[j*w + i] = 255*iter/maxIter;
+            for(cl_uint i = left; i <= right; ++i)
+                for(cl_uint j = top ; j <= bottom; ++j)    
+                {
+                    /*
+                     * performing wighted sum within the mask boundaries
+                     */
+                    cl_uint maskIndex = (j - (y - hstep)) * maskWidth  + (i - (x - vstep));
+                    cl_uint index     = j                 * width      + i;
+                    
+                    /*
+                     * to round to the nearest integer
+                     */
+                    sumFX += ((float)input[index] * mask[maskIndex]);
+                }
+            sumFX += 0.5f;
+            output[y*width + x] = cl_uint(sumFX);
         }
 }
 
-int Mandelbrot::initialize()
+int SimpleConvolution::initialize()
 {
-    // Call base class Initialize to get default configuration
-    if(!this->SDKSample::initialize())
-        return SDK_FAILURE;
+   // Call base class Initialize to get default configuration
+   if(!this->SDKSample::initialize())
+      return SDK_FAILURE;
 
-    streamsdk::Option* image_size = new streamsdk::Option;
-    if(!image_size)
+   // Now add customized options
+    streamsdk::Option* width_option = new streamsdk::Option;
+    if(!width_option)
     {
         sampleCommon->error("Memory allocation error.\n");
         return SDK_FAILURE;
     }
     
-    image_size->_sVersion = "x";
-    image_size->_lVersion = "size";
-    image_size->_description = "size of the mandelbrot image";
-    image_size->_type = streamsdk::CA_ARG_INT;
-    image_size->_value = &width;
-    sampleArgs->AddOption(image_size);
-    delete image_size;
+    width_option->_sVersion = "x";
+    width_option->_lVersion = "width";
+    width_option->_description = "Width of the input matrix";
+    width_option->_type = streamsdk::CA_ARG_INT;
+    width_option->_value = &width;
 
-    streamsdk::Option* scale_param = new streamsdk::Option;
-    if(!scale_param)
+    sampleArgs->AddOption(width_option);
+    delete width_option;
+
+    streamsdk::Option* height_option = new streamsdk::Option;
+    if(!height_option)
     {
         sampleCommon->error("Memory allocation error.\n");
         return SDK_FAILURE;
     }
+    
+    height_option->_sVersion = "y";
+    height_option->_lVersion = "height";
+    height_option->_description = "Height of the input matrix";
+    height_option->_type = streamsdk::CA_ARG_INT;
+    height_option->_value = &height;
 
-    scale_param->_sVersion = "s";
-    scale_param->_lVersion = "scale";
-    scale_param->_description = "Scaling factor to generate the mandelbrot fractal";
-    scale_param->_type = streamsdk::CA_ARG_INT;
-    scale_param->_value = &scale_int;
-    sampleArgs->AddOption(scale_param);
-    delete scale_param;
+    sampleArgs->AddOption(height_option);
+    delete height_option;
+
+    streamsdk::Option* mask_width = new streamsdk::Option;
+    if(!mask_width)
+    {
+       sampleCommon->error("Memory allocation error.\n");
+       return SDK_FAILURE;
+    }
+    maskWidth = 3;
+    mask_width->_sVersion = "m";
+    mask_width->_lVersion = "masksize";
+    mask_width->_description = "Width of the mask matrix";
+    mask_width->_type = streamsdk::CA_ARG_INT;
+    mask_width->_value = &maskWidth;
+    sampleArgs->AddOption(mask_width);
+    delete mask_width;
 
     streamsdk::Option* num_iterations = new streamsdk::Option;
     if(!num_iterations)
@@ -542,40 +659,42 @@ int Mandelbrot::initialize()
     sampleArgs->AddOption(num_iterations);
     delete num_iterations;
 
-    return SDK_SUCCESS;
+   return SDK_SUCCESS;
 }
 
-int Mandelbrot::setup()
+int SimpleConvolution::setup()
 {
+   if(!sampleCommon->isPowerOf2(width))
+      width = sampleCommon->roundToPowerOf2(width);
+   if(!sampleCommon->isPowerOf2(height))
+      height = sampleCommon->roundToPowerOf2(height);
 
-    if(!sampleCommon->isPowerOf2(width))
-        width = sampleCommon->roundToPowerOf2(width);
+   maskHeight = maskWidth;
 
-    height = width;
+   if(!(maskWidth%2))
+      maskWidth++;
+   if(!(maskHeight%2))
+      maskHeight++;
 
-    scale  = scale_int * 1.0f;
-
-    iterations = 1;
-
-    if(setupMandelbrot()!=SDK_SUCCESS)
-        return SDK_FAILURE;
-
+   if(setupSimpleConvolution()!=SDK_SUCCESS)
+      return SDK_FAILURE;
+    
     int timer = sampleCommon->createTimer();
     sampleCommon->resetTimer(timer);
     sampleCommon->startTimer(timer);
 
     if(setupCL()!=SDK_SUCCESS)
-        return SDK_FAILURE;
+      return SDK_FAILURE;
 
     sampleCommon->stopTimer(timer);
 
     setupTime = (cl_double)sampleCommon->readTimer(timer);
 
-    return SDK_SUCCESS;
+   return SDK_SUCCESS;
 }
 
 
-int Mandelbrot::run()
+int SimpleConvolution::run()
 {
     int timer = sampleCommon->createTimer();
     sampleCommon->resetTimer(timer);
@@ -596,28 +715,39 @@ int Mandelbrot::run()
     totalKernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
 
     if(!quiet) {
-        sampleCommon->printArray<cl_int>("Output", output, width, 1);
+        sampleCommon->printArray<cl_uint >("Output", output, width, 1);
     }
 
     return SDK_SUCCESS;
 }
 
-int Mandelbrot::verifyResults()
+int SimpleConvolution::verifyResults()
 {
     if(verify)
     {
-        /* reference implementation
-         * it overwrites the input array with the output
+        verificationOutput = (cl_uint  *) malloc(width*height*sizeof(cl_uint ));
+        if(verificationOutput==NULL)   { 
+            sampleCommon->error("Failed to allocate host memory. (verificationOutput)");
+            return SDK_FAILURE;
+        }
+
+        /* 
+         * reference implementation
          */
         int refTimer = sampleCommon->createTimer();
         sampleCommon->resetTimer(refTimer);
         sampleCommon->startTimer(refTimer);
-        mandelbrotCPUReference(verificationOutput, scale, maxIterations, width);
+
+		cl_uint2 inputDimensions = {width    , height};
+		cl_uint2 maskDimensions  = {maskWidth, maskHeight};
+
+        simpleConvolutionCPUReference(verificationOutput, input, mask, width, height,
+                                        maskWidth, maskHeight);
         sampleCommon->stopTimer(refTimer);
         referenceKernelTime = sampleCommon->readTimer(refTimer);
 
-        // compare the results and see if they match 
-        if(memcmp(output, verificationOutput, width*height*sizeof(cl_int)) == 0)
+        /* compare the results and see if they match */
+        if(memcmp(output, verificationOutput, height*width*sizeof(cl_uint )) == 0)
         {
             std::cout<<"Passed!\n";
             return SDK_SUCCESS;
@@ -627,27 +757,27 @@ int Mandelbrot::verifyResults()
             std::cout<<"Failed\n";
             return SDK_FAILURE;
         }
-
     }
 
     return SDK_SUCCESS;
 }
 
-void Mandelbrot::printStats()
+void SimpleConvolution::printStats()
 {
-    std::string strArray[3] = {"Width", "Height", "Time(sec)"};
-    std::string stats[3];
+    std::string strArray[4] = {"Width", "Height", "mask Size", "Time(sec)"};
+    std::string stats[4];
 
     totalTime = setupTime + totalKernelTime;
 
-    stats[0] = sampleCommon->toString(width, std::dec);
-    stats[1] = sampleCommon->toString(height, std::dec);
-    stats[2] = sampleCommon->toString(totalTime, std::dec);
-
-    this->SDKSample::printStats(strArray, stats, 3);
+    stats[0]  = sampleCommon->toString(width    , std::dec);
+    stats[1]  = sampleCommon->toString(height   , std::dec);
+    stats[2]  = sampleCommon->toString(maskWidth, std::dec);
+    stats[3]  = sampleCommon->toString(totalTime, std::dec);
+    
+    this->SDKSample::printStats(strArray, stats, 4);
 }
 
-int Mandelbrot::cleanup()
+int SimpleConvolution::cleanup()
 {
     /* Releases OpenCL resources (Context, Memory etc.) */
     cl_int status;
@@ -666,30 +796,50 @@ int Mandelbrot::cleanup()
         "clReleaseProgram failed."))
         return SDK_FAILURE;
 
-    status = clReleaseMemObject(outputBuffer);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clReleaseMemObject failed."))
-        return SDK_FAILURE;
+   status = clReleaseMemObject(inputBuffer);
+   if(!sampleCommon->checkVal(
+      status,
+      CL_SUCCESS,
+      "clReleaseMemObject failed."))
+      return SDK_FAILURE;
+
+   status = clReleaseMemObject(outputBuffer);
+   if(!sampleCommon->checkVal(
+      status,
+      CL_SUCCESS,
+      "clReleaseMemObject failed."))
+      return SDK_FAILURE;
+
+   status = clReleaseMemObject(maskBuffer);
+   if(!sampleCommon->checkVal(
+      status,
+      CL_SUCCESS,
+      "clReleaseMemObject failed."))
+      return SDK_FAILURE;
 
     status = clReleaseCommandQueue(commandQueue);
-    if(!sampleCommon->checkVal(
+     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseCommandQueue failed."))
         return SDK_FAILURE;
 
     status = clReleaseContext(context);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clReleaseContext failed."))
-        return SDK_FAILURE;
+   if(!sampleCommon->checkVal(
+         status,
+         CL_SUCCESS,
+         "clReleaseContext failed."))
+      return SDK_FAILURE;
 
     /* release program resources (input memory etc.) */
-    if(output) 
+    if(input) 
+        free(input);
+
+   if(output) 
         free(output);
+
+   if(mask) 
+        free(mask);
 
     if(verificationOutput) 
         free(verificationOutput);
@@ -697,26 +847,27 @@ int Mandelbrot::cleanup()
     if(devices)
         free(devices);
 
+   return SDK_SUCCESS;
+}
+
+int 
+main(int argc, char * argv[])
+{
+   SimpleConvolution clSimpleConvolution("OpenCL Simple Convolution");
+
+   if(clSimpleConvolution.initialize()!=SDK_SUCCESS)
+	   return SDK_FAILURE;
+   if(!clSimpleConvolution.parseCommandLine(argc, argv))
+      return SDK_FAILURE;
+   if(clSimpleConvolution.setup()!=SDK_SUCCESS)
+      return SDK_FAILURE;
+   if(clSimpleConvolution.run()!=SDK_SUCCESS)
+      return SDK_FAILURE;
+   if(clSimpleConvolution.verifyResults()!=SDK_SUCCESS)
+      return SDK_FAILURE;
+   if(clSimpleConvolution.cleanup()!=SDK_SUCCESS)
+      return SDK_FAILURE;
+   clSimpleConvolution.printStats();
+
     return SDK_SUCCESS;
-}
-
-cl_uint Mandelbrot::getWidth(void)
-{
-    return width;
-}
-
-cl_uint Mandelbrot::getHeight(void)
-{
-    return height;
-}
-
-
-cl_int * Mandelbrot::getPixels(void)
-{
-    return output;
-}
-
-cl_bool Mandelbrot::showWindow(void)
-{
-    return !quiet;
 }

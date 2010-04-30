@@ -90,8 +90,8 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef MANDELBROT_H_
-#define MANDELBROT_H_
+#ifndef SIMPLECONVOLUTION_H_
+#define SIMPLECONVOLUTION_H_
 
 
 
@@ -108,51 +108,52 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKFile.hpp>
 
 /**
- * Mandelbrot 
- * Class implements OpenCL Mandelbrot sample
+ * SimpleConvolution 
+ * Class implements OpenCL SimpleConvolution sample
  * Derived from SDKSample base class
  */
 
-class Mandelbrot : public SDKSample
+class SimpleConvolution : public SDKSample
 {
-    cl_uint                  seed;       /**< Seed value for random number generation */
-    cl_double           setupTime;       /**< Time for setting up Opencl */
-    cl_double     totalKernelTime;       /**< Time for kernel execution */
-    cl_double    totalProgramTime;       /**< Time for program execution */
-    cl_double referenceKernelTime;       /**< Time for reference implementation */
-    cl_int    *verificationOutput;       /**< Output array from reference implementation */
-    cl_int              scale_int;       /**< for command line arguments */
-    cl_float                scale;       /**< paramters of mandelbrot */
-    cl_uint         maxIterations;       /**< paramters of mandelbrot */
-    cl_context            context;       /**< CL context */
-    cl_device_id         *devices;       /**< CL device list */
-    cl_mem           outputBuffer;       /**< CL memory buffer */
-    cl_command_queue commandQueue;       /**< CL command queue */
-    cl_program            program;       /**< CL program  */
-    cl_kernel              kernel;       /**< CL kernel */
-    cl_int                 width;        /**< width of the output image */
-    cl_int                height;        /**< height of the output image */
-    size_t    kernelWorkGroupSize;       /**< Group Size returned by kernel */
-    int                iterations;       /**< Number of iterations for kernel execution */
+    cl_uint      seed;               /**< Seed value for random number generation */
+    cl_double        setupTime;      /**< Time for setting up OpenCL */
+    cl_double    totalKernelTime;    /**< Time for kernel execution */
+    cl_double    totalProgramTime;   /**< Time for program execution */
+    cl_double    referenceKernelTime;/**< Time for reference implementation */
+    cl_int       width;              /**< Width of the Input array */
+    cl_int       height;             /**< Height of the Input array */
+    cl_uint      *input;             /**< Input array */
+    cl_uint      *output;            /**< Output array */
+    cl_float     *mask;              /**< mask array */
+    cl_uint      maskWidth;          /**< mask dimensions */
+    cl_uint      maskHeight;         /**< mask dimensions */
+    cl_uint      *verificationOutput;/**< Output array for reference implementation */
+    cl_context   context;            /**< CL context */
+    cl_device_id *devices;           /**< CL device list */
+    cl_mem       inputBuffer;        /**< CL memory input buffer */
+    cl_mem       outputBuffer;       /**< CL memory output buffer */
+    cl_mem       maskBuffer;         /**< CL memory mask buffer */
+    cl_command_queue commandQueue;   /**< CL command queue */
+    cl_program   program;            /**< CL program  */
+    cl_kernel    kernel;             /**< CL kernel */
+    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
+    int          iterations;         /**< Number of iterations to execute kernel */
 
-public:
-    cl_int *output;                      /**< Output array */
-
-public:
+    public:
     /** 
      * Constructor 
      * Initialize member variables
      * @param name name of sample (string)
      */
-    Mandelbrot(std::string name)
-        : SDKSample(name)    {
+    SimpleConvolution(std::string name)
+        : SDKSample(name)   {
             seed = 123;
+            input = NULL;
             output = NULL;
+            mask   = NULL;
             verificationOutput = NULL;
-            scale = 3.0f;
-            scale_int = (int)scale;
-            maxIterations = 20;
-            width = 256;
+            width = 64;
+            height = 64;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -163,15 +164,15 @@ public:
      * Initialize member variables
      * @param name name of sample (const char*)
      */
-    Mandelbrot(const char* name)
-        : SDKSample(name)    {
+    SimpleConvolution(const char* name)
+        : SDKSample(name)   {
             seed = 123;
+            input = NULL;
             output = NULL;
-            verificationOutput = NULL;
-            scale = 3.0f;
-            scale_int = (int)scale;
-            maxIterations = 20;
-            width = 256;
+            mask   = NULL;
+            verificationOutput = NULL;      
+            width = 64;
+            height = 64;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -181,7 +182,7 @@ public:
      * Allocate and initialize host memory array with random values
      * @return 1 on success and 0 on failure
      */
-    int setupMandelbrot();
+    int setupSimpleConvolution();
 
     /**
      * OpenCL related initialisations. 
@@ -199,22 +200,23 @@ public:
      */
     int runCLKernels();
 
-
     /**
-     * Mandelbrot image generated with CPU reference implementation
-     * @param verificationOutput mandelbrot images is stored in this
-     * @param mandelbrotImage    mandelbrot images is stored in this
-     * @param scale              Represents the distance from which the fractal 
-     *                           is being seen if this is greater more area and 
-     *                           less detail is seen           
-     * @param maxIterations      More iterations gives more accurate mandelbrot image 
-     * @param width              size of the image 
+     * Reference CPU implementation of Simple Convolution 
+     * for performance comparison
+     * @param output Output matrix after performing convolution
+     * @param input  Input  matrix on which convolution is to be performed
+     * @param mask   mask matrix using which convolution was to be performed
+     * @param inputDimensions dimensions of the input matrix
+     * @param maskDimensions  dimensions of the mask matrix
      */
-    void mandelbrotCPUReference(cl_int * verificationOutput, 
-                                cl_float scale, 
-                                cl_uint maxIterations, 
-                                cl_int width);
-
+    void simpleConvolutionCPUReference(
+            cl_uint  *output,
+            const cl_uint  *input,
+            const cl_float  *mask,
+            const cl_uint  width,
+            const cl_uint  height,
+            const cl_uint maskWidth,
+            const cl_uint maskHeight);
     /**
      * Override from SDKSample. Print sample stats.
      */
@@ -234,7 +236,7 @@ public:
 
     /**
      * Override from SDKSample
-     * Run OpenCL Mandelbrot Sample
+     * Run OpenCL Bitonic Sort
      */
     int run();
 
@@ -249,26 +251,6 @@ public:
      * Verify against reference implementation
      */
     int verifyResults();
-
-    /*
-     * get window Width
-     */
-    cl_uint getWidth(void);
-
-    /*
-     * get window Height
-     */
-    cl_uint getHeight(void);
-    
-    /*
-     * get pixels to be displayed
-     */
-    cl_int * getPixels(void);
-    
-    /*
-     * if showWindow returns true then a window with mandelbrot set is displayed
-     */
-    cl_bool showWindow(void);
 };
 
 

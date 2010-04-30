@@ -89,15 +89,11 @@ jurisdiction and venue of these courts.
 
 ============================================================ */
 
-#define SDK_FAILURE -1
-#define SDK_SUCCESS 0
 
 #include "NBody.hpp"
-#include "GL/glut.h"
+#include<GL/glut.h>
 #include <cmath>
-#include <malloc.h>
-
-#include <iostream> //std::cout
+#include<malloc.h>
 
 int numBodies;      /**< No. of particles*/
 cl_float* pos;      /**< Output position */
@@ -149,14 +145,14 @@ NBody::setupNBody()
     initPos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
     if(initPos == NULL)	
     { 
-        printf("Failed to allocate host memory. (initPos)\n");
+        sampleCommon->error("Failed to allocate host memory. (initPos)");
         return SDK_FAILURE;
     }
 
     initVel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
     if(initVel == NULL)	
     { 
-        printf("Failed to allocate host memory. (initVel)\n");
+        sampleCommon->error("Failed to allocate host memory. (initVel)");
         return SDK_FAILURE;
     }
 
@@ -167,7 +163,7 @@ NBody::setupNBody()
 #endif
     if(pos == NULL)
     { 
-        printf("Failed to allocate host memory. (pos)\n");
+        sampleCommon->error("Failed to allocate host memory. (pos)");
         return SDK_FAILURE;
     }
 
@@ -179,7 +175,7 @@ NBody::setupNBody()
 
     if(vel == NULL)
     { 
-        printf("Failed to allocate host memory. (vel)\n");
+        sampleCommon->error("Failed to allocate host memory. (vel)");
         return SDK_FAILURE;
     }
 
@@ -218,25 +214,41 @@ NBody::setupCL()
 {
     cl_int status = CL_SUCCESS;
 
-    cl_device_type dType = CL_DEVICE_TYPE_CPU;
+    cl_device_type dType;
+
+    if(deviceType.compare("cpu") == 0)
+    {
+        dType = CL_DEVICE_TYPE_CPU;
+    }
+    else //deviceType = "gpu" 
+    {
+        dType = CL_DEVICE_TYPE_GPU;
+    }
+
+    /*
+     * Have a look at the available platforms and pick either
+     * the AMD one if available or a reasonable default.
+     */
 
     cl_uint numPlatforms;
     cl_platform_id platform = NULL;
     status = clGetPlatformIDs(0, NULL, &numPlatforms);
-    if (status != CL_SUCCESS)
+    if(!sampleCommon->checkVal(status,
+                               CL_SUCCESS,
+                               "clGetPlatformIDs failed."))
     {
-		printf("clGetPlatformIDs failed.\n");
         return SDK_FAILURE;
     }
     if (0 < numPlatforms) 
     {
         cl_platform_id* platforms = new cl_platform_id[numPlatforms];
         status = clGetPlatformIDs(numPlatforms, platforms, NULL);
-        if (status != CL_SUCCESS)
-		{
-			printf("clGetPlatformIDs failed.\n");
-			return SDK_FAILURE;
-		}
+        if(!sampleCommon->checkVal(status,
+                                   CL_SUCCESS,
+                                   "clGetPlatformIDs failed."))
+        {
+            return SDK_FAILURE;
+        }
         for (unsigned i = 0; i < numPlatforms; ++i) 
         {
             char pbuf[100];
@@ -246,11 +258,12 @@ NBody::setupCL()
                                        pbuf,
                                        NULL);
 
-            if (status != CL_SUCCESS)
-			{
-				printf("clGetPlatformInfo failed.\n");
-				return SDK_FAILURE;
-			}
+            if(!sampleCommon->checkVal(status,
+                                       CL_SUCCESS,
+                                       "clGetPlatformInfo failed."))
+            {
+                return SDK_FAILURE;
+            }
 
             platform = platforms[i];
             if (!strcmp(pbuf, "Advanced Micro Devices, Inc.")) 
@@ -282,11 +295,13 @@ NBody::setupCL()
         NULL,
         &status);
 
-	if (status != CL_SUCCESS)
-	{
-		printf("clCreateContextFromType failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateContextFromType failed."))
+    {
+        return SDK_FAILURE;
+    }
 
     size_t deviceListSize;
 
@@ -297,17 +312,17 @@ NBody::setupCL()
         0, 
         NULL, 
         &deviceListSize);
-    if (status != CL_SUCCESS)
-	{
-		printf("clGetContextInfo failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status, 
+        CL_SUCCESS,
+        "clGetContextInfo failed."))
+        return SDK_FAILURE;
 
     /* Now allocate memory for device list based on the size we got earlier */
     devices = (cl_device_id*)malloc(deviceListSize);
     if(devices==NULL) {
-        printf("Failed to allocate memory (devices).\n");
-        return -1;
+        sampleCommon->error("Failed to allocate memory (devices).");
+        return SDK_FAILURE;
     }
 
     /* Now, get the device list data */
@@ -317,11 +332,11 @@ NBody::setupCL()
         deviceListSize, 
         devices, 
         NULL);
-	if (status != CL_SUCCESS)
-	{
-		printf("clGetContextInfo failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetContextInfo failed."))
+        return SDK_FAILURE;
 
 
     /* Create command queue */
@@ -332,11 +347,13 @@ NBody::setupCL()
         0,
         &status);
 
-    if (status != CL_SUCCESS)
-	{
-		printf("clCreateCommandQueue failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateCommandQueue failed."))
+    {
+        return SDK_FAILURE;
+    }
 
     /* Get Device specific Information */
     status = clGetDeviceInfo(
@@ -346,11 +363,11 @@ NBody::setupCL()
         (void*)&maxWorkGroupSize,
         NULL);
 
-	if (status != CL_SUCCESS)
-	{
-		printf("clGetDeviceInfo CL_DEVICE_MAX_WORK_GROUP_SIZE failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetDeviceInfo CL_DEVICE_MAX_WORK_GROUP_SIZE failed."))
+        return SDK_FAILURE;
 
 
     status = clGetDeviceInfo(
@@ -360,11 +377,11 @@ NBody::setupCL()
         (void*)&maxDimensions,
         NULL);
 
-	if (status != CL_SUCCESS)
-	{
-		printf("clGetDeviceInfo CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetDeviceInfo CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS failed."))
+        return SDK_FAILURE;
 
 
     maxWorkItemSizes = (size_t*)malloc(maxDimensions * sizeof(size_t));
@@ -376,11 +393,11 @@ NBody::setupCL()
         (void*)maxWorkItemSizes,
         NULL);
 
-	if (status != CL_SUCCESS)
-	{
-		printf("clGetDeviceInfo CL_DEVICE_MAX_WORK_ITEM_SIZES failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetDeviceInfo CL_DEVICE_MAX_WORK_ITEM_SIZES failed."))
+        return SDK_FAILURE;
 
 
     status = clGetDeviceInfo(
@@ -390,11 +407,11 @@ NBody::setupCL()
         (void *)&totalLocalMemory,
         NULL);
 
-	if (status != CL_SUCCESS)
-	{
-		printf("clGetDeviceInfo CL_DEVICE_LOCAL_MEM_SIZE failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetDeviceInfo CL_DEVICE_LOCAL_MEM_SIZE failed."))
+        return SDK_FAILURE;
 
 
     /*
@@ -408,11 +425,13 @@ NBody::setupCL()
         numBodies * sizeof(cl_float4),
         pos,
         &status);
-	if (status != CL_SUCCESS)
-	{
-		printf("clCreateBuffer failed. (updatePos)\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (updatePos)"))
+    {
+        return SDK_FAILURE;
+    }
 
     /* Create memory objects for velocity */
     updatedVel = clCreateBuffer(
@@ -421,17 +440,20 @@ NBody::setupCL()
         numBodies * sizeof(cl_float4),
         vel,
         &status);
-	if (status != CL_SUCCESS)
-	{
-		printf("clCreateBuffer failed. (updatedVel)\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (updatedVel)"))
+    {
+        return SDK_FAILURE;
+    }
 
     /* create a CL program using the kernel source */
-    //std::string kernelPath = sampleCommon->getPath();
-    //kernelPath.append("NBody_Kernels.cl");
-    //kernelFile.open(kernelPath.c_str());
-    const char * source = NULL; //kernelFile.source().c_str();
+    streamsdk::SDKFile kernelFile;
+    std::string kernelPath = sampleCommon->getPath();
+    kernelPath.append("NBody_Kernels.cl");
+    kernelFile.open(kernelPath.c_str());
+    const char * source = kernelFile.source().c_str();
     size_t sourceSize[] = { strlen(source) };
     program = clCreateProgramWithSource(
         context,
@@ -439,11 +461,11 @@ NBody::setupCL()
         &source,
         sourceSize,
         &status);
-	if (status != CL_SUCCESS)
-	{
-		printf("clCreateProgramWithSource failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateProgramWithSource failed."))
+        return SDK_FAILURE;
 
     /* create a cl program executable for all the devices specified */
     status = clBuildProgram(
@@ -466,16 +488,16 @@ NBody::setupCL()
                 buildLogSize, 
                 buildLog, 
                 &buildLogSize);
-			if (status != CL_SUCCESS)
-			{
-				printf("clGetProgramBuildInfo failed.\n");
-				return SDK_FAILURE;
-			}
+            if(!sampleCommon->checkVal(
+                logStatus,
+                CL_SUCCESS,
+                "clGetProgramBuildInfo failed."))
+                return SDK_FAILURE;
 
             buildLog = (char*)malloc(buildLogSize);
             if(buildLog == NULL)
             {
-                printf("Failed to allocate host memory. (buildLog)\n");
+                sampleCommon->error("Failed to allocate host memory. (buildLog)");
                 return SDK_FAILURE;
             }
             memset(buildLog, 0, buildLogSize);
@@ -486,12 +508,14 @@ NBody::setupCL()
                 buildLogSize, 
                 buildLog, 
                 NULL);
-			if (logStatus != CL_SUCCESS)
-			{
-				printf("clGetProgramBuildInfo failed.\n");
+            if(!sampleCommon->checkVal(
+                logStatus,
+                CL_SUCCESS,
+                "clGetProgramBuildInfo failed."))
+            {
                 free(buildLog);
-				return SDK_FAILURE;
-			}
+                return SDK_FAILURE;
+            }
 
             std::cout << " \n\t\t\tBUILD LOG\n";
             std::cout << " ************************************************\n";
@@ -500,11 +524,11 @@ NBody::setupCL()
             free(buildLog);
         }
 
-		if (status != CL_SUCCESS)
-		{
-			printf("clBuildProgram failed.\n");
-			return SDK_FAILURE;
-		}
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clBuildProgram failed."))
+            return SDK_FAILURE;
     }
 
     /* get a kernel object handle for a kernel with the given name */
@@ -512,11 +536,13 @@ NBody::setupCL()
         program,
         "nbody_sim",
         &status);
-	if (status != CL_SUCCESS)
-	{
-		printf("clCreateKernel failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateKernel failed."))
+    {
+        return SDK_FAILURE;
+    }
 
     return SDK_SUCCESS;
 }
@@ -535,11 +561,13 @@ NBody::setupCLKernels()
         0,
         sizeof(cl_mem),
         (void*)&updatedPos);
-	if (status != CL_SUCCESS)
-	{
-		printf("clSetKernelArg failed. (updatedPos)\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedPos)"))
+    {
+        return SDK_FAILURE;
+    }
 
     /* Particle velocity */
     status = clSetKernelArg(
@@ -547,11 +575,13 @@ NBody::setupCLKernels()
         1,
         sizeof(cl_mem),
         (void *)&updatedVel);
-	if (status != CL_SUCCESS)
-	{
-		printf("clSetKernelArg failed. (updatedVel)\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedVel)"))
+    {
+        return SDK_FAILURE;
+    }
 
     /* numBodies */
     status = clSetKernelArg(
@@ -559,11 +589,13 @@ NBody::setupCLKernels()
         2,
         sizeof(cl_int),
         (void *)&numBodies);
-	if (status != CL_SUCCESS)
-	{
-		printf("clSetKernelArg failed. (numBodies)\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (numBodies)"))
+    {
+        return SDK_FAILURE;
+    }
 
     /* time step */
     status = clSetKernelArg(
@@ -571,11 +603,13 @@ NBody::setupCLKernels()
         3,
         sizeof(cl_float),
         (void *)&delT);
-	if (status != CL_SUCCESS)
-	{
-		printf("clSetKernelArg failed. (delT)\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (delT)"))
+    {
+        return SDK_FAILURE;
+    }
 
     /* upward Pseudoprobability */
     status = clSetKernelArg(
@@ -583,11 +617,13 @@ NBody::setupCLKernels()
         4,
         sizeof(cl_float),
         (void *)&espSqr);
-	if (status != CL_SUCCESS)
-	{
-		printf("clSetKernelArg failed. (espSqr)\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (espSqr)"))
+    {
+        return SDK_FAILURE;
+    }
 
 
     /* local memory */
@@ -596,11 +632,13 @@ NBody::setupCLKernels()
         5,
         GROUP_SIZE * 4 * sizeof(float),
         NULL);
-	if (status != CL_SUCCESS)
-	{
-		printf("clSetKernelArg failed. (localPos)\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (localPos)"))
+    {
+        return SDK_FAILURE;
+    }
 
     status = clGetKernelWorkGroupInfo(kernel,
         devices[0],
@@ -608,11 +646,13 @@ NBody::setupCLKernels()
         sizeof(cl_ulong),
         &usedLocalMemory,
         NULL);
-	if (status != CL_SUCCESS)
-	{
-		printf("clGetKernelWorkGroupInfo CL_KERNEL_LOCAL_MEM_SIZE failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetKernelWorkGroupInfo CL_KERNEL_LOCAL_MEM_SIZE failed."))
+    {
+        return SDK_FAILURE;
+    }
 
     if(usedLocalMemory > totalLocalMemory)
     {
@@ -628,11 +668,13 @@ NBody::setupCLKernels()
         sizeof(size_t),
         &kernelWorkGroupSize,
         0);
-	if (status != CL_SUCCESS)
-	{
-		printf("clGetKernelWorkGroupInfo CL_KERNEL_COMPILE_WORK_GROUP_SIZE failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetKernelWorkGroupInfo CL_KERNEL_COMPILE_WORK_GROUP_SIZE failed."))
+    {
+        return SDK_FAILURE;
+    }
 
     if(groupSize > kernelWorkGroupSize)
     {
@@ -677,18 +719,22 @@ NBody::runCLKernels()
         0,
         NULL,
         NULL);
-	if (status != CL_SUCCESS)
-	{
-		printf("clEnqueueNDRangeKernel failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueNDRangeKernel failed."))
+    {
+        return SDK_FAILURE;
+    }
 
     status = clFinish(commandQueue);
-	if (status != CL_SUCCESS)
-	{
-		printf("clFinish failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clFinish failed."))
+    {
+        return SDK_FAILURE;
+    }
 
     /* Enqueue readBuffer*/
     status = clEnqueueReadBuffer(
@@ -701,19 +747,19 @@ NBody::runCLKernels()
         0,
         NULL,
         &events[0]);
-	if (status != CL_SUCCESS)
-	{
-		printf("clEnqueueReadBuffer failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueReadBuffer failed."))
+        return SDK_FAILURE;
 
     /* Wait for the read buffer to finish execution */
     status = clWaitForEvents(1, &events[0]);
-	if (status != CL_SUCCESS)
-	{
-		printf("clWaitForEvents failed.\n");
-		return SDK_FAILURE;
-	}
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clWaitForEvents failed."))
+        return SDK_FAILURE;
 
     clReleaseEvent(events[0]);
 
@@ -766,7 +812,6 @@ int
 NBody::initialize()
 {
     /* Call base class Initialize to get default configuration */
-	/*
     if(!this->SDKSample::initialize())
         return SDK_FAILURE;
 
@@ -785,6 +830,7 @@ NBody::initialize()
 
     sampleArgs->AddOption(num_particles);
     delete num_particles;
+
     streamsdk::Option *num_iterations = new streamsdk::Option;
     if(!num_iterations)
     {
@@ -800,7 +846,6 @@ NBody::initialize()
 
     sampleArgs->AddOption(num_iterations);
     delete num_iterations;
-	*/
 
     return SDK_SUCCESS;
 }
@@ -811,16 +856,16 @@ NBody::setup()
     if(setupNBody() != SDK_SUCCESS)
         return SDK_FAILURE;
 
-//    int timer = sampleCommon->createTimer();
-//    sampleCommon->resetTimer(timer);
-//    sampleCommon->startTimer(timer);
+    int timer = sampleCommon->createTimer();
+    sampleCommon->resetTimer(timer);
+    sampleCommon->startTimer(timer);
 
     if(setupCL() != SDK_SUCCESS)
         return SDK_FAILURE;
 
-//    sampleCommon->stopTimer(timer);
+    sampleCommon->stopTimer(timer);
     /* Compute setup time */
-//    setupTime = (double)(sampleCommon->readTimer(timer));
+    setupTime = (double)(sampleCommon->readTimer(timer));
 
     display = !quiet;
 
@@ -932,23 +977,23 @@ NBody::run()
 
     if(verify || timing)
     {
-//        int timer = sampleCommon->createTimer();
-//        sampleCommon->resetTimer(timer);
-//        sampleCommon->startTimer(timer);
+        int timer = sampleCommon->createTimer();
+        sampleCommon->resetTimer(timer);
+        sampleCommon->startTimer(timer);
 
         for(int i = 0; i < iterations; ++i)
         {
             runCLKernels();
         }
 
-//        sampleCommon->stopTimer(timer);
+        sampleCommon->stopTimer(timer);
         /* Compute kernel time */
-//        kernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
+        kernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
     }
 
     if(!quiet)
     {
-//        sampleCommon->printArray<cl_float>("Output", pos, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output", pos, numBodies, 1);
     }
 
     if(timing)
@@ -973,14 +1018,14 @@ NBody::verifyResults()
         refPos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
         if(refPos == NULL)
         { 
-            printf("Failed to allocate host memory. (refPos)\n");
+            sampleCommon->error("Failed to allocate host memory. (refPos)");
             return SDK_FAILURE;
         }
 
         refVel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
         if(refVel == NULL)
         { 
-            printf("Failed to allocate host memory. (refVel)\n");
+            sampleCommon->error("Failed to allocate host memory. (refVel)");
             return SDK_FAILURE;
         }
 
@@ -1020,14 +1065,14 @@ NBody::printStats()
     };
 
     std::string stats[4];
-//    totalTime = setupTime + kernelTime;
+    totalTime = setupTime + kernelTime;
 
-//    stats[0] = sampleCommon->toString(numParticles, std::dec);
-//    stats[1] = sampleCommon->toString(iterations, std::dec);
-//    stats[2] = sampleCommon->toString(totalTime, std::dec);
-//    stats[3] = sampleCommon->toString(kernelTime, std::dec);
+    stats[0] = sampleCommon->toString(numParticles, std::dec);
+    stats[1] = sampleCommon->toString(iterations, std::dec);
+    stats[2] = sampleCommon->toString(totalTime, std::dec);
+    stats[3] = sampleCommon->toString(kernelTime, std::dec);
 
-//    this->SDKSample::printStats(strArray, stats, 4);
+    this->SDKSample::printStats(strArray, stats, 4);
 }
 
 int
@@ -1037,44 +1082,56 @@ NBody::cleanup()
     cl_int status;
 
     status = clReleaseKernel(kernel);
-    if(status != CL_SUCCESS)
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseKernel failed."))
     {
-        printf("clReleaseKernel failed.\n");
         return SDK_FAILURE;
     }
 
     status = clReleaseProgram(program);
-    if(status != CL_SUCCESS)
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseProgram failed."))
     {
-        printf("clReleaseProgram failed.\n");
         return SDK_FAILURE;
     }
 
     status = clReleaseMemObject(updatedPos);
-    if(status != CL_SUCCESS)
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
     {
-        printf("clReleaseMemObject failed.\n");
         return SDK_FAILURE;
     }
 
     status = clReleaseMemObject(updatedVel);
-    if(status != CL_SUCCESS)
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
     {
-        printf("clReleaseMemObject failed.\n");
         return SDK_FAILURE;
     }
 
     status = clReleaseCommandQueue(commandQueue);
-    if(status != CL_SUCCESS)
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseCommandQueue failed."))
     {
-        printf("clReleaseCommandQueue failed.\n");
         return SDK_FAILURE;
     }
 
     status = clReleaseContext(context);
-    if(status != CL_SUCCESS)
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseContext failed."))
     {
-        printf("clReleaseContext failed.\n");
         return SDK_FAILURE;
     }
 
@@ -1144,13 +1201,13 @@ NBody::~NBody()
 int 
 main(int argc, char * argv[])
 {
-    NBody clNBody;
+    NBody clNBody("OpenCL NBody");
     me = &clNBody;
 
     if(clNBody.initialize() != SDK_SUCCESS)
         return SDK_FAILURE;
-//    if(!clNBody.parseCommandLine(argc, argv))
-//        return SDK_FAILURE;
+    if(!clNBody.parseCommandLine(argc, argv))
+        return SDK_FAILURE;
     if(clNBody.setup() != SDK_SUCCESS)
         return SDK_FAILURE;
     if(clNBody.run() != SDK_SUCCESS)

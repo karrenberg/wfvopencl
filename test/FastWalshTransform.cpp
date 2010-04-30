@@ -90,52 +90,74 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#include "Mandelbrot.hpp"
+#include "FastWalshTransform.hpp"
 
 int 
-Mandelbrot::setupMandelbrot()
+FastWalshTransform::setupFastWalshTransform()
 {
-    cl_uint sizeBytes;
+    cl_uint inputSizeBytes;
 
     /* allocate and init memory used by host */
-    sizeBytes = width * height * sizeof(cl_int);
-    output = (cl_int *) malloc(sizeBytes);
+    inputSizeBytes = length * sizeof(cl_float);
+    input = (cl_float *) malloc(inputSizeBytes);
+    if(input==NULL)    
+    { 
+        sampleCommon->error("Failed to allocate host memory. (input)");
+        return SDK_FAILURE;
+    }
+
+    output = (cl_float *) malloc(inputSizeBytes);
     if(output==NULL)    
     { 
         sampleCommon->error("Failed to allocate host memory. (output)");
         return SDK_FAILURE;
     }
+    
+    /* random initialisation of input */
+    sampleCommon->fillRandom<cl_float>(input, length, 1, 0, 255);
 
     if(verify)
     {
-        verificationOutput = (cl_int *)malloc(sizeBytes);
-        if(verificationOutput==NULL)    
-        { 
-            sampleCommon->error("Failed to allocate host memory. (verificationOutput)");
-            return SDK_FAILURE;
+        verificationInput = (cl_float *) malloc(inputSizeBytes);
+        if(verificationInput==NULL)    { 
+            sampleCommon->error("Failed to allocate host memory. (verificationInput)");
+                return SDK_FAILURE;
         }
-
+        memcpy(verificationInput, input, inputSizeBytes);
     }
+    
+    /* 
+     * Unless quiet mode has been enabled, print the INPUT array.
+     */
+    if(!quiet) 
+    {
+        sampleCommon->printArray<cl_float>(
+            "Input", 
+            input, 
+            length, 
+            1);
+    }
+    
     return SDK_SUCCESS;
 }
 
 int
-Mandelbrot::setupCL(void)
+FastWalshTransform::setupCL(void)
 {
     cl_int status = 0;
     size_t deviceListSize;
 
     cl_device_type dType;
     
-    //if(deviceType.compare("cpu") == 0)
-    //{
+    if(deviceType.compare("cpu") == 0)
+    {
         dType = CL_DEVICE_TYPE_CPU;
-    //}
-    //else //deviceType = "gpu"
-    //{
-        //dType = CL_DEVICE_TYPE_GPU;
-    //}
-    
+    }
+    else //deviceType = "gpu" 
+    {
+        dType = CL_DEVICE_TYPE_GPU;
+    }
+
     /*
      * Have a look at the available platforms and pick either
      * the AMD one if available or a reasonable default.
@@ -205,23 +227,23 @@ Mandelbrot::setupCL(void)
                   NULL,
                   NULL,
                   &status);
-
+ 
     if(!sampleCommon->checkVal(status, 
-                CL_SUCCESS,
-                "clCreateContextFromType failed."))
+                  CL_SUCCESS,
+                  "clCreateContextFromType failed."))
         return SDK_FAILURE;
 
     /* First, get the size of device list data */
     status = clGetContextInfo(
-            context, 
-            CL_CONTEXT_DEVICES, 
-            0, 
-            NULL, 
-            &deviceListSize);
+                 context, 
+                 CL_CONTEXT_DEVICES, 
+                 0, 
+                 NULL, 
+                 &deviceListSize);
     if(!sampleCommon->checkVal(
-                status, 
-                CL_SUCCESS,
-                "clGetContextInfo failed."))
+            status, 
+            CL_SUCCESS,
+            "clGetContextInfo failed."))
         return SDK_FAILURE;
 
     /* Now allocate memory for device list based on the size we got earlier */
@@ -233,15 +255,15 @@ Mandelbrot::setupCL(void)
 
     /* Now, get the device list data */
     status = clGetContextInfo(
-            context, 
-            CL_CONTEXT_DEVICES, 
-            deviceListSize, 
-            devices, 
-            NULL);
+                 context, 
+                 CL_CONTEXT_DEVICES, 
+                 deviceListSize, 
+                 devices, 
+                 NULL);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS, 
-                "clGetGetContextInfo failed."))
+            status,
+            CL_SUCCESS, 
+            "clGetGetContextInfo failed."))
         return SDK_FAILURE;
 
     {
@@ -251,35 +273,35 @@ Mandelbrot::setupCL(void)
             prop |= CL_QUEUE_PROFILING_ENABLE;
 
         commandQueue = clCreateCommandQueue(
-                context, 
-                devices[0], 
-                prop, 
-                &status);
+                           context, 
+                           devices[0], 
+                           prop, 
+                           &status);
         if(!sampleCommon->checkVal(
-                    status,
-                    0,
-                    "clCreateCommandQueue failed."))
+                status,
+                0,
+                "clCreateCommandQueue failed."))
             return SDK_FAILURE;
     }
 
-    outputBuffer = clCreateBuffer(
-            context, 
-            CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR,
-            sizeof(cl_float) * width * height,
-            output, 
-            &status);
+    inputBuffer = clCreateBuffer(
+                      context, 
+                      CL_MEM_READ_WRITE,
+                      sizeof(cl_float) * length,
+                      0, 
+                      &status);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateBuffer failed. (outputBuffer)"))
+            status,
+            CL_SUCCESS,
+            "clCreateBuffer failed. (inputBuffer)"))
         return SDK_FAILURE;
 
     /* create a CL program using the kernel source */
     //streamsdk::SDKFile kernelFile;
     //std::string kernelPath = sampleCommon->getPath();
-    //kernelPath.append("Mandelbrot_Kernels.cl");
+    //kernelPath.append("FastWalshTransform_Kernels.cl");
     //kernelFile.open(kernelPath.c_str());
-    const char * source = "Mandelbrot_Kernels.bc"; //kernelFile.source().c_str();
+    const char * source = "FastWalshTransform_Kernels.bc"; //kernelFile.source().c_str();
     size_t sourceSize[] = { strlen(source) };
     program = clCreateProgramWithSource(
         context,
@@ -292,21 +314,27 @@ Mandelbrot::setupCL(void)
             CL_SUCCESS,
             "clCreateProgramWithSource failed."))
         return SDK_FAILURE;
+    
+    if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clCreateProgramWithBinary failed."))
+        return SDK_FAILURE;
 
     /* create a cl program executable for all the devices specified */
     status = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clBuildProgram failed."))
+            status,
+            CL_SUCCESS,
+            "clBuildProgram failed."))
         return SDK_FAILURE;
 
     /* get a kernel object handle for a kernel with the given name */
-    kernel = clCreateKernel(program, "mandelbrot", &status);
+    kernel = clCreateKernel(program, "fastWalshTransform", &status);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateKernel failed."))
+            status,
+            CL_SUCCESS,
+            "clCreateKernel failed."))
         return SDK_FAILURE;
 
     return SDK_SUCCESS;
@@ -314,7 +342,7 @@ Mandelbrot::setupCL(void)
 
 
 int 
-Mandelbrot::runCLKernels(void)
+FastWalshTransform::runCLKernels(void)
 {
     cl_int   status;
     cl_event events[2];
@@ -322,7 +350,33 @@ Mandelbrot::runCLKernels(void)
     size_t globalThreads[1];
     size_t localThreads[1];
 
-    globalThreads[0] = width*height;
+    /* Enqueue write input to inputBuffer */
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  inputBuffer,
+                                  CL_TRUE,
+                                  0,
+                                  length * sizeof(cl_float),
+                                  input,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+                        status,
+                        CL_SUCCESS, 
+                        "clEnqueueWriteBuffer failed."))
+    {
+        return SDK_FAILURE;
+    }
+    
+
+    /*
+     * The kernel performs a butterfly operation and it runs for half the
+     * total number of input elements in the array.
+     * In each pass of the kernel two corresponding elements are found using
+     * the butterfly operation on an array of numbers and their sum and difference
+     * is stored in the same locations as the numbers
+     */
+    globalThreads[0] = length/2;
     localThreads[0]  = 1;
 
     /* Check group size against kernelWorkGroupSize */
@@ -350,87 +404,68 @@ Mandelbrot::runCLKernels(void)
     }
 
     /*** Set appropriate arguments to the kernel ***/
+    /* the input array - also acts as output*/
     status = clSetKernelArg(
                     kernel, 
                     0, 
-                    sizeof(cl_mem),
-                   (void *)&outputBuffer);
+                    sizeof(cl_mem), 
+                    (void *)&inputBuffer);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (inputBuffer)"))
+            status,
+            CL_SUCCESS,
+            "clSetKernelArg failed. (inputBuffer)"))
         return SDK_FAILURE;
 
-    status = clSetKernelArg(
-                    kernel, 
-                    1, 
-                    sizeof(cl_float), 
-                    (void *)&scale);
-    if(!sampleCommon->checkVal(
+    for(cl_int step = 1; step < length; step<<= 1) 
+    {
+        /* stage of the algorithm */
+        status = clSetKernelArg(
+                        kernel, 
+                        1, 
+                        sizeof(cl_int), 
+                        (void *)&step);
+        if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
-                "clSetKernelArg failed. (scale)"))
-        return SDK_FAILURE;
-
-    status = clSetKernelArg(
-                    kernel, 
-                    2, 
-                    sizeof(cl_uint), 
-                    (void *)&maxIterations);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (maxIterations)"))
-        return SDK_FAILURE;
-
-    /* width - i.e number of elements in the array */
-    status = clSetKernelArg(
-                    kernel, 
-                    3, 
-                    sizeof(cl_int), 
-                    (void *)&width);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (width)"))
-        return SDK_FAILURE;
-
-    /* 
-     * Enqueue a kernel run call.
-     */
-    status = clEnqueueNDRangeKernel(
-            commandQueue,
-            kernel,
-            1,
-            NULL,
-            globalThreads,
-            localThreads,
-            0,
-            NULL,
-            &events[0]);
-
-    if(!sampleCommon->checkVal(
+                "clSetKernelArg failed. (step)"))
+            return SDK_FAILURE;
+        
+        /* Enqueue a kernel run call */
+        status = clEnqueueNDRangeKernel(
+                     commandQueue,
+                     kernel,
+                     1,
+                     NULL,
+                     globalThreads,
+                     localThreads,
+                     0,
+                     NULL,
+                     &events[0]);
+        
+        if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
                 "clEnqueueNDRangeKernel failed."))
-        return SDK_FAILURE;
+            return SDK_FAILURE;
 
-
-    /* wait for the kernel call to finish execution */
-    status = clWaitForEvents(1, &events[0]);
-    if(!sampleCommon->checkVal(
+        
+        /* wait for the kernel call to finish execution */
+        status = clWaitForEvents(1, &events[0]);
+        if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
                 "clWaitForEvents failed."))
-        return SDK_FAILURE;
-    
+            return SDK_FAILURE;
+    }
+
+
     /* Enqueue readBuffer*/
     status = clEnqueueReadBuffer(
                 commandQueue,
-                outputBuffer,
+                inputBuffer,
                 CL_TRUE,
                 0,
-                width * height * sizeof(cl_float),
+                length *  sizeof(cl_float),
                 output,
                 0,
                 NULL,
@@ -448,83 +483,71 @@ Mandelbrot::runCLKernels(void)
     		CL_SUCCESS,
     		"clWaitForEvents failed."))
     	return SDK_FAILURE;
-    
+
     clReleaseEvent(events[1]);
+
     return SDK_SUCCESS;
 }
 
-/**
-* Mandelbrot fractal generated with CPU reference implementation
-*/
+/*
+ * This is the reference implementation of the FastWalsh transform
+ * Here we perform the buttery operation on an array on numbers
+ * to get and pair and a match indices. Their sum and differences are
+ * stored in the corresponding locations and is used in the future
+ * iterations to get a transformed array
+ */
 void 
-Mandelbrot::mandelbrotCPUReference(cl_int * verificationOutput,
-                                   cl_float  mscale, 
-                                   cl_uint maxIter, 
-                                   cl_int w)
-
+FastWalshTransform::fastWalshTransformCPUReference(
+                                cl_float * vinput, 
+                                const cl_uint length)
 {
-    for(cl_int j=0; j < w ; ++j)
-        for(cl_int i=0; i < w; ++i)
+    /* for each pass of the algorithm */
+    for(cl_uint step=1; step < length; step <<=1)
+    {
+        /* length of each block */
+        cl_uint jump = step << 1;
+        /* for each blocks */
+        for(cl_uint group = 0; group < step; ++group)
         {
-            cl_float x0 = ((i*mscale) - (mscale/2*w))/w;
-            cl_float y0 = ((j*mscale) - (mscale/2*w))/w;
-
-            cl_float x = x0;
-            cl_float y = y0;
-
-            cl_float x2 = x*x;
-            cl_float y2 = y*y;
-
-            cl_float scaleSquare= mscale*mscale;
-
-            cl_uint iter=0;
-            for(iter=0; (x2+y2 <= scaleSquare) && (iter < maxIter); ++iter)
+            /* for each pair of elements with in the block */
+            for(cl_uint pair = group; pair < length; pair += jump)
             {
-                y = 2 * x*y + y0;
-                x = x2 - y2   + x0;
-
-                x2 = x*x;
-                y2 = y*y;
+                /* find its partner */
+                cl_uint match = pair + step;
+                
+                cl_float T1 = vinput[pair];
+                cl_float T2 = vinput[match];
+                
+                /* store the sum and difference of the numbers in the same locations */
+                vinput[pair] = T1 + T2;
+                vinput[match] = T1 - T2;
             }
-            verificationOutput[j*w + i] = 255*iter/maxIter;
         }
+    }
 }
 
-int Mandelbrot::initialize()
+int 
+FastWalshTransform::initialize()
 {
     // Call base class Initialize to get default configuration
     if(!this->SDKSample::initialize())
         return SDK_FAILURE;
 
-    streamsdk::Option* image_size = new streamsdk::Option;
-    if(!image_size)
+    // Now add customized options
+    streamsdk::Option* signal_length = new streamsdk::Option;
+    if(!signal_length)
     {
         sampleCommon->error("Memory allocation error.\n");
         return SDK_FAILURE;
     }
     
-    image_size->_sVersion = "x";
-    image_size->_lVersion = "size";
-    image_size->_description = "size of the mandelbrot image";
-    image_size->_type = streamsdk::CA_ARG_INT;
-    image_size->_value = &width;
-    sampleArgs->AddOption(image_size);
-    delete image_size;
-
-    streamsdk::Option* scale_param = new streamsdk::Option;
-    if(!scale_param)
-    {
-        sampleCommon->error("Memory allocation error.\n");
-        return SDK_FAILURE;
-    }
-
-    scale_param->_sVersion = "s";
-    scale_param->_lVersion = "scale";
-    scale_param->_description = "Scaling factor to generate the mandelbrot fractal";
-    scale_param->_type = streamsdk::CA_ARG_INT;
-    scale_param->_value = &scale_int;
-    sampleArgs->AddOption(scale_param);
-    delete scale_param;
+    signal_length->_sVersion = "x";
+    signal_length->_lVersion = "length";
+    signal_length->_description = "Length of input array";
+    signal_length->_type = streamsdk::CA_ARG_INT;
+    signal_length->_value = &length;
+    sampleArgs->AddOption(signal_length);
+    delete signal_length;
 
     streamsdk::Option* num_iterations = new streamsdk::Option;
     if(!num_iterations)
@@ -542,24 +565,20 @@ int Mandelbrot::initialize()
     sampleArgs->AddOption(num_iterations);
     delete num_iterations;
 
+
     return SDK_SUCCESS;
 }
 
-int Mandelbrot::setup()
+int 
+FastWalshTransform::setup()
 {
+    /* make sure the length is the power of 2 */
+    if(!sampleCommon->isPowerOf2(length))
+        length = sampleCommon->roundToPowerOf2(length);
 
-    if(!sampleCommon->isPowerOf2(width))
-        width = sampleCommon->roundToPowerOf2(width);
-
-    height = width;
-
-    scale  = scale_int * 1.0f;
-
-    iterations = 1;
-
-    if(setupMandelbrot()!=SDK_SUCCESS)
+    if(setupFastWalshTransform()!=SDK_SUCCESS)
         return SDK_FAILURE;
-
+    
     int timer = sampleCommon->createTimer();
     sampleCommon->resetTimer(timer);
     sampleCommon->startTimer(timer);
@@ -575,7 +594,8 @@ int Mandelbrot::setup()
 }
 
 
-int Mandelbrot::run()
+int 
+FastWalshTransform::run()
 {
     int timer = sampleCommon->createTimer();
     sampleCommon->resetTimer(timer);
@@ -588,7 +608,7 @@ int Mandelbrot::run()
     for(int i = 0; i < iterations; i++)
     {
         /* Arguments are set and execution call is enqueued on command buffer */
-        if(runCLKernels()!=SDK_SUCCESS)
+        if(runCLKernels() != SDK_SUCCESS)
             return SDK_FAILURE;
     }
 
@@ -596,28 +616,28 @@ int Mandelbrot::run()
     totalKernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
 
     if(!quiet) {
-        sampleCommon->printArray<cl_int>("Output", output, width, 1);
+        sampleCommon->printArray<cl_float>("Output", input, length, 1);
     }
 
     return SDK_SUCCESS;
 }
 
-int Mandelbrot::verifyResults()
+int 
+FastWalshTransform::verifyResults()
 {
-    if(verify)
-    {
+    if(verify) {
         /* reference implementation
          * it overwrites the input array with the output
          */
         int refTimer = sampleCommon->createTimer();
         sampleCommon->resetTimer(refTimer);
         sampleCommon->startTimer(refTimer);
-        mandelbrotCPUReference(verificationOutput, scale, maxIterations, width);
+        fastWalshTransformCPUReference(verificationInput, length);
         sampleCommon->stopTimer(refTimer);
         referenceKernelTime = sampleCommon->readTimer(refTimer);
 
-        // compare the results and see if they match 
-        if(memcmp(output, verificationOutput, width*height*sizeof(cl_int)) == 0)
+        /* compare the results and see if they match */
+        if(sampleCommon->compare(output, verificationInput, length))
         {
             std::cout<<"Passed!\n";
             return SDK_SUCCESS;
@@ -627,27 +647,28 @@ int Mandelbrot::verifyResults()
             std::cout<<"Failed\n";
             return SDK_FAILURE;
         }
-
     }
 
     return SDK_SUCCESS;
 }
 
-void Mandelbrot::printStats()
+void 
+FastWalshTransform::printStats()
 {
-    std::string strArray[3] = {"Width", "Height", "Time(sec)"};
+    std::string strArray[3] = {"Length", "Time(sec)", "kernelTime(sec)"};
     std::string stats[3];
 
-    totalTime = setupTime + totalKernelTime;
+    totalTime = setupTime + totalKernelTime ;
 
-    stats[0] = sampleCommon->toString(width, std::dec);
-    stats[1] = sampleCommon->toString(height, std::dec);
-    stats[2] = sampleCommon->toString(totalTime, std::dec);
+    stats[0] = sampleCommon->toString(length, std::dec);
+    stats[1] = sampleCommon->toString(totalTime, std::dec);
+	stats[2] = sampleCommon->toString(totalKernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 3);
 }
 
-int Mandelbrot::cleanup()
+int 
+FastWalshTransform::cleanup()
 {
     /* Releases OpenCL resources (Context, Memory etc.) */
     cl_int status;
@@ -665,16 +686,16 @@ int Mandelbrot::cleanup()
         CL_SUCCESS,
         "clReleaseProgram failed."))
         return SDK_FAILURE;
-
-    status = clReleaseMemObject(outputBuffer);
+ 
+    status = clReleaseMemObject(inputBuffer);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clReleaseMemObject failed."))
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
         return SDK_FAILURE;
 
     status = clReleaseCommandQueue(commandQueue);
-    if(!sampleCommon->checkVal(
+     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseCommandQueue failed."))
@@ -682,17 +703,17 @@ int Mandelbrot::cleanup()
 
     status = clReleaseContext(context);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clReleaseContext failed."))
+            status,
+            CL_SUCCESS,
+            "clReleaseContext failed."))
         return SDK_FAILURE;
 
     /* release program resources (input memory etc.) */
-    if(output) 
-        free(output);
+    if(input) 
+        free(input);
 
-    if(verificationOutput) 
-        free(verificationOutput);
+    if(verificationInput) 
+        free(verificationInput);
 
     if(devices)
         free(devices);
@@ -700,23 +721,23 @@ int Mandelbrot::cleanup()
     return SDK_SUCCESS;
 }
 
-cl_uint Mandelbrot::getWidth(void)
+int 
+main(int argc, char * argv[])
 {
-    return width;
-}
+    FastWalshTransform clFastWalshTransform("OpenCL FastWalsh Transform");
 
-cl_uint Mandelbrot::getHeight(void)
-{
-    return height;
-}
+    clFastWalshTransform.initialize();
+    if(!clFastWalshTransform.parseCommandLine(argc, argv))
+        return SDK_FAILURE;
+    if(clFastWalshTransform.setup()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clFastWalshTransform.run()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clFastWalshTransform.verifyResults()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clFastWalshTransform.cleanup()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    clFastWalshTransform.printStats();
 
-
-cl_int * Mandelbrot::getPixels(void)
-{
-    return output;
-}
-
-cl_bool Mandelbrot::showWindow(void)
-{
-    return !quiet;
+    return SDK_SUCCESS;
 }
