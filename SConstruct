@@ -2,11 +2,13 @@ import os
 #env = Environment(ENV = {'PATH'            : os.environ['PATH'],
 #						 'LD_LIBRARY_PATH' : os.environ['LD_LIBRARY_PATH']})
 
+# simply clone entire environment
 env = Environment(ENV = os.environ)
 
 env['CC'] = 'clang'
 env['CXX'] = 'clang++'
 
+# TODO: add debug/opt mode
 #cxxflags = env.Split("-O3 -msse2")
 cxxflags = env.Split("-O0 -g -DDEBUG -Wall -pedantic -msse3")
 env.Append(CXXFLAGS = cxxflags)
@@ -14,17 +16,19 @@ env.Append(CXXFLAGS = cxxflags)
 env.Append(CPPPATH = env.Split("-Iinclude"))
 env.Append(LIBPATH = env.Split("-Llib"))
 
-#env.Command(os.path.join(env['ENV']['JITRT_INC'], 'jitRT/llvmWrapper.h'), 'include/jitRT/llvmWrapper.h', "cp $SOURCE $TARGET")
 
 # build SSE OpenCL Driver
 SSEOpenCLDriver = env.Object(target='build/obj/sseOpenCLDriver', source='src/sseOpenCLDriver.cpp')
 
-# build AMD-ATI SDKUtil as a static library
+
+# build AMD-ATI SDKUtil as a static library (required for test applications)
 SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=Split('test/SDKUtil/SDKApplication.cpp test/SDKUtil/SDKBitMap.cpp test/SDKUtil/SDKCommandArgs.cpp test/SDKUtil/SDKCommon.cpp test/SDKUtil/SDKFile.cpp'))
 
+###
+### test applications ###
+###
 
 # build simpleTest
-#env.Append(LIBPATH = env['ENV']['JITRT_LIB'])
 env.Object(target='build/obj/simpleTest', source='test/simpleTest.cpp')
 env.Program(target='build/bin/simpleTest', source=Split('build/obj/simpleTest.o build/obj/sseOpenCLDriver.o'), LIBS=['jitRT'])
 
@@ -81,3 +85,8 @@ env.Command('FastWalshTransform_Kernels.bc', 'FastWalshTransform_Kernels.ll', "l
 
 env.Command('BitonicSort_Kernels.ll', 'test/BitonicSort_Kernels.cl', "clc --msse2 $SOURCE")
 env.Command('BitonicSort_Kernels.bc', 'BitonicSort_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
+
+
+
+#env.Command(os.path.join(env['ENV']['JITRT_INC'], 'jitRT/llvmWrapper.h'), 'include/jitRT/llvmWrapper.h', "cp $SOURCE $TARGET")
+#env.Append(LIBPATH = env['ENV']['JITRT_LIB'])

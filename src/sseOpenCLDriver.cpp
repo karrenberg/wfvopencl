@@ -1246,11 +1246,14 @@ clCreateKernel(cl_program      program,
 		exit(-1);
 	}
 	jitRT::replaceNonContiguousIndexUsage(f, gid, gid_split);
-	//jitRT::printFunction(f);
 	SSE_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 
 	// packetize scalar function into SIMD function
+	SSE_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(f, "scalar.ll"); );
 	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, false);
+	f_SIMD = jitRT::getFunction(kernel_simd_name, module); //pointer not valid anymore!
+	program->function_SIMD = f_SIMD;
+	SSE_OPENCL_DRIVER_DEBUG( jitRT::printFunction(f_SIMD); );
 	SSE_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 
 	strs2 << "_wrapper";
@@ -1278,6 +1281,7 @@ clCreateKernel(cl_program      program,
 	jitRT::optimizeFunction(wrapper_fn);
 	//SSE_OPENCL_DRIVER_DEBUG( jitRT::printFunction(wrapper_fn); );
 	SSE_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	SSE_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(wrapper_fn, "wrapper.ll"); );
 
 	program->function_wrapper = wrapper_fn;
 
