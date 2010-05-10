@@ -8,18 +8,18 @@
  *
  * This file is part of sseOpenCLDriver.
  *
- * jitRT is free software: you can redistribute it and/or modify
+ * sseOpenCLDriver is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * jitRT is distributed in the hope that it will be useful,
+ * sseOpenCLDriver is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with jitRT.  If not, see <http://www.gnu.org/licenses/>.
+ * along with sseOpenCLDriver.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
 #include <assert.h>
@@ -330,33 +330,33 @@ namespace {
 			return false;
 		}
 
-		jitRT::Packetizer* packetizer = jitRT::getPacketizer(use_sse41, verbose);
-		jitRT::addFunctionToPacketizer(
+		Packetizer::Packetizer* packetizer = Packetizer::getPacketizer(use_sse41, verbose);
+		Packetizer::addFunctionToPacketizer(
 				packetizer,
 				kernelName,
 				targetKernelName,
 				packetizationSize);
 
-		jitRT::addNativeFunctionToPacketizer(
+		Packetizer::addNativeFunctionToPacketizer(
 				packetizer,
 				"get_global_id",
 				-1,
 				jitRT::getFunction("get_global_id", mod),
 				true); // although call does not return packet, packetize everything that depends on it!
-		jitRT::addNativeFunctionToPacketizer(
+		Packetizer::addNativeFunctionToPacketizer(
 				packetizer,
 				"get_global_id_split",
 				-1,
 				jitRT::getFunction("get_global_id_SIMD", mod),
 				true); // packetization is mandatory
-		jitRT::addNativeFunctionToPacketizer(
+		Packetizer::addNativeFunctionToPacketizer(
 				packetizer,
 				"get_local_id",
 				-1,
 				jitRT::getFunction("get_local_id_SIMD", mod),
 				true); // packetization is mandatory
 
-		jitRT::runPacketizer(packetizer, mod);
+		Packetizer::runPacketizer(packetizer, mod);
 
 		if (!jitRT::getFunction(targetKernelName, mod)) {
 			std::cerr << "ERROR: packetized target function not found in"

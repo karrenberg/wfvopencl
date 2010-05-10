@@ -25,12 +25,43 @@
 #ifndef _LLVMWRAPPER_H
 #define	_LLVMWRAPPER_H
 
-#include "packetizerConfig.h"
-
 #include <string>
 #include <vector>
 #include <set>
 #include <map>
+
+//----------------------------------------------------------------------------//
+// necessary definitions for library compilation
+//----------------------------------------------------------------------------//
+
+#if defined(_WIN32)
+
+    #if !defined(JITRT_STATIC_LIBS)
+        #define JITRT_DLL_EXPORT __declspec(dllexport)
+        #define JITRT_DLL_IMPORT __declspec(dllimport)
+    #else
+        #define JITRT_DLL_EXPORT
+        #define JITRT_DLL_IMPORT
+    #endif
+
+#else
+
+    // POSIX, etc.
+    #define JITRT_DLL_EXPORT
+    #define JITRT_DLL_IMPORT
+
+#endif
+
+
+// move this if necessary into a separate config file
+#if defined(JITRT_LIB)
+    #define JITRT_API JITRT_DLL_EXPORT
+#else
+    #define JITRT_API JITRT_DLL_IMPORT
+#endif
+
+//----------------------------------------------------------------------------//
+//----------------------------------------------------------------------------//
 
 //forward declarations
 namespace llvm {
@@ -209,7 +240,9 @@ namespace jitRT {
 	//languageIntegration
 	JITRT_API void resolveThreadedRSLCode(llvm::Module* shader, const llvm::Module* runtime, const llvm::Module* glue, std::map<std::string, const llvm::Type*>& typeMap, std::map<const std::string, const unsigned>& textureMap, const bool use_common_org, const bool use_derivatives, const bool packetize, const bool use_sse41);
 
-    //llvmPacketization
+} //namespace jitRT
+
+namespace Packetizer {
     class Packetizer;
     JITRT_API Packetizer* getPacketizer(const bool use_sse41, const bool verbose=false);
     JITRT_API void addFunctionToPacketizer(Packetizer* packetizer, const std::string& functionName, const std::string& newName, const unsigned packetizationSize);
@@ -217,7 +250,8 @@ namespace jitRT {
     JITRT_API void runPacketizer(Packetizer* packetizer, llvm::Module* mod);
     JITRT_API void packetize(const unsigned packetizationSize, const std::string& functionName, const std::string& newName, llvm::Module* mod);
     JITRT_API void packetize(const unsigned packetizationSize, std::map<const std::string, const std::string>& functionNameMap, llvm::Module* mod);
-} //namespace jitRT
+}
+
 
 #endif	/* _LLVMWRAPPER_H */
 
