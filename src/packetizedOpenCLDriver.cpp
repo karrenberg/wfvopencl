@@ -440,7 +440,7 @@ namespace {
 
 
 ///////////////////////////////////////////////////////////////////////////
-//                SSE OpenCL Internal Data Structures                    //
+//             Packetized OpenCL Internal Data Structures                //
 ///////////////////////////////////////////////////////////////////////////
 
 struct _cl_platform_id {};
@@ -718,7 +718,7 @@ struct _cl_event {
 
 
 ///////////////////////////////////////////////////////////////////////////
-//                 SSE OpenCL Driver Implementation                      //
+//              Packetized OpenCL Driver Implementation                  //
 ///////////////////////////////////////////////////////////////////////////
 
 /* Platform API */
@@ -751,7 +751,7 @@ clGetPlatformInfo(cl_platform_id   platform,
 			if (param_value) param_value = (void*)"FULL_PROFILE"; //or "EMBEDDED_PROFILE"
 			break;
 		case CL_PLATFORM_VERSION:
-			if (param_value) param_value = (void*)"OpenCL 1.0 SSE OPENCL DRIVER";
+			if (param_value) param_value = (void*)"OpenCL 1.0 PACKETIZED OPENCL DRIVER";
 			break;
 		case CL_PLATFORM_NAME:
 			if (param_value) param_value = (void*)"cpu";
@@ -1263,7 +1263,7 @@ clCreateKernel(cl_program      program,
 
 #endif
 
-	// link runtime calls (e.g. get_global_id()) to SSE OpenCL Runtime
+	// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
 	__resolveRuntimeCalls(module);
 
 	// save wrapper function in _cl_program object
@@ -1278,7 +1278,7 @@ clCreateKernel(cl_program      program,
 	jitRT::inlineFunctionCalls(wrapper_fn);
 	// optimize wrapper with inlined kernel
 	jitRT::optimizeFunction(wrapper_fn);
-	//SSE_OPENCL_DRIVER_DEBUG( jitRT::printFunction(wrapper_fn); );
+	//PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::printFunction(wrapper_fn); );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(wrapper_fn, "wrapper.ll"); );
 
