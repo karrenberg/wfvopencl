@@ -24,46 +24,36 @@ __kernel void simpleConvolution(__global  uint  * output,
     uint x      = tid%width;
     uint y      = tid/width;
     
-    //uint maskWidth  = maskDimensions.x;
-    //uint maskHeight = maskDimensions.y;
+    uint maskWidth  = maskDimensions.x;
+    uint maskHeight = maskDimensions.y;
     
-    //uint vstep = (maskWidth  -1)/2;
-    //uint hstep = (maskHeight -1)/2;
+    uint vstep = (maskWidth  -1)/2;
+    uint hstep = (maskHeight -1)/2;
     
     /*
      * find the left, right, top and bottom indices such that
      * the indices do not go beyond image boundaires
      */
-    //uint left    = (x           <  vstep) ? 0         : (x - vstep);
-    //uint right   = ((x + vstep) >= width) ? width - 1 : (x + vstep);
-    //uint top     = (y           <  hstep) ? 0         : (y - hstep);
-    //uint bottom  = ((y + hstep) >= height)? height - 1: (y + hstep);
-    uint left    = x;
-    uint right   = y;
-    uint top     = 0;
-    uint bottom  = 1;
+    uint left    = (x           <  vstep) ? 0         : (x - vstep);
+    uint right   = ((x + vstep) >= width) ? width - 1 : (x + vstep);
+    uint top     = (y           <  hstep) ? 0         : (y - hstep);
+    uint bottom  = ((y + hstep) >= height)? height - 1: (y + hstep);
     
     /*
      * initializing wighted sum value
      */
     float sumFX = 0;
 
-	uint i = x;
-	//uint j = y;
-    //for(uint i = left; i <= right; ++i)
+    for(uint i = left; i <= right; ++i)
         for(uint j = top ; j <= bottom; ++j)
         {
             /*
              * performing wighted sum within the mask boundaries
              */
-            //uint maskIndex = (j - (y - hstep)) * maskWidth  + (i - (x - vstep));
-            //uint index     = j                 * width      + i;
-            uint maskIndex = i;
-            uint index     = j;
+            uint maskIndex = (j - (y - hstep)) * maskWidth  + (i - (x - vstep));
+            uint index     = j                 * width      + i;
 
             sumFX += ((float)input[index] * mask[maskIndex]);
-            //sumFX += (float)input[index];
-            //sumFX += mask[maskIndex];
         }
     /* 
      *To round to the nearest integer

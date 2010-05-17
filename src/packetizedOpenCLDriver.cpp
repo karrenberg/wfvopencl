@@ -1,25 +1,25 @@
 /**
- * @file   sseOpenCLDriver.cpp
+ * @file   packetizedOpenCLDriver.cpp
  * @date   14.04.2010
  * @author Ralf Karrenberg
  *
  *
  * Copyright (C) 2010 Saarland University
  *
- * This file is part of sseOpenCLDriver.
+ * This file is part of packetizedOpenCLDriver.
  *
- * sseOpenCLDriver is free software: you can redistribute it and/or modify
+ * packetizedOpenCLDriver is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * sseOpenCLDriver is distributed in the hope that it will be useful,
+ * packetizedOpenCLDriver is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with sseOpenCLDriver.  If not, see <http://www.gnu.org/licenses/>.
+ * along with packetizedOpenCLDriver.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
 #include <assert.h>
@@ -38,12 +38,12 @@
 #endif
 
 // debug output
-//#define SSE_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
-#define SSE_OPENCL_DRIVER_DEBUG(x)
+//#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+#define PACKETIZED_OPENCL_DRIVER_DEBUG(x)
 
-//#define SSE_OPENCL_DRIVER_USE_CLC_WRAPPER
+//#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
 
-//#define SSE_OPENCL_DRIVER_NO_PACKETIZATION
+#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
 #ifdef __cplusplus
 extern "C" {
@@ -121,7 +121,7 @@ namespace {
 	}
 
 
-#ifdef SSE_OPENCL_DRIVER_NO_PACKETIZATION
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
 	// scalar implementation
 	//
@@ -403,7 +403,7 @@ namespace {
 				jitRT::getFunction("get_group_id", mod),
 				(void*)get_group_id));
 
-#ifdef SSE_OPENCL_DRIVER_NO_PACKETIZATION
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		funs.push_back(std::make_pair(
 				jitRT::getFunction("get_local_id", mod),
 				(void*)get_local_id));
@@ -837,7 +837,7 @@ clRetainContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseContext()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseContext()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -848,7 +848,7 @@ clGetContextInfo(cl_context         context,
                  void *             param_value,
                  size_t *           param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clGetContextInfo()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clGetContextInfo()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -880,7 +880,7 @@ clRetainCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseCommandQueue()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseCommandQueue()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -929,7 +929,7 @@ clCreateBuffer(cl_context   context,
 	if (host_ptr && !(flags & CL_MEM_USE_HOST_PTR) & !(flags & CL_MEM_COPY_HOST_PTR)) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
 
 	_cl_mem* mem = new _cl_mem(context, size, host_ptr ? host_ptr : malloc(size));
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nclCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nclCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
 
 	if (errcode_ret) *errcode_ret = CL_SUCCESS;
 	return mem;
@@ -975,7 +975,7 @@ clRetainMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseMemObject()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseMemObject()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1096,7 +1096,7 @@ clRetainProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseProgram()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseProgram()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1128,7 +1128,7 @@ clBuildProgram(cl_program           program,
 	//TODO: read .cl representation, invoke clc, invoke llvm-as
 	// alternative: link libClang and use it directly from here :)
 
-	//llvm::Module* mod = jitRT::createModuleFromFile("sseOpenCL.tmp.mod.bc");
+	//llvm::Module* mod = jitRT::createModuleFromFile("packetizedOpenCL.tmp.mod.bc");
 
 	//FIXME: hardcoded for testing ;)
 	llvm::Module* mod = jitRT::createModuleFromFile(program->fileName);
@@ -1197,9 +1197,9 @@ clCreateKernel(cl_program      program,
 
 	program->function = f;
 
-#ifdef SSE_OPENCL_DRIVER_NO_PACKETIZATION
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
-	#ifdef SSE_OPENCL_DRIVER_USE_CLC_WRAPPER
+	#ifdef PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
 	// USE CLC-GENERATED WRAPPER
 	//
 	std::stringstream strs2;
@@ -1246,21 +1246,20 @@ clCreateKernel(cl_program      program,
 		exit(-1);
 	}
 	jitRT::replaceNonContiguousIndexUsage(f, gid, gid_split);
-	SSE_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 
 	// packetize scalar function into SIMD function
-	SSE_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(f, "scalar.ll"); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(f, "scalar.ll"); );
 	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, false);
 	f_SIMD = jitRT::getFunction(kernel_simd_name, module); //pointer not valid anymore!
 	program->function_SIMD = f_SIMD;
-	SSE_OPENCL_DRIVER_DEBUG( jitRT::printFunction(f_SIMD); );
-	SSE_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 
 	strs2 << "_wrapper";
 	const std::string wrapper_name = strs2.str();
 
 	__generateKernelWrapper(wrapper_name, f_SIMD, module);
-	SSE_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 
 #endif
 
@@ -1280,8 +1279,8 @@ clCreateKernel(cl_program      program,
 	// optimize wrapper with inlined kernel
 	jitRT::optimizeFunction(wrapper_fn);
 	//SSE_OPENCL_DRIVER_DEBUG( jitRT::printFunction(wrapper_fn); );
-	SSE_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
-	SSE_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(wrapper_fn, "wrapper.ll"); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(wrapper_fn, "wrapper.ll"); );
 
 	program->function_wrapper = wrapper_fn;
 
@@ -1327,7 +1326,7 @@ clRetainKernel(cl_kernel    kernel) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseKernel(cl_kernel   kernel) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseKernel()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseKernel()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1337,7 +1336,7 @@ clSetKernelArg(cl_kernel    kernel,
                size_t       arg_size,
                const void * arg_value) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nclSetKernelArg(" << arg_index << ", " << arg_size << ")\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nclSetKernelArg(" << arg_index << ", " << arg_size << ")\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (arg_index > kernel->get_num_args()) return CL_INVALID_ARG_INDEX;
 	const bool is_local = kernel->arg_is_local(arg_index);
@@ -1350,28 +1349,37 @@ clSetKernelArg(cl_kernel    kernel,
 	// NOTE: We have to check what kind of argument this index is.
 	//       We must not access arg_value as a _cl_mem** if it is e.g. an unsigned int
 	// -> all handled by _cl_kernel_arg
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "function argument:\n"; );
 	_cl_program* program = kernel->get_program();
+	jitRT::verifyModule(program->module);
 	const llvm::Function* f = program->function;
 	const llvm::Type* argType = jitRT::getArgumentType(f, arg_index);
 	const size_t arg_size_bytes = jitRT::getTypeSizeInBits(program->context->targetData, argType) / 8;
 	const cl_uint address_space = __convertLLVMAddressSpace(jitRT::getAddressSpace(argType));
 
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "argument " << arg_index << "\n"; );
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "  size per element: " << arg_size_bytes << "\n"; );
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "  memory address: " << arg_value << "\n"; );
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "  addrspace: "; );
-	SSE_OPENCL_DRIVER_DEBUG( if (address_space == CL_PRIVATE) std::cout << "CL_PRIVATE\n"; );
-	SSE_OPENCL_DRIVER_DEBUG( if (address_space == CL_GLOBAL) std::cout << "CL_GLOBAL\n"; );
-	SSE_OPENCL_DRIVER_DEBUG( if (address_space == CL_LOCAL) std::cout << "CL_LOCAL\n"; );
-	SSE_OPENCL_DRIVER_DEBUG( if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "function argument:\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "argument " << arg_index << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "  size per element: " << arg_size_bytes << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "  memory address: " << arg_value << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "  addrspace: "; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_PRIVATE) std::cout << "CL_PRIVATE\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_GLOBAL) std::cout << "CL_GLOBAL\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_LOCAL) std::cout << "CL_LOCAL\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n"; );
 
-#ifdef SSE_OPENCL_DRIVER_NO_PACKETIZATION
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	const bool arg_uniform = true; // no packetization = no need for uniform/varying
 #else
 	// save info if argument is uniform or varying
 	// TODO: implement in packetizer directly
 	// HACK: if types match, they are considered uniform, varying otherwise
+	jitRT::writeModuleToFile(program->module, "mod.ll");
+//	const std::string fname = jitRT::getFunctionName(program->function_SIMD);
+//	std::cout << "\n---------------------------------------------\n";
+//	std::cout << "Function name: " << fname << "\n";
+//	std::cout << "\n---------------------------------------------\n";
+
+
+	jitRT::verifyModule(program->module);
 	const llvm::Function* f_SIMD = program->function_SIMD;
 	const llvm::Type* argType_SIMD = jitRT::getArgumentType(f_SIMD, arg_index);
 	const bool arg_uniform = argType == argType_SIMD;
@@ -1382,7 +1390,7 @@ clSetKernelArg(cl_kernel    kernel,
 		//       is always a scalar (the user's host program is not changed)!
 		// NOTE: This case would mean there are values that change for each thread in a group
 		//       but that is the same for the ith thread of any group.
-		std::cerr << "ERROR: packet function must not use non-pointer varying arguments!\n";
+		std::cerr << "ERROR: packet function must not use varying, non-pointer agument!\n";
 		return CL_INVALID_ARG_SIZE;
 	}
 #endif
@@ -1429,7 +1437,7 @@ CL_API_ENTRY cl_int CL_API_CALL
 clWaitForEvents(cl_uint             num_events,
                 const cl_event *    event_list) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clWaitForEvents()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clWaitForEvents()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1454,7 +1462,7 @@ clRetainEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 {
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseEvent()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseEvent()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1699,6 +1707,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
                        const cl_event * event_wait_list,
                        cl_event *       event) CL_API_SUFFIX__VERSION_1_0
 {
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nclEnqueueNDRangeKernel()\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (command_queue->context != kernel->get_context()) return CL_INVALID_CONTEXT;
@@ -1711,8 +1720,6 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	if (global_work_offset) return CL_INVALID_GLOBAL_OFFSET; // see specification p.111
 	if (!event_wait_list && num_events_in_wait_list > 0) return CL_INVALID_EVENT_WAIT_LIST;
 	if (event_wait_list && num_events_in_wait_list == 0) return CL_INVALID_EVENT_WAIT_LIST;
-
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nclEnqueueNDRangeKernel()\n"; );
 
 	//
 	// set up runtime
@@ -1737,9 +1744,9 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	// allocate memory for the struct
 	// TODO: do we have to care about type padding?
 	void* argument_struct = malloc(arg_str_size);
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "address of argument-struct: " << argument_struct << "\n"; );
-	SSE_OPENCL_DRIVER_DEBUG(
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "address of argument-struct: " << argument_struct << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG(
 		const llvm::Type* argType = jitRT::getArgumentType(kernel->get_program()->function_wrapper, 0);
 		std::cout << "LLVM type: "; std::flush(std::cout); jitRT::printType(argType);
 		const llvm::Type* sType = jitRT::getContainedType(argType, 0); // get size of struct, not of pointer to struct
@@ -1754,16 +1761,16 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			? (kernel->arg_get_data(i))
 			: (*(const _cl_mem**)kernel->arg_get_data(i))->get_data(); // TODO: use kernel->get_data_raw(i)
 		const size_t data_size = kernel->arg_get_element_size(i);
-		SSE_OPENCL_DRIVER_DEBUG( std::cout << "  argument " << i << "\n"; );
-		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    size: " << data_size << " bytes\n"; );
-		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    data: " << data << "\n"; );
-		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    pos : " << (void*)cur_pos << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "  argument " << i << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "    size: " << data_size << " bytes\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "    data: " << data << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "    pos : " << (void*)cur_pos << "\n"; );
 		memcpy(cur_pos, &data, data_size);
 		current_size += data_size;
-		SSE_OPENCL_DRIVER_DEBUG( std::cout << "    new size : " << current_size << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "    new size : " << current_size << "\n"; );
 
 	}
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "copying of arguments finished.\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "copying of arguments finished.\n"; );
 
 	void* fnPtr = kernel->get_compiled_function();
 	typedef void (*kernelFnPtr)(void*);
@@ -1772,10 +1779,10 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	//
 	// execute the kernel
 	//
-#ifdef SSE_OPENCL_DRIVER_NO_PACKETIZATION
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	//this is not correct, global_work_size is an array of size of the number of dimensions!
 	const size_t num_iterations = *global_work_size; // = total # threads
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
 
 	for (unsigned i=0; i<num_iterations; ++i) {
 		// update runtime environment
@@ -1785,15 +1792,15 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		setCurrentLocal(work_dim-1, i % 4);
 
 
-		SSE_OPENCL_DRIVER_DEBUG(
+		PACKETIZED_OPENCL_DRIVER_DEBUG(
 			//hardcoded debug output for simpleTest
 			typedef struct { float* input; float* output; unsigned count; } tt;
 			std::cout << "\niteration " << i << "\n";
 			std::cout << "  global id: " << get_global_id(work_dim-1) << "\n";
 			std::cout << "  local id: " << get_local_id(work_dim-1) << "\n";
 			std::cout << "  group id: " << get_group_id(work_dim-1) << "\n";
-			std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
-			std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
+			//std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
+			//std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
 			//std::cout << "  input : " << ((tt*)argument_struct)->input[i] << "\n";
 			//std::cout << "  output: " << ((tt*)argument_struct)->output[i] << "\n";
 			//std::cout << "  count : " << ((tt*)argument_struct)->count << "\n";
@@ -1802,17 +1809,17 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		// call kernel
 		typedPtr(argument_struct);
 
-		SSE_OPENCL_DRIVER_DEBUG(
+		PACKETIZED_OPENCL_DRIVER_DEBUG(
 			//hardcoded debug output
-			typedef struct { float* input; float* output; unsigned count; } tt;
+			//typedef struct { float* input; float* output; unsigned count; } tt;
 			//std::cout << "  result: " << ((tt*)argument_struct)->output[i] << "\n";
 		);
 	}
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
 #else
 	const size_t num_iterations = *global_work_size / 4; //*local_work_size; // = #groups
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "global_size: " << get_global_size(0) << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "global_size(0): " << get_global_size(0) << "\n"; );
 
 	for (unsigned i=0; i<num_iterations; ++i) {
 		// update runtime environment
@@ -1822,7 +1829,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		setCurrentLocal(work_dim-1, _mm_set_epi32(3, 2, 1, 0)); // ??
 		//setCurrentLocal(work_dim-1, _mm_set_epi32(0, 1, 2, 3)); // ??
 
-		SSE_OPENCL_DRIVER_DEBUG(
+		PACKETIZED_OPENCL_DRIVER_DEBUG(
 			std::cout << "\niteration " << i << "\n";
 			std::cout << "  current global: " << i << "\n";
 			std::cout << "  get_global_id: " << get_global_id(0) << "\n";
@@ -1836,28 +1843,47 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			//std::cout << "  input: " << ((float*)&in)[0] << " " << ((float*)&in)[1] << " " << ((float*)&in)[2] << " " << ((float*)&in)[3] << "\n";
 
 			//hardcoded debug output for mandelbrot
-			typedef struct { __m128* output; float scale; unsigned maxit; int width; } tt;
-			std::cout << "  output-addr : " << ((tt*)argument_struct)->output << "\n";
-			std::cout << "  scale : " << ((tt*)argument_struct)->scale << "\n";
-			std::cout << "  maxit : " << ((tt*)argument_struct)->maxit << "\n";
-			std::cout << "  width : " << ((tt*)argument_struct)->width << "\n";
+			//typedef struct { __m128i* output; float scale; unsigned maxit; int width; } tt;
+			//std::cout << "  output-addr : " << ((tt*)argument_struct)->output << "\n";
+			//std::cout << "  scale : " << ((tt*)argument_struct)->scale << "\n";
+			//std::cout << "  maxit : " << ((tt*)argument_struct)->maxit << "\n";
+			//std::cout << "  width : " << ((tt*)argument_struct)->width << "\n";
+
+			//hardcoded debug output for fastwalshtransform
+			typedef struct { __m128* output; unsigned step; } tt;
+			std::cout << "  output-addr     : " << ((tt*)argument_struct)->output << "\n";
+			std::cout << "  step : " << ((tt*)argument_struct)->step << "\n";
 		);
+		_cl_program* program = kernel->get_program();
+		jitRT::verifyModule(program->module);
+		std::cout << "  verification before execution successful!\n";
 
 		// call kernel
 		typedPtr(argument_struct);
 
-		SSE_OPENCL_DRIVER_DEBUG(
-			//hardcoded debug output
+		PACKETIZED_OPENCL_DRIVER_DEBUG(
+			//hardcoded debug output for simpleTest
 			//typedef struct { __m128* input; __m128* output; unsigned count; } tt; // simpleTest
 			//const __m128 res = ((tt*)argument_struct)->output[i];
 			//std::cout << "  result: " << ((float*)&res)[0] << " " << ((float*)&res)[1] << " " << ((float*)&res)[2] << " " << ((float*)&res)[3] << "\n";
 
-			typedef struct { __m128i* output; float scale; unsigned maxit; int width; } tt; // mandelbrot
-			const __m128i res = ((tt*)argument_struct)->output[i];
-			std::cout << "  result: " << ((int*)&res)[0] << " " << ((int*)&res)[1] << " " << ((int*)&res)[2] << " " << ((int*)&res)[3] << "\n";
+			//hardcoded debug output for mandelbrot
+			//typedef struct { __m128i* output; float scale; unsigned maxit; int width; } tt;
+			//const __m128i res = ((tt*)argument_struct)->output[i];
+			//std::cout << "  result: " << ((int*)&res)[0] << " " << ((int*)&res)[1] << " " << ((int*)&res)[2] << " " << ((int*)&res)[3] << "\n";
+
+			//hardcoded debug output for fastwalshtransform
+			typedef struct { __m128* output; unsigned step; } tt;
+			const __m128 res = ((tt*)argument_struct)->output[i];
+			std::cout << "  result: " << ((float*)&res)[0] << " " << ((float*)&res)[1] << " " << ((float*)&res)[2] << " " << ((float*)&res)[3] << "\n";
 		);
+
+		std::cout << "  iteration " << i << " finished!\n";
+		jitRT::verifyModule(program->module);
+		std::cout << "  verification after execution successful!\n";
 	}
-	SSE_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
+	
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nexecution of kernel finished!\n"; );
 #endif
 
 	return CL_SUCCESS;

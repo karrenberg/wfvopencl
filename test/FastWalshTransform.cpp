@@ -418,6 +418,9 @@ FastWalshTransform::runCLKernels(void)
 
     for(cl_int step = 1; step < length; step<<= 1) 
     {
+//		printf("\n=============================================================\n");
+//		printf("step = %d\n", step);
+//		printf("=============================================================\n");
         /* stage of the algorithm */
         status = clSetKernelArg(
                         kernel, 
@@ -429,6 +432,8 @@ FastWalshTransform::runCLKernels(void)
                 CL_SUCCESS,
                 "clSetKernelArg failed. (step)"))
             return SDK_FAILURE;
+
+//		printf("\n#### kernel argument updated! ####\n");
         
         /* Enqueue a kernel run call */
         status = clEnqueueNDRangeKernel(
@@ -441,14 +446,13 @@ FastWalshTransform::runCLKernels(void)
                      0,
                      NULL,
                      &events[0]);
-        
+
         if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
                 "clEnqueueNDRangeKernel failed."))
             return SDK_FAILURE;
 
-        
         /* wait for the kernel call to finish execution */
         status = clWaitForEvents(1, &events[0]);
         if(!sampleCommon->checkVal(
@@ -456,6 +460,8 @@ FastWalshTransform::runCLKernels(void)
                 CL_SUCCESS,
                 "clWaitForEvents failed."))
             return SDK_FAILURE;
+
+//		printf("\n#### kernels finished! ####\n");
     }
 
 
@@ -521,6 +527,13 @@ FastWalshTransform::fastWalshTransformCPUReference(
                 /* store the sum and difference of the numbers in the same locations */
                 vinput[pair] = T1 + T2;
                 vinput[match] = T1 - T2;
+//				printf("step : %d\n", step);
+//				printf("pair : %d\n", pair);
+//				printf("match: %d\n", match);
+//				printf("in[pair]  : %f\n", T1);
+//				printf("in[match] : %f\n", T2);
+//				printf("out[pair] : %f\n", T1+T2);
+//				printf("out[match]: %f\n", T1-T2);
             }
         }
     }
