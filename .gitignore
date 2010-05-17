@@ -1,3 +1,7 @@
 *.bc
 *.ll
 build/
+*.o
+*.so
+*.a
+.sconsign.dblite
