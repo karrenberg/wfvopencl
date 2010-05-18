@@ -90,8 +90,8 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef SIMPLECONVOLUTION_H_
-#define SIMPLECONVOLUTION_H_
+#ifndef FLOYDWARSHALL_H_
+#define FLOYDWARSHALL_H_
 
 
 
@@ -108,52 +108,57 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKFile.hpp>
 
 /**
- * SimpleConvolution 
- * Class implements OpenCL SimpleConvolution sample
+ * FloydWarshall 
+ * Class implements OpenCL FloydWarshall Pathfinding sample
  * Derived from SDKSample base class
  */
 
-class SimpleConvolution : public SDKSample
-{
-    cl_uint      seed;               /**< Seed value for random number generation */
-    cl_double        setupTime;      /**< Time for setting up OpenCL */
-    cl_double    totalKernelTime;    /**< Time for kernel execution */
-    cl_double    totalProgramTime;   /**< Time for program execution */
-    cl_double    referenceKernelTime;/**< Time for reference implementation */
-    cl_int       width;              /**< Width of the Input array */
-    cl_int       height;             /**< Height of the Input array */
-    cl_uint      *input;             /**< Input array */
-    cl_uint      *output;            /**< Output array */
-    cl_float     *mask;              /**< mask array */
-    cl_uint      maskWidth;          /**< mask dimensions */
-    cl_uint      maskHeight;         /**< mask dimensions */
-    cl_uint      *verificationOutput;/**< Output array for reference implementation */
-    cl_context   context;            /**< CL context */
-    cl_device_id *devices;           /**< CL device list */
-    cl_mem       inputBuffer;        /**< CL memory input buffer */
-    cl_mem       outputBuffer;       /**< CL memory output buffer */
-    cl_mem       maskBuffer;         /**< CL memory mask buffer */
-    cl_command_queue commandQueue;   /**< CL command queue */
-    cl_program   program;            /**< CL program  */
-    cl_kernel    kernel;             /**< CL kernel */
-    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
-    int          iterations;         /**< Number of iterations to execute kernel */
+/*** MACROS ***/
+/* By default, MAXDISTANCE between two nodes */
+#define MAXDISTANCE    (200)
 
-    public:
+class FloydWarshall : public SDKSample
+{
+    cl_uint                       seed;  /**< Seed value for random number generation */
+    cl_double                setupTime;  /**< Time for setting up OpenCL */
+    cl_double          totalKernelTime;  /**< Time for kernel execution */
+    cl_double         totalProgramTime;  /**< Time for program execution */
+    cl_double      referenceKernelTime;  /**< Time for reference implementation */
+    cl_int                    numNodes;  /**< Number of nodes in the graph */
+    cl_uint        *pathDistanceMatrix;  /**< path distance array */
+    cl_uint                *pathMatrix;  /**< path arry */
+    cl_uint *verificationPathDistanceMatrix;/**< path distance array for reference implementation */
+    cl_uint    *verificationPathMatrix; /**< path array for reference implementation */
+    cl_context                 context; /**< CL context */
+    cl_device_id              *devices; /**< CL device list */
+    cl_mem          pathDistanceBuffer; /**< CL path distance memory buffer */
+    cl_mem                  pathBuffer; /**< CL path memory buffer */
+    cl_command_queue      commandQueue; /**< CL command queue */
+    cl_program                 program; /**< CL program  */
+    cl_kernel                   kernel; /**< CL kernel */
+    cl_int                       width; /**< width of the adjacency matrix */
+    cl_int                      height; /**< height of the adjacency matrix */
+
+    size_t            maxWorkGroupSize; /**< Device Specific Information */
+    cl_uint              maxDimensions;
+    size_t *          maxWorkItemSizes;
+    size_t         kernelWorkGroupSize; /**< Group Size returned by kernel */
+    int                     iterations; /**< Number of iterations to execute kernel */
+
+public:
     /** 
      * Constructor 
      * Initialize member variables
      * @param name name of sample (string)
      */
-    SimpleConvolution(std::string name)
-        : SDKSample(name)   {
+    FloydWarshall(std::string name)
+        : SDKSample(name)    {
             seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;
-            width = 64;
-            height = 64;
+            numNodes = 64;
+            pathDistanceMatrix = NULL;
+            pathMatrix = NULL;
+            verificationPathDistanceMatrix = NULL;
+            verificationPathMatrix         = NULL;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -164,15 +169,14 @@ class SimpleConvolution : public SDKSample
      * Initialize member variables
      * @param name name of sample (const char*)
      */
-    SimpleConvolution(const char* name)
-        : SDKSample(name)   {
+    FloydWarshall(const char* name)
+        : SDKSample(name)    {
             seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;      
-            width = 64;
-            height = 64;
+            numNodes = 64;
+            pathDistanceMatrix = NULL;
+            pathMatrix = NULL;
+            verificationPathDistanceMatrix = NULL;
+            verificationPathMatrix         = NULL;        
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -182,7 +186,7 @@ class SimpleConvolution : public SDKSample
      * Allocate and initialize host memory array with random values
      * @return 1 on success and 0 on failure
      */
-    int setupSimpleConvolution();
+    int setupFloydWarshall();
 
     /**
      * OpenCL related initialisations. 
@@ -200,23 +204,17 @@ class SimpleConvolution : public SDKSample
      */
     int runCLKernels();
 
+    cl_uint minimum(cl_uint a, cl_uint b);
+
     /**
-     * Reference CPU implementation of Simple Convolution 
+     * Reference CPU implementation of FloydWarshall PathFinding
      * for performance comparison
-     * @param output Output matrix after performing convolution
-     * @param input  Input  matrix on which convolution is to be performed
-     * @param mask   mask matrix using which convolution was to be performed
-     * @param inputDimensions dimensions of the input matrix
-     * @param maskDimensions  dimensions of the mask matrix
+     * @param pathDistanceMatrix Distance between nodes of a graph
+     * @param intermediate node between two nodes of a graph
+     * @param number of nodes in the graph
      */
-    void simpleConvolutionCPUReference(
-            cl_uint  *output,
-            const cl_uint  *input,
-            const cl_float  *mask,
-            const cl_uint  width,
-            const cl_uint  height,
-            const cl_uint maskWidth,
-            const cl_uint maskHeight);
+    void floydWarshallCPUReference(cl_uint * pathDistanceMatrix, cl_uint * pathMatrix, cl_uint numNodes);
+
     /**
      * Override from SDKSample. Print sample stats.
      */
@@ -236,7 +234,7 @@ class SimpleConvolution : public SDKSample
 
     /**
      * Override from SDKSample
-     * Run OpenCL Bitonic Sort
+     * Run OpenCL FloydWarshall Path finding 
      */
     int run();
 

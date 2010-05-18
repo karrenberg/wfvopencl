@@ -90,14 +90,10 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef SIMPLECONVOLUTION_H_
-#define SIMPLECONVOLUTION_H_
-
-
-
+#ifndef PREFIXSUM_H_
+#define PREFIXSUM_H_
 
 #include <CL/cl.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -108,52 +104,54 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKFile.hpp>
 
 /**
- * SimpleConvolution 
- * Class implements OpenCL SimpleConvolution sample
+ * PrefixSum 
+ * Class implements OpenCL Prefix Sum sample
  * Derived from SDKSample base class
  */
 
-class SimpleConvolution : public SDKSample
+class PrefixSum : public SDKSample
 {
-    cl_uint      seed;               /**< Seed value for random number generation */
-    cl_double        setupTime;      /**< Time for setting up OpenCL */
-    cl_double    totalKernelTime;    /**< Time for kernel execution */
-    cl_double    totalProgramTime;   /**< Time for program execution */
-    cl_double    referenceKernelTime;/**< Time for reference implementation */
-    cl_int       width;              /**< Width of the Input array */
-    cl_int       height;             /**< Height of the Input array */
-    cl_uint      *input;             /**< Input array */
-    cl_uint      *output;            /**< Output array */
-    cl_float     *mask;              /**< mask array */
-    cl_uint      maskWidth;          /**< mask dimensions */
-    cl_uint      maskHeight;         /**< mask dimensions */
-    cl_uint      *verificationOutput;/**< Output array for reference implementation */
-    cl_context   context;            /**< CL context */
-    cl_device_id *devices;           /**< CL device list */
-    cl_mem       inputBuffer;        /**< CL memory input buffer */
-    cl_mem       outputBuffer;       /**< CL memory output buffer */
-    cl_mem       maskBuffer;         /**< CL memory mask buffer */
-    cl_command_queue commandQueue;   /**< CL command queue */
-    cl_program   program;            /**< CL program  */
-    cl_kernel    kernel;             /**< CL kernel */
-    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
-    int          iterations;         /**< Number of iterations to execute kernel */
+    cl_uint                  seed;      /**< Seed value for random number generation */
+    cl_double           setupTime;      /**< Time for setting up OpenCL */
+    cl_double     totalKernelTime;      /**< Time for kernel execution */
+    cl_double    totalProgramTime;      /**< Time for program execution */
+    cl_double referenceKernelTime;      /**< Time for reference implementation */
+    cl_int                 length;      /**< length of the input array */
+    cl_float               *input;      /**< Input array */
+    cl_float              *output;      /**< Output Array */
+    cl_float  *verificationOutput;      /**< Output array for reference implementation */
+    cl_context            context;      /**< CL context */
+    cl_device_id         *devices;      /**< CL device list */
+    cl_mem            inputBuffer;      /**< CL memory buffer */
+    cl_mem           outputBuffer;      /**< CL memory output Buffer */
+    cl_command_queue commandQueue;      /**< CL command queue */
+    cl_program            program;      /**< CL program  */
+    cl_kernel              kernel;      /**< CL kernel */
 
-    public:
+    size_t       maxWorkGroupSize;      /**< Device Specific Information */
+    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
+    cl_uint         maxDimensions;
+    size_t *     maxWorkItemSizes;
+    cl_ulong     totalLocalMemory; 
+    cl_ulong      usedLocalMemory; 
+    cl_ulong availableLocalMemory; 
+    cl_ulong    neededLocalMemory;
+    int                iterations;      /**< Number of iterations for kernel execution */
+
+
+public:
     /** 
      * Constructor 
      * Initialize member variables
      * @param name name of sample (string)
      */
-    SimpleConvolution(std::string name)
-        : SDKSample(name)   {
+    PrefixSum(std::string name)
+        : SDKSample(name)    {
             seed = 123;
             input = NULL;
             output = NULL;
-            mask   = NULL;
             verificationOutput = NULL;
-            width = 64;
-            height = 64;
+            length = 64;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -164,15 +162,13 @@ class SimpleConvolution : public SDKSample
      * Initialize member variables
      * @param name name of sample (const char*)
      */
-    SimpleConvolution(const char* name)
-        : SDKSample(name)   {
+    PrefixSum(const char* name)
+        : SDKSample(name)    {
             seed = 123;
             input = NULL;
             output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;      
-            width = 64;
-            height = 64;
+            verificationOutput = NULL;
+            length = 64;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -182,7 +178,7 @@ class SimpleConvolution : public SDKSample
      * Allocate and initialize host memory array with random values
      * @return 1 on success and 0 on failure
      */
-    int setupSimpleConvolution();
+    int setupPrefixSum();
 
     /**
      * OpenCL related initialisations. 
@@ -201,22 +197,15 @@ class SimpleConvolution : public SDKSample
     int runCLKernels();
 
     /**
-     * Reference CPU implementation of Simple Convolution 
-     * for performance comparison
-     * @param output Output matrix after performing convolution
-     * @param input  Input  matrix on which convolution is to be performed
-     * @param mask   mask matrix using which convolution was to be performed
-     * @param inputDimensions dimensions of the input matrix
-     * @param maskDimensions  dimensions of the mask matrix
+     * Reference CPU implementation of Prefix Sum
+     * @param output the array that stores the prefix sum
+     * @param input the input array
+     * @param length length of the input array
      */
-    void simpleConvolutionCPUReference(
-            cl_uint  *output,
-            const cl_uint  *input,
-            const cl_float  *mask,
-            const cl_uint  width,
-            const cl_uint  height,
-            const cl_uint maskWidth,
-            const cl_uint maskHeight);
+    void prefixSumCPUReference(
+    cl_float * output,
+    cl_float * input,
+    const cl_uint length);
     /**
      * Override from SDKSample. Print sample stats.
      */
@@ -236,7 +225,7 @@ class SimpleConvolution : public SDKSample
 
     /**
      * Override from SDKSample
-     * Run OpenCL Bitonic Sort
+     * Run OpenCL FastWalsh Transform 
      */
     int run();
 

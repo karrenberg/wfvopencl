@@ -90,8 +90,8 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef SIMPLECONVOLUTION_H_
-#define SIMPLECONVOLUTION_H_
+#ifndef EIGENVALUE_H_
+#define EIGENVALUE_H_
 
 
 
@@ -108,52 +108,57 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKFile.hpp>
 
 /**
- * SimpleConvolution 
- * Class implements OpenCL SimpleConvolution sample
+ * EigenValue 
+ * Class implements OpenCL  EigenValue sample
  * Derived from SDKSample base class
  */
 
-class SimpleConvolution : public SDKSample
+class EigenValue : public SDKSample
 {
-    cl_uint      seed;               /**< Seed value for random number generation */
-    cl_double        setupTime;      /**< Time for setting up OpenCL */
-    cl_double    totalKernelTime;    /**< Time for kernel execution */
-    cl_double    totalProgramTime;   /**< Time for program execution */
-    cl_double    referenceKernelTime;/**< Time for reference implementation */
-    cl_int       width;              /**< Width of the Input array */
-    cl_int       height;             /**< Height of the Input array */
-    cl_uint      *input;             /**< Input array */
-    cl_uint      *output;            /**< Output array */
-    cl_float     *mask;              /**< mask array */
-    cl_uint      maskWidth;          /**< mask dimensions */
-    cl_uint      maskHeight;         /**< mask dimensions */
-    cl_uint      *verificationOutput;/**< Output array for reference implementation */
-    cl_context   context;            /**< CL context */
-    cl_device_id *devices;           /**< CL device list */
-    cl_mem       inputBuffer;        /**< CL memory input buffer */
-    cl_mem       outputBuffer;       /**< CL memory output buffer */
-    cl_mem       maskBuffer;         /**< CL memory mask buffer */
-    cl_command_queue commandQueue;   /**< CL command queue */
-    cl_program   program;            /**< CL program  */
-    cl_kernel    kernel;             /**< CL kernel */
-    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
-    int          iterations;         /**< Number of iterations to execute kernel */
+    cl_uint                 seed;        /**< Seed value for random number generation */
+    cl_double              setupTime;    /**< Time for setting up OpenCL */
+    cl_double    totalKernelTime;        /**< Time for kernel execution */
+    cl_double    totalProgramTime;       /**< Time for program execution */
+    cl_double referenceKernelTime;       /**< Time for reference implementation */
+    cl_float epsilon;
+    cl_float tolerance;
+    cl_int   length;                     /**< Length of the diagonal of the square matrix */
+    cl_float *diagonal;                  /**< diagonal elements of the matrix */
+    cl_float *offDiagonal;               /**< off-diagonal elements of the matrix */
+    cl_float *eigenIntervals[2];         /**< calculated eigen values of the matrix */
+    cl_uint  *numEigenIntervals;         /**< number of eigen values in an interval */
+    cl_uint  in;
+    cl_float *verificationEigenIntervals[2];/**< eigen values using reference implementation */
+    cl_uint   verificationIn;
+    cl_context context;                 /**< CL context */
+    cl_device_id *devices;              /**< CL device list */
+    cl_mem   diagonalBuffer;            /**< CL diagonal memory buffer */
+    cl_mem   offDiagonalBuffer;         /**< CL offDiagonal memory buffer */
+    cl_mem   eigenIntervalBuffer[2];    /**< CL eigenInterval memory buffer */
+    cl_mem   numEigenValuesIntervalBuffer;/**< CL number of eigenvalues in an interval memory buffer */
+    cl_command_queue commandQueue;      /**< CL command queue */
+    cl_program program;                 /**< CL program  */
+    cl_kernel kernel[2];                /**< CL kernel */
+    size_t    kernelWorkGroupSize;      /**< Group Size returned by kernel */
+    int       iterations;               /**< Number of iterations for kernel execution */
 
-    public:
+public:
     /** 
      * Constructor 
      * Initialize member variables
      * @param name name of sample (string)
      */
-    SimpleConvolution(std::string name)
-        : SDKSample(name)   {
+    EigenValue(std::string name)
+        : SDKSample(name)    {
             seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;
-            width = 64;
-            height = 64;
+            length = 64;
+            diagonal = NULL;
+            offDiagonal = NULL;
+            eigenIntervals[0] = NULL;
+            eigenIntervals[1] = NULL;
+            numEigenIntervals = NULL;
+            verificationEigenIntervals[0] = NULL;
+            verificationEigenIntervals[1] = NULL;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
@@ -164,25 +169,34 @@ class SimpleConvolution : public SDKSample
      * Initialize member variables
      * @param name name of sample (const char*)
      */
-    SimpleConvolution(const char* name)
-        : SDKSample(name)   {
+    EigenValue(const char* name)
+        : SDKSample(name)    {
             seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;      
-            width = 64;
-            height = 64;
+            length = 64;
+            diagonal = NULL;
+            offDiagonal = NULL;
+            eigenIntervals[0] = NULL;
+            eigenIntervals[1] = NULL;
+            numEigenIntervals = NULL;
+            verificationEigenIntervals[0] = NULL;
+            verificationEigenIntervals[1] = NULL;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
         }
 
+    void computeGerschgorinInterval(cl_float * lowerLimit,
+                                    cl_float * upperLimit,
+                                    const cl_float * diagonal,
+                                    const cl_float * offDiagonal,
+                                    const cl_uint  width);
+
+    int isComplete(cl_float * eigenIntervals);
     /**
      * Allocate and initialize host memory array with random values
      * @return 1 on success and 0 on failure
      */
-    int setupSimpleConvolution();
+    int setupEigenValue();
 
     /**
      * OpenCL related initialisations. 
@@ -201,22 +215,21 @@ class SimpleConvolution : public SDKSample
     int runCLKernels();
 
     /**
-     * Reference CPU implementation of Simple Convolution 
+     * Reference CPU implementation of EigenValues calculation
      * for performance comparison
-     * @param output Output matrix after performing convolution
-     * @param input  Input  matrix on which convolution is to be performed
-     * @param mask   mask matrix using which convolution was to be performed
-     * @param inputDimensions dimensions of the input matrix
-     * @param maskDimensions  dimensions of the mask matrix
+     * @param diagonal       Diagonal elements of hte tridiagonal symmetric matrix
+     * @param offDiagonal    offDiagonal elements of the tridiaongal symmetric matrix
+     * @param width          width of the square matrix
+     * @param eigenIntervals Original eigenIntervals between which the eigenvalues exist
+     * @param eigenIntervals recalculated eigenIntervals such that the number of eigenvalues
+     *                       in an interval comes down to 1 eventually
      */
-    void simpleConvolutionCPUReference(
-            cl_uint  *output,
-            const cl_uint  *input,
-            const cl_float  *mask,
-            const cl_uint  width,
-            const cl_uint  height,
-            const cl_uint maskWidth,
-            const cl_uint maskHeight);
+    cl_uint eigenValueCPUReference(cl_float * diagonal,
+                                   cl_float * offDiagonal,
+                                   cl_uint    width,
+                                   cl_float * eigenIntervals,
+                                   cl_float * newEigenIntervals);
+
     /**
      * Override from SDKSample. Print sample stats.
      */
@@ -236,7 +249,7 @@ class SimpleConvolution : public SDKSample
 
     /**
      * Override from SDKSample
-     * Run OpenCL Bitonic Sort
+     * Run OpenCL EigenValue Sample 
      */
     int run();
 
@@ -251,6 +264,20 @@ class SimpleConvolution : public SDKSample
      * Verify against reference implementation
      */
     int verifyResults();
+
+    /**
+     * function to calculate the number of eigenvalues less than (x) 
+     * for a tridiagonal symmetric matrix
+     * @param diagonal      diagonal elements of the matrix
+     * @param offDiagonal   offDiagonal elements of the matrix
+     * @param width         size of the square matrix
+     * @param x             number of eigen values less than x 
+     * @return number of eigenvalues of the matrix less than x 
+     */
+    cl_uint calNumEigenValuesLessThan(const cl_float *diagonal, 
+                                      const cl_float *offDiagonal, 
+                                      const cl_uint  width, 
+                                      const cl_float x);
 };
 
 

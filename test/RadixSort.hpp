@@ -90,14 +90,14 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef NBODY_H_
-#define NBODY_H_
+#ifndef RADIXSORT_H_
+#define RADIXSORT_H_
 
-#if defined(__APPLE__) || defined(__MACOSX)
-#include <OpenCL/cl.h>
-#else
+
+
+
 #include <CL/cl.h>
-#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -107,48 +107,76 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKCommandArgs.hpp>
 #include <SDKUtil/SDKFile.hpp>
 
-#define GROUP_SIZE 256
+#ifndef max
+#define max(a,b) (((a) > (b)) ? (a) : (b))
+#endif
+
+#ifndef min
+#define min(a,b) (((a) < (b)) ? (a) : (b))
+#endif
+
+#define ELEMENT_COUNT (8192)
+#define RADIX 8
+#define RADICES (1 << RADIX)
+#define RADIX_MASK (RADICES - 1)
+#define GROUP_SIZE 64
+#define NUM_GROUPS (ELEMENT_COUNT / (GROUP_SIZE * RADICES))
+
+#define USE_PRESCAN_KERNEL
 
 /**
-* NBody 
-* Class implements OpenCL  NBody sample
+* RadixSort 
+* Class implements 256 RadixSort bin implementation 
 * Derived from SDKSample base class
 */
 
-class NBody : public SDKSample
+class RadixSort : public SDKSample
 {
-    cl_double setupTime;                /**< time taken to setup OpenCL resources and building kernel */
-    cl_double kernelTime;               /**< time taken to run kernel and read result back */
 
-    size_t maxWorkGroupSize;            /**< Max allowed work-items in a group */
-    cl_uint maxDimensions;              /**< Max group dimensions allowed */
-    size_t* maxWorkItemSizes;           /**< Max work-items sizes in each dimensions */
-    cl_ulong totalLocalMemory;          /**< Max local memory allowed */
-    cl_ulong usedLocalMemory;           /**< Used local memory */
+    cl_int  elementCount;           /**< Size of RadixSort bin */
+    cl_int  groupSize;              /**< Number of threads in a Group */
+    cl_int  numGroups;              /**< Number of groups */
+    cl_uint *unsortedData;          /**< unsorted elements */
+    cl_uint *dSortedData;           /**< device sorted elements */
+    cl_uint *hSortedData;           /**< host sorted elements */
+    cl_uint *scanedBuckets;         /**< prescaned buckets */
+    cl_uint *prescanedSums;         /**< prescaned sums */
+    cl_uint *finalSums;             /**< finalSums */
 
-    cl_float delT;                      /**< dT (timestep) */
-    cl_float espSqr;                    /**< Softening Factor*/
-    cl_float* initPos;                  /**< initial position */
-    cl_float* initVel;                  /**< initial velocity */
-    cl_float* vel;                      /**< Output velocity */
-    cl_float* refPos;                   /**< Reference position */
-    cl_float* refVel;                   /**< Reference velocity */
-    cl_context context;                 /**< CL context */
-    cl_device_id *devices;              /**< CL device list */
-    cl_mem updatedPos;                  /**< Position of partciles */
-    cl_mem updatedVel;                  /**< Velocity of partciles */
-    cl_command_queue commandQueue;      /**< CL command queue */
-    cl_program program;                 /**< CL program */
-    cl_kernel kernel;                   /**< CL kernel */
-    size_t kernelWorkGroupSize;         /**< Group size returned by kernel */
-    size_t groupSize;                   /**< Work-Group size */
-    cl_int numParticles;
-    int iterations;
+    size_t maxWorkGroupSize;        /**< Max allowed work-items in a group */
+    cl_uint maxDimensions;          /**< Max group dimensions allowed */
+    size_t* maxWorkItemSizes;       /**< Max work-items sizes in each dimensions */
+    cl_ulong totalLocalMemory;      /**< Max local memory allowed */
+    cl_ulong usedLocalMemory;       /**< Used local memory by kernel */
+    cl_ulong availableLocalMemory;  /**< Available local memory to be set from host */
+    cl_ulong neededLocalMemory;     /**< Local memory need by application which set from host */
 
-private:
+    cl_double kernelTime;           /**< Time for host implementation */
+    cl_double setupTime;            /**< Time for host implementation */
 
-    float random(float randMax, float randMin);
-    int compareArray(const float* mat0, const float* mat1, unsigned int size);
+    cl_context context;             /**< CL context */
+    cl_device_id *devices;          /**< CL device list */
+
+    cl_mem  unsortedDataBuf;        /**< CL memory buffer for unsored data */
+    cl_mem  bucketsBuf;             /**< CL memory buffer for prescaneduckets */
+    cl_mem  unscanedBucketsBuf;     /**< CL memory buffer for unscaneduckets */
+    cl_mem  scanedBucketsBuf;       /**< CL memory buffer for scanedbuckets */
+    cl_mem  prescanSumsOutBuf;      /**< CL memory buffer for prescanedSums */
+    cl_mem  prescanSumsInBuf;       /**< CL memory buffer for prescanedSums */
+    cl_mem  finalSumsBuf;           /**< CL memory buffer for finalSums */
+    cl_mem  prescanedBucketsBuf;    /**< CL memory buffer for prescaneduckets */
+    cl_mem  sortedDataBuf;          /**< CL memory buffer for sorted data */
+
+    cl_command_queue commandQueue;  /**< CL command queue */
+    cl_program program;             /**< CL program  */
+    cl_kernel histogramKernel;      /**< CL kernel for histogram */
+    cl_kernel permuteKernel;        /**< CL kernel for permute */
+    cl_kernel prescanKernel;        /**< CL kernel for prescan */
+    cl_bool byteRWSupport;
+    cl_int prescan;
+    size_t kernelWorkGroupSize;     /**< Max Group size that can be executed on kernel */
+    int iterations;                 /**< Number of iterations for kernel execution */
+
 
 public:
     /** 
@@ -156,23 +184,25 @@ public:
     * Initialize member variables
     * @param name name of sample (string)
     */
-    explicit NBody(std::string name)
+    RadixSort(std::string name)
         : SDKSample(name),
-        setupTime(0),
+        elementCount(ELEMENT_COUNT),
+        groupSize(GROUP_SIZE),
+        numGroups(NUM_GROUPS),
         kernelTime(0),
-        delT(0.005f),
-        espSqr(50.0f),
-        initPos(NULL),
-        initVel(NULL),
-        vel(NULL),
-        refPos(NULL),
-        refVel(NULL),
+        setupTime(0),
+        unsortedData(NULL),
+        dSortedData(NULL),
+        hSortedData(NULL),
+        prescanedSums(NULL),
+        finalSums(NULL),
+        scanedBuckets(NULL),
         devices(NULL),
         maxWorkItemSizes(NULL),
-        groupSize(GROUP_SIZE),
+        byteRWSupport(true),
+        prescan(0),
         iterations(1)
     {
-        numParticles = 1024;
     }
 
     /** 
@@ -180,32 +210,84 @@ public:
     * Initialize member variables
     * @param name name of sample (const char*)
     */
-    explicit NBody(const char* name)
+    RadixSort(const char* name)
         : SDKSample(name),
-        setupTime(0),
+        elementCount(ELEMENT_COUNT),
+        groupSize(GROUP_SIZE),
+        numGroups(NUM_GROUPS),
         kernelTime(0),
-        delT(0.005f),
-        espSqr(50.0f),
-        initPos(NULL),
-        initVel(NULL),
-        vel(NULL),
-        refPos(NULL),
-        refVel(NULL),
+        setupTime(0),
+        unsortedData(NULL),
+        dSortedData(NULL),
+        hSortedData(NULL),
+        scanedBuckets(NULL),
+        prescanedSums(NULL),
+        finalSums(NULL),
         devices(NULL),
         maxWorkItemSizes(NULL),
-        groupSize(GROUP_SIZE),
+        byteRWSupport(true),
+        prescan(0),
         iterations(1)
     {
-        numParticles = 1024;
     }
 
-    ~NBody();
+    ~RadixSort()
+    {
+        if(unsortedData) 
+        {
+            free(unsortedData);
+            unsortedData = NULL;
+        }
+
+        if(dSortedData) 
+        {
+            free(dSortedData);
+            dSortedData = NULL;
+        }
+
+        if(hSortedData) 
+        {
+            free(hSortedData);
+            hSortedData = NULL;
+        }
+
+        if(scanedBuckets) 
+        {
+            free(scanedBuckets);
+            scanedBuckets = NULL;
+        }
+
+        if(prescanedSums)
+        {
+            free(prescanedSums);
+            prescanedSums = NULL;
+        }
+
+        if(finalSums)
+        {
+            free(finalSums);
+            finalSums = NULL;
+        }
+
+        if(devices)
+        {
+            free(devices);
+            devices = NULL;
+        }
+
+        if(maxWorkItemSizes)
+        {
+            free(maxWorkItemSizes);
+            maxWorkItemSizes = NULL;
+        }
+
+    }
 
     /**
-    * Allocate and initialize host memory array with random values
+    * Allocate and initialize required host memory with appropriate values
     * @return 1 on success and 0 on failure
     */
-    int setupNBody();
+    int setupRadixSort();
 
     /**
     * OpenCL related initialisations. 
@@ -216,24 +298,12 @@ public:
     int setupCL();
 
     /**
-    * Set values for kernels' arguments
-    * @return 1 on success and 0 on failure
-    */
-    int setupCLKernels();
-
-    /**
-    * Enqueue calls to the kernels
+    * Set values for kernels' arguments, enqueue calls to the kernels
     * on to the command queue, wait till end of kernel execution.
     * Get kernel start and end time if timing is enabled
     * @return 1 on success and 0 on failure
     */
     int runCLKernels();
-
-    /**
-    * Reference CPU implementation of Binomial Option
-    * for performance comparison
-    */
-    void nBodyCPUReference();
 
     /**
     * Override from SDKSample. Print sample stats.
@@ -254,7 +324,7 @@ public:
 
     /**
     * Override from SDKSample
-    * Run OpenCL NBody
+    * Run OpenCL Black-Scholes
     */
     int run();
 
@@ -269,6 +339,30 @@ public:
     * Verify against reference implementation
     */
     int verifyResults();
+
+private:
+
+    /**
+    *  Host Radix sort 
+    */
+    void hostRadixSort();
+
+    /**
+    *  Runs Histogram Kernel
+    */
+    int runHistogramKernel(int bits);
+
+    /**
+    *  Runs Prescan Kernel
+    */
+    int runPrescanKernel();
+
+    /**
+    *  Runs Permute Kernel
+    */
+    int runPermuteKernel(int bits);
 };
 
-#endif // NBODY_H_
+
+
+#endif 

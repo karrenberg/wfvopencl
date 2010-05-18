@@ -90,129 +90,81 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#include "NBody.hpp"
-#include<GL/glut.h>
-#include <cmath>
-#include<malloc.h>
+#include "Histogram.hpp"
 
-int numBodies;      /**< No. of particles*/
-cl_float* pos;      /**< Output position */
-void* me;           /**< Pointing to NBody class */
-cl_bool display;
+#include <math.h>
 
-float
-NBody::random(float randMax, float randMin)
+void 
+Histogram::calculateHostBin()
 {
-    float result;
-    result =(float)rand()/(float)RAND_MAX;
-
-    return ((1.0f - result) * randMin + result *randMax);
+    for(int i = 0; i < height; ++i)
+    {
+        for(int j = 0; j < width; ++j)
+        {
+            hostBin[data[i * width + j]]++;
+        }
+    }
 }
 
 int
-NBody::compareArray(const float* mat0,
-                    const float* mat1,
-                    unsigned int size)
+Histogram::setupHistogram()
 {
-    const float epsilon = (float)1e-2;
-    for (unsigned int i = 0; i < size; ++i)
+    int i = 0;
+
+    /* width must be multiples of binSize and
+    * height must be multiples of groupSize
+    */
+    width = (width / binSize) * binSize;
+    height = (height / groupSize) * groupSize;
+
+    subHistgCnt = (width * height) / (groupSize * binSize);
+
+    /* Allocate and init memory used by host */
+    data = (cl_uint*)malloc(width * height * sizeof(cl_uint));
+    if(data == NULL)
+    { 
+        sampleCommon->error("Failed to allocate host memory. (data)");
+        return SDK_FAILURE;
+    }
+
+    for(i = 0; i < width * height; i++)
     {
-        float val0 = mat0[i];
-        float val1 = mat1[i];
-
-        float diff = (val1 - val0);
-        if (fabs(val1) > epsilon)
-        {
-            diff /= val0;
-        }
-
-        return (fabs(diff) > epsilon);
+        data[i] = rand() % (cl_uint)(binSize);
     }
 
-    return 0;
-}
-
-int
-NBody::setupNBody()
-{
-    // make sure numParticles is multiple of group size
-    numParticles = (cl_int)(((size_t)numParticles 
-        < groupSize) ? groupSize : numParticles);
-    numParticles = (cl_int)((numParticles / groupSize) * groupSize);
-
-    numBodies = numParticles;
-
-    initPos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
-    if(initPos == NULL)	
+    hostBin = (cl_uint*)malloc(binSize * sizeof(cl_uint));
+    if(hostBin == NULL)
     { 
-        sampleCommon->error("Failed to allocate host memory. (initPos)");
+        sampleCommon->error("Failed to allocate host memory. (hostBin)");
         return SDK_FAILURE;
     }
+    memset(hostBin, 0, binSize * sizeof(cl_uint));
 
-    initVel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
-    if(initVel == NULL)	
+    midDeviceBin = (cl_uint*)malloc(binSize * subHistgCnt * sizeof(cl_uint));
+    if(midDeviceBin == NULL)
     { 
-        sampleCommon->error("Failed to allocate host memory. (initVel)");
+        sampleCommon->error("Failed to allocate host memory. (midDeviceBin)");
         return SDK_FAILURE;
     }
+    memset(midDeviceBin, 0, binSize * subHistgCnt * sizeof(cl_uint));
 
-#if defined (_WIN32)
-    pos = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float4), 16);
-#else
-    pos = (cl_float*)memalign(16, numBodies * sizeof(cl_float4));
-#endif
-    if(pos == NULL)
+
+    deviceBin = (cl_uint*)malloc(binSize * sizeof(cl_uint));
+    if(deviceBin == NULL)
     { 
-        sampleCommon->error("Failed to allocate host memory. (pos)");
+        sampleCommon->error("Failed to allocate host memory. (deviceBin)");
         return SDK_FAILURE;
     }
-
-#if defined (_WIN32)
-    vel = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float4), 16);
-#else
-    vel = (cl_float*)memalign(16, numBodies * sizeof(cl_float4));
-#endif
-
-    if(vel == NULL)
-    { 
-        sampleCommon->error("Failed to allocate host memory. (vel)");
-        return SDK_FAILURE;
-    }
-
-    /* initialization of inputs */
-    for(int i = 0; i < numBodies; ++i)
-    {
-        int index = 4 * i;
-
-        // First 3 values are position in x,y and z direction
-        for(int j = 0; j < 3; ++j)
-        {
-            initPos[index + j] = random(3, 50);
-        }
-
-        // Mass value
-        initPos[index + 3] = random(1, 1000);
-
-        // First 3 values are velocity in x,y and z direction
-        for(int j = 0; j < 3; ++j)
-        {
-            initVel[index + j] = 0.0f;
-        }
-
-        // unused
-        initVel[3] = 0.0f;
-    }
-
-    memcpy(pos, initPos, 4 * numBodies * sizeof(cl_float));
-    memcpy(vel, initVel, 4 * numBodies * sizeof(cl_float));
+    memset(deviceBin, 0, binSize * sizeof(cl_uint));
 
     return SDK_SUCCESS;
 }
 
 int
-NBody::setupCL()
+Histogram::setupCL(void)
 {
-    cl_int status = CL_SUCCESS;
+    cl_int status = 0;
+    size_t deviceListSize;
 
     cl_device_type dType;
 
@@ -295,15 +247,10 @@ NBody::setupCL()
         NULL,
         &status);
 
-    if(!sampleCommon->checkVal(
-        status,
+    if(!sampleCommon->checkVal(status, 
         CL_SUCCESS,
         "clCreateContextFromType failed."))
-    {
         return SDK_FAILURE;
-    }
-
-    size_t deviceListSize;
 
     /* First, get the size of device list data */
     status = clGetContextInfo(
@@ -320,7 +267,8 @@ NBody::setupCL()
 
     /* Now allocate memory for device list based on the size we got earlier */
     devices = (cl_device_id*)malloc(deviceListSize);
-    if(devices==NULL) {
+    if(devices == NULL)
+    {
         sampleCommon->error("Failed to allocate memory (devices).");
         return SDK_FAILURE;
     }
@@ -338,21 +286,46 @@ NBody::setupCL()
         "clGetContextInfo failed."))
         return SDK_FAILURE;
 
+    /* Check whether the device supports byte-addressable 
+    * load/stores : required for Histogram */
+    char deviceExtensions[2048];
 
-    /* Create command queue */
-
-    commandQueue = clCreateCommandQueue(
-        context,
-        devices[0],
-        0,
-        &status);
-
+    /* Get device extensions */
+    status = clGetDeviceInfo(devices[0], 
+        CL_DEVICE_EXTENSIONS, 
+        sizeof(deviceExtensions), 
+        deviceExtensions, 
+        0);
     if(!sampleCommon->checkVal(
         status,
-        CL_SUCCESS,
-        "clCreateCommandQueue failed."))
-    {
+        CL_SUCCESS, 
+        "clGetDeviceInfo failed.(extensions)"))
         return SDK_FAILURE;
+
+    /* Check if byte-addressable store is supported */
+    if(!strstr(deviceExtensions, "cl_khr_byte_addressable_store"))
+    {
+        byteRWSupport = false;
+        sampleCommon->error("Device does not support sub 32bit writes!");
+        return SDK_SUCCESS;
+    }
+
+    {
+        /* The block is to move the declaration of prop closer to its use */
+        cl_command_queue_properties prop = 0;
+        if(timing)
+            prop |= CL_QUEUE_PROFILING_ENABLE;
+
+        commandQueue = clCreateCommandQueue(
+            context, 
+            devices[0], 
+            prop, 
+            &status);
+        if(!sampleCommon->checkVal(
+            status,
+            0,
+            "clCreateCommandQueue failed."))
+            return SDK_FAILURE;
     }
 
     /* Get Device specific Information */
@@ -413,48 +386,37 @@ NBody::setupCL()
         "clGetDeviceInfo CL_DEVICE_LOCAL_MEM_SIZE failed."))
         return SDK_FAILURE;
 
-
-    /*
-    * Create and initialize memory objects
-    */
-
-    /* Create memory objects for position */
-    updatedPos = clCreateBuffer(
-        context,
-        CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
-        numBodies * sizeof(cl_float4),
-        pos,
-        &status);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS,
-        "clCreateBuffer failed. (updatePos)"))
-    {
-        return SDK_FAILURE;
-    }
-
-    /* Create memory objects for velocity */
-    updatedVel = clCreateBuffer(
-        context,
+    dataBuf = clCreateBuffer(
+        context, 
         CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
-        numBodies * sizeof(cl_float4),
-        vel,
+        sizeof(cl_uint) * width  * height,
+        data, 
         &status);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
-        "clCreateBuffer failed. (updatedVel)"))
-    {
+        "clCreateBuffer failed. (dataBuf)"))
         return SDK_FAILURE;
-    }
+
+    midDeviceBinBuf = clCreateBuffer(
+        context, 
+        CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
+        sizeof(cl_uint) * binSize * subHistgCnt,
+        NULL, 
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (midDeviceBinBuf)"))
+        return SDK_FAILURE;
 
     /* create a CL program using the kernel source */
-    streamsdk::SDKFile kernelFile;
-    std::string kernelPath = sampleCommon->getPath();
-    kernelPath.append("NBody_Kernels.cl");
-    kernelFile.open(kernelPath.c_str());
-    const char * source = kernelFile.source().c_str();
-    size_t sourceSize[] = { strlen(source) };
+    //streamsdk::SDKFile kernelFile;
+    //std::string kernelPath = sampleCommon->getPath();
+    //kernelPath.append("Histogram_Kernels.cl");
+    //kernelFile.open(kernelPath.c_str());
+    const char *source = "Histogram_Kernels.bc";//kernelFile.source().c_str();
+    size_t sourceSize[] = {strlen(source)};
     program = clCreateProgramWithSource(
         context,
         1,
@@ -467,14 +429,12 @@ NBody::setupCL()
         "clCreateProgramWithSource failed."))
         return SDK_FAILURE;
 
+    char *clFlags = NULL;
+    if(memAccess == 1)
+        clFlags = (char*)"-D LINEAR_MEM_ACCESS";
+
     /* create a cl program executable for all the devices specified */
-    status = clBuildProgram(
-        program,
-        1,
-        &devices[0],
-        NULL,
-        NULL,
-        NULL);
+    status = clBuildProgram(program, 1, devices, clFlags, NULL, NULL);
     if(status != CL_SUCCESS)
     {
         if(status == CL_BUILD_PROGRAM_FAILURE)
@@ -497,7 +457,8 @@ NBody::setupCL()
             buildLog = (char*)malloc(buildLogSize);
             if(buildLog == NULL)
             {
-                sampleCommon->error("Failed to allocate host memory. (buildLog)");
+                sampleCommon->error("Failed to allocate host memory."
+                    "(buildLog)");
                 return SDK_FAILURE;
             }
             memset(buildLog, 0, buildLogSize);
@@ -531,135 +492,19 @@ NBody::setupCL()
             return SDK_FAILURE;
     }
 
+    char* kernelName = (char*)"histogram256";
+    if(atomics == 0)
+        kernelName = (char*)"histogramGlobal";
+    else if(atomics == 1)
+        kernelName = (char*)"histogramLocal";
+
     /* get a kernel object handle for a kernel with the given name */
-    kernel = clCreateKernel(
-        program,
-        "nbody_sim",
-        &status);
+    kernel = clCreateKernel(program, "histogram256", &status);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clCreateKernel failed."))
-    {
         return SDK_FAILURE;
-    }
-
-    return SDK_SUCCESS;
-}
-
-
-int 
-NBody::setupCLKernels()
-{
-    cl_int status;
-
-    /* Set appropriate arguments to the kernel */
-
-    /* Particle positions */
-    status = clSetKernelArg(
-        kernel,
-        0,
-        sizeof(cl_mem),
-        (void*)&updatedPos);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clSetKernelArg failed. (updatedPos)"))
-    {
-        return SDK_FAILURE;
-    }
-
-    /* Particle velocity */
-    status = clSetKernelArg(
-        kernel,
-        1,
-        sizeof(cl_mem),
-        (void *)&updatedVel);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clSetKernelArg failed. (updatedVel)"))
-    {
-        return SDK_FAILURE;
-    }
-
-    /* numBodies */
-    status = clSetKernelArg(
-        kernel,
-        2,
-        sizeof(cl_int),
-        (void *)&numBodies);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clSetKernelArg failed. (numBodies)"))
-    {
-        return SDK_FAILURE;
-    }
-
-    /* time step */
-    status = clSetKernelArg(
-        kernel,
-        3,
-        sizeof(cl_float),
-        (void *)&delT);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clSetKernelArg failed. (delT)"))
-    {
-        return SDK_FAILURE;
-    }
-
-    /* upward Pseudoprobability */
-    status = clSetKernelArg(
-        kernel,
-        4,
-        sizeof(cl_float),
-        (void *)&espSqr);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clSetKernelArg failed. (espSqr)"))
-    {
-        return SDK_FAILURE;
-    }
-
-
-    /* local memory */
-    status = clSetKernelArg(
-        kernel,
-        5,
-        GROUP_SIZE * 4 * sizeof(float),
-        NULL);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clSetKernelArg failed. (localPos)"))
-    {
-        return SDK_FAILURE;
-    }
-
-    status = clGetKernelWorkGroupInfo(kernel,
-        devices[0],
-        CL_KERNEL_LOCAL_MEM_SIZE,
-        sizeof(cl_ulong),
-        &usedLocalMemory,
-        NULL);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clGetKernelWorkGroupInfo CL_KERNEL_LOCAL_MEM_SIZE failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    if(usedLocalMemory > totalLocalMemory)
-    {
-        std::cout << "Unsupported: Insufficient"
-            "local memory on device." << std::endl;
-        return SDK_FAILURE;
-    }
 
     /* Check group size against group size returned by kernel */
     status = clGetKernelWorkGroupInfo(kernel,
@@ -671,89 +516,104 @@ NBody::setupCLKernels()
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS, 
-        "clGetKernelWorkGroupInfo CL_KERNEL_COMPILE_WORK_GROUP_SIZE failed."))
+        "clGetKernelWorkGroupInfo failed."))
     {
         return SDK_FAILURE;
     }
 
-    if(groupSize > kernelWorkGroupSize)
+    if((size_t)groupSize > kernelWorkGroupSize)
     {
         std::cout << "Out of Resources!" << std::endl;
         std::cout << "Group Size specified : " << groupSize << std::endl;
-        std::cout << "Max Group Size supported on the kernel : " << 
-            kernelWorkGroupSize<<std::endl;
-        std::cout << "Falling back to " << kernelWorkGroupSize << std::endl;
-        groupSize = kernelWorkGroupSize;
+        std::cout << "Max Group Size supported on the kernel : " 
+            << kernelWorkGroupSize << std::endl;
+        groupSize = (cl_int)kernelWorkGroupSize;
+        return SDK_SUCCESS;
     }
 
     return SDK_SUCCESS;
 }
 
+
 int 
-NBody::runCLKernels()
+Histogram::runCLKernels(void)
 {
     cl_int status;
     cl_event events[1];
 
-    /* 
-    * Enqueue a kernel run call.
-    */
-    size_t globalThreads[] = {numBodies};
-    size_t localThreads[] = {groupSize};
+    size_t globalThreads = (width * height) / binSize ;
+    size_t localThreads = groupSize;
 
-    if(localThreads[0] > maxWorkItemSizes[0] ||
-       localThreads[0] > maxWorkGroupSize)
+    if(localThreads > maxWorkItemSizes[0] || 
+       localThreads > maxWorkGroupSize)
     {
-        std::cout << "Unsupported: Device"
-            "does not support requested number of work items.";
+        std::cout << "Unsupported: Device does not"
+            "support requested number of work items.";
         return SDK_FAILURE;
     }
 
+    /* whether sort is to be in increasing order. CL_TRUE implies increasing */
+    status = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&dataBuf); 
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clSetKernelArg failed. (dataBuf)"))
+        return SDK_FAILURE;
+
+    status = clSetKernelArg(kernel, 1, groupSize * binSize * sizeof(cl_uchar), NULL); 
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clSetKernelArg failed. (local memory)"))
+        return SDK_FAILURE;
+
+    status = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void*)&midDeviceBinBuf); 
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clSetKernelArg failed. (deviceBinBuf)"))
+        return SDK_FAILURE;
+
+    status = clGetKernelWorkGroupInfo(kernel,
+        devices[0],
+        CL_KERNEL_LOCAL_MEM_SIZE,
+        sizeof(cl_ulong),
+        &usedLocalMemory,
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clGetKernelWorkGroupInfo failed.(usedLocalMemory)"))
+        return SDK_FAILURE;
+
+    if(usedLocalMemory > totalLocalMemory)
+    {
+        std::cout << "Unsupported: Insufficient local "
+                     "memory on device." << std::endl;
+        return SDK_FAILURE;
+    }
+    /* 
+    * Enqueue a kernel run call.
+    */
     status = clEnqueueNDRangeKernel(
         commandQueue,
         kernel,
         1,
         NULL,
-        globalThreads,
-        localThreads,
-        0,
-        NULL,
-        NULL);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clEnqueueNDRangeKernel failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    status = clFinish(commandQueue);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS, 
-        "clFinish failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    /* Enqueue readBuffer*/
-    status = clEnqueueReadBuffer(
-        commandQueue,
-        updatedPos,
-        CL_TRUE,
-        0,
-        numBodies* sizeof(cl_float4),
-        pos,
+        &globalThreads,
+        &localThreads,
         0,
         NULL,
         &events[0]);
+
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
-        "clEnqueueReadBuffer failed."))
+        "clEnqueueNDRangeKernel failed."))
         return SDK_FAILURE;
 
-    /* Wait for the read buffer to finish execution */
+
+    /* wait for the kernel call to finish execution */
     status = clWaitForEvents(1, &events[0]);
     if(!sampleCommon->checkVal(
         status,
@@ -763,97 +623,144 @@ NBody::runCLKernels()
 
     clReleaseEvent(events[0]);
 
+    /* Enqueue the results to application pointer*/
+    status = clEnqueueReadBuffer(
+        commandQueue, 
+        midDeviceBinBuf, 
+        CL_TRUE,
+        0,
+        subHistgCnt * binSize * sizeof(cl_uint),
+        midDeviceBin,
+        0,
+        NULL,
+        &events[0]);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueReadBuffer failed."))
+        return SDK_FAILURE;
+
+    /* wait for the read buffer to finish execution */
+    status = clWaitForEvents(1, &events[0]);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clWaitForEvents failed."))
+        return SDK_FAILURE;
+
+    clReleaseEvent(events[0]);
+
+    /* Clear deviceBin array */
+    memset(deviceBin, 0, binSize * sizeof(cl_uint));
+
+    /* Calculate final histogram bin */
+    for(int i = 0; i < subHistgCnt; ++i)
+    {
+        for(int j = 0; j < binSize; ++j)
+        {
+            deviceBin[j] += midDeviceBin[i * binSize + j];
+        }
+    }
+
     return SDK_SUCCESS;
 }
 
-/*
-* n-body simulation on cpu
-*/
-void 
-NBody::nBodyCPUReference()
-{
-    //Iterate for all samples
-    for(int i = 0; i < numBodies; ++i)
-    {
-        int myIndex = 4 * i;
-        float acc[3] = {0.0f, 0.0f, 0.0f};
-        for(int j = 0; j < numBodies; ++j)
-        {
-            float r[3];
-            int index = 4 * j;
-
-            float distSqr = 0.0f;
-            for(int k = 0; k < 3; ++k)
-            {
-                r[k] = refPos[index + k] - refPos[myIndex + k];
-
-                distSqr += r[k] * r[k];
-            }
-
-            float invDist = 1.0f / sqrt(distSqr + espSqr);
-            float invDistCube =  invDist * invDist * invDist;
-            float s = refPos[index + 3] * invDistCube;
-
-            for(int k = 0; k < 3; ++k)
-            {
-                acc[k] += s * r[k];
-            }
-        }
-
-        for(int k = 0; k < 3; ++k)
-        {
-            refPos[myIndex + k] += refVel[myIndex + k] * delT + 0.5f * acc[k] * delT * delT;
-            refVel[myIndex + k] += acc[k] * delT;
-        }
-    }
-}
-
 int
-NBody::initialize()
+Histogram::initialize()
 {
-    /* Call base class Initialize to get default configuration */
+    // Call base class Initialize to get default configuration
     if(!this->SDKSample::initialize())
         return SDK_FAILURE;
 
-    streamsdk::Option *num_particles = new streamsdk::Option;
-    if(!num_particles)
+    streamsdk::Option* width_option = new streamsdk::Option;
+    if(!width_option)
     {
-        std::cout << "error. Failed to allocate memory (num_particles)\n";
+        sampleCommon->error("Memory allocation error.\n");
         return SDK_FAILURE;
     }
 
-    num_particles->_sVersion = "x";
-    num_particles->_lVersion = "particles";
-    num_particles->_description = "Number of particles";
-    num_particles->_type = streamsdk::CA_ARG_INT;
-    num_particles->_value = &numParticles;
+    width_option->_sVersion = "x";
+    width_option->_lVersion = "width";
+    width_option->_description = "Width of the input";
+    width_option->_type = streamsdk::CA_ARG_INT;
+    width_option->_value = &width;
 
-    sampleArgs->AddOption(num_particles);
-    delete num_particles;
+    sampleArgs->AddOption(width_option);
+    delete width_option;
 
-    streamsdk::Option *num_iterations = new streamsdk::Option;
-    if(!num_iterations)
+    streamsdk::Option* height_option = new streamsdk::Option;
+    if(!height_option)
     {
-        std::cout << "error. Failed to allocate memory (num_iterations)\n";
+        sampleCommon->error("Memory allocation error.\n");
         return SDK_FAILURE;
     }
 
-    num_iterations->_sVersion = "i";
-    num_iterations->_lVersion = "iterations";
-    num_iterations->_description = "Number of iterations";
-    num_iterations->_type = streamsdk::CA_ARG_INT;
-    num_iterations->_value = &iterations;
+    height_option->_sVersion = "y";
+    height_option->_lVersion = "height";
+    height_option->_description = "Height of the input";
+    height_option->_type = streamsdk::CA_ARG_INT;
+    height_option->_value = &height;
 
-    sampleArgs->AddOption(num_iterations);
-    delete num_iterations;
+    sampleArgs->AddOption(height_option);
+    delete height_option;
+
+    streamsdk::Option* atomic_option = new streamsdk::Option;
+    if(!atomic_option)
+    {
+        sampleCommon->error("Memory allocation error.\n");
+        return SDK_FAILURE;
+    }
+
+    atomic_option->_sVersion = "a";
+    atomic_option->_lVersion = "atomics";
+    atomic_option->_description = "Atomics value: 0 for Global,"
+        "1 for local and -1 for no atomics(default)";
+    atomic_option->_type = streamsdk::CA_ARG_INT;
+    atomic_option->_value = &atomics;
+
+    sampleArgs->AddOption(atomic_option);
+    delete atomic_option;
+
+    streamsdk::Option* memAccess_option = new streamsdk::Option;
+    if(!memAccess_option)
+    {
+        sampleCommon->error("Memory allocation error.\n");
+        return SDK_FAILURE;
+    }
+
+    memAccess_option->_sVersion = "m";
+    memAccess_option->_lVersion = "memaccess";
+    memAccess_option->_description = "Memory access pattern: 1"
+        "for Linear access: default 256 stride";
+    memAccess_option->_type = streamsdk::CA_ARG_INT;
+    memAccess_option->_value = &memAccess;
+
+    sampleArgs->AddOption(memAccess_option);
+    delete memAccess_option;
+
+    streamsdk::Option* iteration_option = new streamsdk::Option;
+    if(!iteration_option)
+    {
+        sampleCommon->error("Memory allocation error.\n");
+        return SDK_FAILURE;
+    }
+
+    iteration_option->_sVersion = "i";
+    iteration_option->_lVersion = "iterations";
+    iteration_option->_description = "Number of iterations to execute kernel";
+    iteration_option->_type = streamsdk::CA_ARG_INT;
+    iteration_option->_value = &iterations;
+
+    sampleArgs->AddOption(iteration_option);
+    delete iteration_option;
 
     return SDK_SUCCESS;
 }
 
-int
-NBody::setup()
+int 
+Histogram::setup()
 {
-    if(setupNBody() != SDK_SUCCESS)
+    if(setupHistogram() != SDK_SUCCESS)
         return SDK_FAILURE;
 
     int timer = sampleCommon->createTimer();
@@ -867,309 +774,176 @@ NBody::setup()
     /* Compute setup time */
     setupTime = (double)(sampleCommon->readTimer(timer));
 
-    display = !quiet;
-
     return SDK_SUCCESS;
-}
-
-/** 
-* @brief Initialize GL 
-*/
-void 
-GLInit()
-{
-    glClearColor(0.0 ,0.0, 0.0, 0.0);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glClear(GL_DEPTH_BUFFER_BIT);
-    glMatrixMode(GL_PROJECTION);	
-    glLoadIdentity();
-}
-
-/** 
-* @brief Glut Idle function
-*/
-void 
-idle()
-{
-    glutPostRedisplay();
-}
-
-/** 
-* @brief Glut reshape func
-* 
-* @param w numParticles of OpenGL window
-* @param h height of OpenGL window 
-*/
-void 
-reShape(int w,int h)
-{
-    glViewport(0, 0, w, h);
-
-    glViewport(0, 0, w, h);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    gluPerspective(45.0f, w/h, 1.0f, 1000.0f);
-    gluLookAt (0.0, 0.0, -2.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0);
-}
-
-/** 
-* @brief OpenGL display function
-*/
-void displayfunc()
-{
-    glClearColor(0.0 ,0.0, 0.0, 0.0);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glClear(GL_DEPTH_BUFFER_BIT);
-
-    glPointSize(1.0);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-    glEnable(GL_BLEND);
-    glDepthMask(GL_FALSE);
-
-    glColor3f(1.0f,0.6f,0.0f);
-
-    //Calling kernel for calculatig subsequent positions
-    ((NBody*)me)->runCLKernels();
-
-    glBegin(GL_POINTS);
-    for(int i=0; i < numBodies; ++i)
-    {
-        //divided by 300 just for scaling
-        glVertex3d(pos[i*4+ 0]/300, pos[i*4+1]/300, pos[i*4+2]/300);
-    }
-    glEnd();
-
-    glFlush();
-    glutSwapBuffers();
-}
-
-/* keyboard function */
-void
-keyboardFunc(unsigned char key, int mouseX, int mouseY)
-{
-    switch(key)
-    {
-        /* If the user hits escape or Q, then exit */
-        /* ESCAPE_KEY = 27 */
-    case 27:
-    case 'q':
-    case 'Q':
-        {
-            if(((NBody*)me)->cleanup() != SDK_SUCCESS)
-                exit(1);
-            else
-                exit(0);
-        }
-    default:
-        break;
-    }
 }
 
 
 int 
-NBody::run()
+Histogram::run()
 {
-    /* Arguments are set and execution call is enqueued on command buffer */
-    if(setupCLKernels() != SDK_SUCCESS)
+    if(!byteRWSupport)
+        return SDK_SUCCESS;
+    int timer = sampleCommon->createTimer();
+    sampleCommon->resetTimer(timer);
+    sampleCommon->startTimer(timer);
+
+    std::cout << "Executing kernel for " << 
+        iterations << " iterations" << std::endl;
+    std::cout << "-------------------------------------------" << std::endl;
+
+    for(int i = 0; i < iterations; i++)
     {
-        return SDK_FAILURE;
+        /* Arguments are set and execution call is enqueued on command buffer */
+        if(runCLKernels() != SDK_SUCCESS)
+            return SDK_FAILURE;
     }
 
-    if(verify || timing)
-    {
-        int timer = sampleCommon->createTimer();
-        sampleCommon->resetTimer(timer);
-        sampleCommon->startTimer(timer);
+    sampleCommon->stopTimer(timer);    
+    /* Compute average kernel time */
+    kernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
 
-        for(int i = 0; i < iterations; ++i)
-        {
-            runCLKernels();
-        }
-
-        sampleCommon->stopTimer(timer);
-        /* Compute kernel time */
-        kernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
-    }
 
     if(!quiet)
-    {
-        sampleCommon->printArray<cl_float>("Output", pos, numBodies, 1);
-    }
-
-    if(timing)
-    {
-        printf("N: %d, Time(ms): %lf\n",
-               numBodies, 
-               kernelTime / iterations * 1000);
-    }
+        sampleCommon->printArray<cl_uint>("deviceBin", deviceBin, binSize, 1);
 
     return SDK_SUCCESS;
 }
 
 int
-NBody::verifyResults()
+Histogram::verifyResults()
 {
+    if(!byteRWSupport)
+        return SDK_SUCCESS;
+
     if(verify)
     {
-        /* reference implementation
-        * it overwrites the input array with the output
+        /* Rreference implementation on host device
+        * calculates the histogram bin on host
         */
-
-        refPos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
-        if(refPos == NULL)
-        { 
-            sampleCommon->error("Failed to allocate host memory. (refPos)");
-            return SDK_FAILURE;
-        }
-
-        refVel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
-        if(refVel == NULL)
-        { 
-            sampleCommon->error("Failed to allocate host memory. (refVel)");
-            return SDK_FAILURE;
-        }
-
-        memcpy(refPos, initPos, 4 * numBodies * sizeof(cl_float));
-        memcpy(refVel, initVel, 4 * numBodies * sizeof(cl_float));
-
-        for(int i = 0; i < iterations; ++i)
-        {
-            nBodyCPUReference();
-        }
+        calculateHostBin();
 
         /* compare the results and see if they match */
-        if(compareArray(pos, refPos, 4 * numBodies))
+        bool result = true;
+        for(int i = 0; i < binSize; ++i)
         {
-            std::cout << "Failed\n";
-            return SDK_FAILURE;
+            if(hostBin[i] != deviceBin[i])
+            {
+                result = false;
+                break;
+            }
         }
-        else
+
+        if(result)
         {
             std::cout << "Passed!\n";
             return SDK_SUCCESS;
+        }
+        else
+        {
+            std::cout << "Failed\n";
+            return SDK_FAILURE;
         }
     }
 
     return SDK_SUCCESS;
 }
 
-void 
-NBody::printStats()
+void Histogram::printStats()
 {
+    /* calculate total time */
+    totalTime = setupTime + kernelTime;
+
     std::string strArray[4] = 
     {
-        "Particles", 
-        "Iterations", 
+        "Width",
+        "Height", 
         "Time(sec)", 
         "kernelTime(sec)"
     };
-
     std::string stats[4];
-    totalTime = setupTime + kernelTime;
 
-    stats[0] = sampleCommon->toString(numParticles, std::dec);
-    stats[1] = sampleCommon->toString(iterations, std::dec);
+    stats[0] = sampleCommon->toString(width, std::dec);
+    stats[1] = sampleCommon->toString(height, std::dec);
     stats[2] = sampleCommon->toString(totalTime, std::dec);
     stats[3] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
 }
 
-int
-NBody::cleanup()
+
+int Histogram::cleanup()
 {
+    if(!byteRWSupport)
+        return SDK_SUCCESS;
+
     /* Releases OpenCL resources (Context, Memory etc.) */
     cl_int status;
+
+    status = clReleaseMemObject(dataBuf);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+        return SDK_FAILURE;
+
+    status = clReleaseMemObject(midDeviceBinBuf);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+        return SDK_FAILURE;
 
     status = clReleaseKernel(kernel);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseKernel failed."))
-    {
         return SDK_FAILURE;
-    }
 
     status = clReleaseProgram(program);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseProgram failed."))
-    {
         return SDK_FAILURE;
-    }
-
-    status = clReleaseMemObject(updatedPos);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS,
-        "clReleaseMemObject failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    status = clReleaseMemObject(updatedVel);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS,
-        "clReleaseMemObject failed."))
-    {
-        return SDK_FAILURE;
-    }
 
     status = clReleaseCommandQueue(commandQueue);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseCommandQueue failed."))
-    {
         return SDK_FAILURE;
-    }
 
     status = clReleaseContext(context);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseContext failed."))
-    {
         return SDK_FAILURE;
+
+    /* Release program resources (input memory etc.) */
+    if(data) 
+    {
+        free(data);
+        data = NULL;
     }
 
-    return SDK_SUCCESS;
-}
-
-NBody::~NBody()
-{
-    /* release program resources */
-    if(initPos)
+    if(hostBin) 
     {
-        free(initPos);
-        initPos = NULL;
+        free(hostBin);
+        hostBin = NULL;
     }
 
-    if(initVel)
+    if(midDeviceBin) 
     {
-        free(initVel);
-        initVel = NULL;
+        free(midDeviceBin);
+        midDeviceBin = NULL;
     }
 
-    if(pos)
+    if(deviceBin) 
     {
-#if defined (_WIN32)
-        _aligned_free(pos);
-#else
-        free(pos);
-#endif
-        pos = NULL;
-    }
-    if(vel)
-    {
-#if defined (_WIN32)
-        _aligned_free(vel);
-#else
-        free(vel);
-#endif
-        vel = NULL;
+        free(deviceBin);
+        deviceBin = NULL;
     }
 
     if(devices)
@@ -1178,63 +952,47 @@ NBody::~NBody()
         devices = NULL;
     }
 
-    if(refPos)
-    {
-        free(refPos);
-        refPos = NULL;
-    }
-
-    if(refVel)
-    {
-        free(refVel);
-        refVel = NULL;
-    }
-
     if(maxWorkItemSizes)
     {
         free(maxWorkItemSizes);
         maxWorkItemSizes = NULL;
     }
-}
 
+    return SDK_SUCCESS;
+}
 
 int 
 main(int argc, char * argv[])
 {
-    NBody clNBody("OpenCL NBody");
-    me = &clNBody;
+    /* Create MonteCalroAsian object */
+    Histogram clHistogram("Histogram OpenCL sample");
 
-    if(clNBody.initialize() != SDK_SUCCESS)
-        return SDK_FAILURE;
-    if(!clNBody.parseCommandLine(argc, argv))
-        return SDK_FAILURE;
-    if(clNBody.setup() != SDK_SUCCESS)
-        return SDK_FAILURE;
-    if(clNBody.run() != SDK_SUCCESS)
-        return SDK_FAILURE;
-    if(clNBody.verifyResults() != SDK_SUCCESS)
+    /* Initialization */
+    if(clHistogram.initialize() != SDK_SUCCESS)
         return SDK_FAILURE;
 
-    clNBody.printStats();
-
-    if(display)
-    {
-        // Run in  graphical window if requested 
-        glutInit(&argc, argv);
-        glutInitWindowPosition(100,10);
-        glutInitWindowSize(600,600); 
-        glutInitDisplayMode( GLUT_RGB | GLUT_DOUBLE );
-        glutCreateWindow("nbody simulation"); 
-        GLInit(); 
-        glutDisplayFunc(displayfunc); 
-        glutReshapeFunc(reShape);
-        glutIdleFunc(idle); 
-        glutKeyboardFunc(keyboardFunc);
-        glutMainLoop();
-    }
-
-    if(clNBody.cleanup()!=SDK_SUCCESS)
+    /* Parse command line options */
+    if(!clHistogram.parseCommandLine(argc, argv))
         return SDK_FAILURE;
+
+    /* Setup */
+    if(clHistogram.setup() != SDK_SUCCESS)
+        return SDK_FAILURE;
+
+    /* Run */
+    if(clHistogram.run() != SDK_SUCCESS)
+        return SDK_FAILURE;
+
+    /* Verify */
+    if(clHistogram.verifyResults() != SDK_SUCCESS)
+        return SDK_FAILURE;
+
+    /* Cleanup resources created */
+    if(clHistogram.cleanup() != SDK_SUCCESS)
+        return SDK_FAILURE;
+
+    /* Print performance statistics */
+    clHistogram.printStats();
 
     return SDK_SUCCESS;
 }

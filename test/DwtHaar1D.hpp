@@ -90,8 +90,8 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef SIMPLECONVOLUTION_H_
-#define SIMPLECONVOLUTION_H_
+#ifndef DWTHAAR1D_H_
+#define DWTHAAR1D_H_
 
 
 
@@ -107,82 +107,132 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKCommandArgs.hpp>
 #include <SDKUtil/SDKFile.hpp>
 
+#define SIGNAL_LENGTH (1 << 10)
+
 /**
- * SimpleConvolution 
- * Class implements OpenCL SimpleConvolution sample
+ * DwtHaar1D 
+ * Class implements One-dimensional Haar wavelet decomposition
  * Derived from SDKSample base class
  */
 
-class SimpleConvolution : public SDKSample
+class DwtHaar1D : public SDKSample
 {
-    cl_uint      seed;               /**< Seed value for random number generation */
-    cl_double        setupTime;      /**< Time for setting up OpenCL */
-    cl_double    totalKernelTime;    /**< Time for kernel execution */
-    cl_double    totalProgramTime;   /**< Time for program execution */
-    cl_double    referenceKernelTime;/**< Time for reference implementation */
-    cl_int       width;              /**< Width of the Input array */
-    cl_int       height;             /**< Height of the Input array */
-    cl_uint      *input;             /**< Input array */
-    cl_uint      *output;            /**< Output array */
-    cl_float     *mask;              /**< mask array */
-    cl_uint      maskWidth;          /**< mask dimensions */
-    cl_uint      maskHeight;         /**< mask dimensions */
-    cl_uint      *verificationOutput;/**< Output array for reference implementation */
-    cl_context   context;            /**< CL context */
-    cl_device_id *devices;           /**< CL device list */
-    cl_mem       inputBuffer;        /**< CL memory input buffer */
-    cl_mem       outputBuffer;       /**< CL memory output buffer */
-    cl_mem       maskBuffer;         /**< CL memory mask buffer */
-    cl_command_queue commandQueue;   /**< CL command queue */
-    cl_program   program;            /**< CL program  */
-    cl_kernel    kernel;             /**< CL kernel */
-    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
-    int          iterations;         /**< Number of iterations to execute kernel */
+	
+    cl_uint signalLength;           /**< Signal length (Must be power of 2)*/
+    cl_float *inData;               /**< input data */
+    cl_float *dOutData;             /**< output data */
+    cl_float *dPartialOutData;      /**< paritial decomposed signal */
+    cl_float *hOutData;             /**< output data calculated on host */
 
-    public:
+    size_t maxWorkGroupSize;        /**< Max allowed work-items in a group */
+    cl_uint maxDimensions;          /**< Max group dimensions allowed */
+    size_t* maxWorkItemSizes;       /**< Max work-items sizes in each dimensions */
+    cl_ulong totalLocalMemory;      /**< Max local memory allowed */
+    cl_ulong usedLocalMemory;       /**< Used local memory */
+
+    cl_double setupTime;            /**< time taken to setup OpenCL resources and building kernel */
+    cl_double kernelTime;           /**< time taken to run kernel and read result back */
+
+    cl_context context;             /**< CL context */
+    cl_device_id *devices;          /**< CL device list */
+    
+    cl_mem inDataBuf;               /**< CL memory buffer for input data */
+    cl_mem dOutDataBuf;             /**< CL memory buffer for output data */
+    cl_mem dPartialOutDataBuf;      /**< CL memory buffer for paritial decomposed signal */
+
+    cl_command_queue commandQueue;  /**< CL command queue */
+    cl_program program;             /**< CL program  */
+    cl_kernel kernel;               /**< CL kernel for histogram */
+    size_t kernelWorkGroupSize;     /**< Group size returned by kernel */
+    cl_uint maxLevelsOnDevice;      /**< Maximum levels to be computed on device */
+    int iterations;                 /**< Number of iterations to be executed on kernel */
+
+
+public:
     /** 
      * Constructor 
      * Initialize member variables
      * @param name name of sample (string)
      */
-    SimpleConvolution(std::string name)
-        : SDKSample(name)   {
-            seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;
-            width = 64;
-            height = 64;
-            setupTime = 0;
-            totalKernelTime = 0;
-            iterations = 1;
-        }
+    DwtHaar1D(std::string name)
+        : SDKSample(name),
+        signalLength(SIGNAL_LENGTH),
+        setupTime(0),
+        kernelTime(0),
+        inData(NULL),
+        dOutData(NULL),
+        dPartialOutData(NULL),
+        hOutData(NULL),
+        devices(NULL),
+        maxWorkItemSizes(NULL),
+        iterations(1)
+    {
+    }
 
     /** 
      * Constructor 
      * Initialize member variables
      * @param name name of sample (const char*)
      */
-    SimpleConvolution(const char* name)
-        : SDKSample(name)   {
-            seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;      
-            width = 64;
-            height = 64;
-            setupTime = 0;
-            totalKernelTime = 0;
-            iterations = 1;
+    DwtHaar1D(const char* name)
+        : SDKSample(name),
+        signalLength(SIGNAL_LENGTH),
+        setupTime(0),
+        kernelTime(0),
+        inData(NULL),
+        dOutData(NULL),
+        dPartialOutData(NULL),
+        hOutData(NULL),
+        devices(NULL),
+        maxWorkItemSizes(NULL),
+        iterations(1)
+    {
+    }
+
+    ~DwtHaar1D()
+    {
+        if(inData) 
+        {
+            free(inData);
+            inData = NULL;
         }
 
+        if(dOutData) 
+        {
+            free(dOutData);
+            dOutData = NULL;
+        }
+        
+        if(dPartialOutData) 
+        {
+            free(dPartialOutData);
+            dPartialOutData = NULL;
+        }
+
+        if(hOutData) 
+        {
+            free(hOutData);
+            hOutData = NULL;
+        }
+
+        if(devices)
+        {
+            free(devices);
+            devices = NULL;
+        }
+        
+        if(maxWorkItemSizes)
+        {
+            free(maxWorkItemSizes);
+            maxWorkItemSizes = NULL;
+        }
+    }
+
     /**
-     * Allocate and initialize host memory array with random values
+     * Allocate and initialize required host memory with appropriate values
      * @return 1 on success and 0 on failure
      */
-    int setupSimpleConvolution();
+    int setupDwtHaar1D();
 
     /**
      * OpenCL related initialisations. 
@@ -200,23 +250,6 @@ class SimpleConvolution : public SDKSample
      */
     int runCLKernels();
 
-    /**
-     * Reference CPU implementation of Simple Convolution 
-     * for performance comparison
-     * @param output Output matrix after performing convolution
-     * @param input  Input  matrix on which convolution is to be performed
-     * @param mask   mask matrix using which convolution was to be performed
-     * @param inputDimensions dimensions of the input matrix
-     * @param maskDimensions  dimensions of the mask matrix
-     */
-    void simpleConvolutionCPUReference(
-            cl_uint  *output,
-            const cl_uint  *input,
-            const cl_float  *mask,
-            const cl_uint  width,
-            const cl_uint  height,
-            const cl_uint maskWidth,
-            const cl_uint maskHeight);
     /**
      * Override from SDKSample. Print sample stats.
      */
@@ -236,7 +269,7 @@ class SimpleConvolution : public SDKSample
 
     /**
      * Override from SDKSample
-     * Run OpenCL Bitonic Sort
+     * Run OpenCL DwtHaar1D
      */
     int run();
 
@@ -249,10 +282,42 @@ class SimpleConvolution : public SDKSample
     /**
      * Override from SDKSample
      * Verify against reference implementation
-     */
+    	 */
     int verifyResults();
+
+private:
+
+    cl_int groupSize;       /**< Work items in a group */
+    cl_int totalLevels;     /**< Total decomposition levels required for given signal length */
+    cl_int curSignalLength; /**< Length of signal for given iteration */
+    cl_int levelsDone;      /**< levels done */
+
+    /**
+     * @brief   Get number of decomposition levels to perform a full decomposition
+     *          and also check if the input signal size is suitable
+     * @return  CL_TRUE if the number of decomposition levels could be detrmined
+     *          and the signal length is supported by the implementation,
+     *          otherwise it returns CL_FALSE
+     * @param   length  Length of input signal
+     * @param   levels  Number of decoposition levels neessary to perform a full
+     *                  decomposition
+     *
+     */
+    int getLevels(unsigned int length, unsigned int* levels);
+
+    /**
+     * @brief   Runs the dwtHaar1D kernel to calculate
+     *          the approximation coefficients on device
+     */
+    int runDwtHaar1DKernel();
+
+     /**
+     * @brief   Reference implementation to calculates
+     *          the approximation coefficients on host
+     *          by normalized decomposition
+     */
+    void calApproxFinalOnHost();
+
 };
 
-
-
-#endif
+#endif 

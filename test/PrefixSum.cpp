@@ -90,79 +90,54 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#include "SimpleConvolution.hpp"
+#include "PrefixSum.hpp"
 
-int SimpleConvolution::setupSimpleConvolution()
+int PrefixSum::setupPrefixSum()
 {
-    cl_uint inputSizeBytes;
-
     /* allocate and init memory used by host */
-    inputSizeBytes = width * height * sizeof(cl_uint);
-    input  = (cl_uint *) malloc(inputSizeBytes);
-    if(input==NULL)   
+    cl_uint sizeBytes = length * sizeof(cl_float);
+
+    input = (cl_float *) malloc(sizeBytes);
+    if(input==NULL)    
     { 
         sampleCommon->error("Failed to allocate host memory. (input)");
         return SDK_FAILURE;
     }
+  
+    /* random initialisation of input */
+    sampleCommon->fillRandom<cl_float>(input, length, 1, 0, 255);
 
-    output = (cl_uint  *) malloc(inputSizeBytes);
-    if(output==NULL)   
+    output = (cl_float *) malloc(sizeBytes);
+    if(output==NULL)    
     { 
         sampleCommon->error("Failed to allocate host memory. (output)");
         return SDK_FAILURE;
     }
 
-    cl_uint maskSizeBytes = maskWidth * maskHeight * sizeof(cl_float);
-
-    mask = (cl_float  *) malloc(maskSizeBytes);
-
-    /* 
-     * random initialisation of input 
-     */
-    sampleCommon->fillRandom<cl_uint >(input, width, height, 0, 255);
-
-    /*
-     * Fill a blurr filter or some other filter of your choice
-     */
-    for(cl_uint i=0; i < maskWidth*maskHeight; i++)
-        mask[i] = 0;
-
-    cl_float val = 1.0f/(maskWidth * 2.0f - 1.0f);
-
-    for(cl_uint i=0; i < maskWidth; i++) 
+    if(verify)
     {
-        cl_uint y = maskHeight/2;
-        mask[y*maskWidth + i] = val;
+        verificationOutput = (cl_float *) malloc(sizeBytes);
+        if(verificationOutput==NULL)    { 
+            sampleCommon->error("Failed to allocate host memory. (verificationOutput)");
+                return SDK_FAILURE;
+        }
+        memset(verificationOutput, 0, sizeBytes);
     }
-
-    for(cl_uint i=0; i < maskHeight; i++)
-    {
-        cl_uint x = maskWidth/2;
-        mask[i*maskWidth + x] = val;
-    }
-
-    /* 
-     * Unless quiet mode has been enabled, print the INPUT array.
-     */
+    /* Unless quiet mode has been enabled, print the INPUT array. */
     if(!quiet) 
     {
-        sampleCommon->printArray<cl_uint >(
-                "Original Input", 
-                input, 
-                width, 
-                1);
-        sampleCommon->printArray<cl_float >(
-                "mask", 
-                mask, 
-                maskWidth, 
-                maskHeight);
+        sampleCommon->printArray<cl_float>(
+            "Input", 
+            input, 
+            length, 
+            1);
     }
 
     return SDK_SUCCESS;
 }
 
 int
-SimpleConvolution::setupCL(void)
+PrefixSum::setupCL(void)
 {
     cl_int status = 0;
     size_t deviceListSize;
@@ -249,21 +224,21 @@ SimpleConvolution::setupCL(void)
                   &status);
 
     if(!sampleCommon->checkVal(status, 
-                CL_SUCCESS,
-                "clCreateContextFromType failed."))
+                  CL_SUCCESS,
+                  "clCreateContextFromType failed."))
         return SDK_FAILURE;
 
     /* First, get the size of device list data */
     status = clGetContextInfo(
-            context, 
-            CL_CONTEXT_DEVICES, 
-            0, 
-            NULL, 
-            &deviceListSize);
+                 context, 
+                 CL_CONTEXT_DEVICES, 
+                 0, 
+                 NULL, 
+                 &deviceListSize);
     if(!sampleCommon->checkVal(
-                status, 
-                CL_SUCCESS,
-                "clGetContextInfo failed."))
+            status, 
+            CL_SUCCESS,
+            "clGetContextInfo failed."))
         return SDK_FAILURE;
 
     /* Now allocate memory for device list based on the size we got earlier */
@@ -275,16 +250,76 @@ SimpleConvolution::setupCL(void)
 
     /* Now, get the device list data */
     status = clGetContextInfo(
-            context, 
-            CL_CONTEXT_DEVICES, 
-            deviceListSize, 
-            devices, 
+                 context, 
+                 CL_CONTEXT_DEVICES, 
+                 deviceListSize, 
+                 devices, 
+                 NULL);
+    if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS, 
+            "clGetGetContextInfo failed."))
+        return SDK_FAILURE;
+
+    /* Get Device specific Information */
+    status = clGetDeviceInfo(
+            devices[0],
+            CL_DEVICE_MAX_WORK_GROUP_SIZE,
+            sizeof(size_t),
+            (void *)&maxWorkGroupSize,
             NULL);
+
     if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS, 
-                "clGetGetContextInfo failed."))
+                "clGetDeviceInfo CL_DEVICE_MAX_WORK_GROUP_SIZE failed."))
         return SDK_FAILURE;
+
+
+    status = clGetDeviceInfo(
+            devices[0],
+            CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS,
+            sizeof(cl_uint),
+            (void *)&maxDimensions,
+            NULL);
+
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS, 
+                "clGetDeviceInfo CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS failed."))
+        return SDK_FAILURE;
+
+
+    maxWorkItemSizes = (size_t *)malloc(maxDimensions*sizeof(size_t));
+    
+    status = clGetDeviceInfo(
+            devices[0],
+            CL_DEVICE_MAX_WORK_ITEM_SIZES,
+            sizeof(size_t)*maxDimensions,
+            (void *)maxWorkItemSizes,
+            NULL);
+
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS, 
+                "clGetDeviceInfo CL_DEVICE_MAX_WORK_ITEM_SIZES failed."))
+        return SDK_FAILURE;
+
+
+    status = clGetDeviceInfo(
+            devices[0],
+            CL_DEVICE_LOCAL_MEM_SIZE,
+            sizeof(cl_ulong),
+            (void *)&totalLocalMemory,
+            NULL);
+
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS, 
+                "clGetDeviceInfo CL_DEVICE_LOCAL_MEM_SIZES failed."))
+        return SDK_FAILURE;
+
+
 
     {
         /* The block is to move the declaration of prop closer to its use */
@@ -293,59 +328,47 @@ SimpleConvolution::setupCL(void)
             prop |= CL_QUEUE_PROFILING_ENABLE;
 
         commandQueue = clCreateCommandQueue(
-                context, 
-                devices[0], 
-                prop, 
-                &status);
+                           context, 
+                           devices[0], 
+                           prop, 
+                           &status);
         if(!sampleCommon->checkVal(
-                    status,
-                    0,
-                    "clCreateCommandQueue failed."))
+                status,
+                0,
+                "clCreateCommandQueue failed."))
             return SDK_FAILURE;
     }
 
     inputBuffer = clCreateBuffer(
-            context, 
-            CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
-            sizeof(cl_uint ) * width * height,
-            input, 
-            &status);
+                      context, 
+                      CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
+                      sizeof(cl_float) * length,
+                      input, 
+                      &status);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateBuffer failed. (inputBuffer)"))
+            status,
+            CL_SUCCESS,
+            "clCreateBuffer failed. (inputBuffer)"))
         return SDK_FAILURE;
 
     outputBuffer = clCreateBuffer(
-            context, 
-            CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR,
-            sizeof(cl_uint ) * width * height,
-            output, 
-            &status);
+                      context, 
+                      CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR,
+                      sizeof(cl_float) * length,
+                      output, 
+                      &status);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateBuffer failed. (outputBuffer)"))
-        return SDK_FAILURE;
-
-    maskBuffer = clCreateBuffer(
-            context, 
-            CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
-            sizeof(cl_float ) * maskWidth * maskHeight,
-            mask, 
-            &status);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateBuffer failed. (maskBuffer)"))
+            status,
+            CL_SUCCESS,
+            "clCreateBuffer failed. (outputBuffer)"))
         return SDK_FAILURE;
 
     /* create a CL program using the kernel source */
     //streamsdk::SDKFile kernelFile;
     //std::string kernelPath = sampleCommon->getPath();
-    //kernelPath.append("SimpleConvolution_Kernels.cl");
+    //kernelPath.append("PrefixSum_Kernels.cl");
     //kernelFile.open(kernelPath.c_str());
-    const char * source = "SimpleConvolution_Kernels.bc"; //kernelFile.source().c_str();
+    const char * source = "PrefixSum_Kernels.bc";//kernelFile.source().c_str();
     size_t sourceSize[] = { strlen(source) };
     program = clCreateProgramWithSource(
         context,
@@ -358,21 +381,21 @@ SimpleConvolution::setupCL(void)
             CL_SUCCESS,
             "clCreateProgramWithSource failed."))
         return SDK_FAILURE;
-
+    
     /* create a cl program executable for all the devices specified */
     status = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clBuildProgram failed."))
+            status,
+            CL_SUCCESS,
+            "clBuildProgram failed."))
         return SDK_FAILURE;
 
     /* get a kernel object handle for a kernel with the given name */
-    kernel = clCreateKernel(program, "simpleConvolution", &status);
+    kernel = clCreateKernel(program, "prefixSum", &status);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateKernel failed."))
+            status,
+            CL_SUCCESS,
+            "clCreateKernel failed."))
         return SDK_FAILURE;
 
     return SDK_SUCCESS;
@@ -380,16 +403,43 @@ SimpleConvolution::setupCL(void)
 
 
 int 
-SimpleConvolution::runCLKernels(void)
+PrefixSum::runCLKernels(void)
 {
     cl_int   status;
     cl_event events[2];
 
-    size_t globalThreads[1];
-    size_t localThreads[1];
+    size_t globalThreads[1]= {length/2};
+    size_t localThreads[1] = {length/2};
 
-    globalThreads[0] = width*height;
-    localThreads[0]  = 1;
+    status =  clGetKernelWorkGroupInfo(
+                    kernel,
+                    devices[0],
+                    CL_KERNEL_LOCAL_MEM_SIZE,
+                    sizeof(cl_ulong),
+                    &usedLocalMemory,
+                    NULL);
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS,
+                "clGetKernelWorkGroupInfo failed.(usedLocalMemory)"))
+        return SDK_FAILURE;
+
+    availableLocalMemory = totalLocalMemory - usedLocalMemory;
+
+    neededLocalMemory    = length*sizeof(cl_float); 
+
+    if(neededLocalMemory > availableLocalMemory)
+    {
+        std::cout << "Unsupported: Insufficient local memory on device." << std::endl;
+        return SDK_SUCCESS;
+    }
+
+    if(localThreads[0] > maxWorkItemSizes[0] ||
+       localThreads[0] > maxWorkGroupSize    )
+    {
+        std::cout << "Unsupported: Device does not support requested number of work items."<<std::endl;
+        return SDK_SUCCESS;
+    }
 
     /* Check group size against kernelWorkGroupSize */
     status = clGetKernelWorkGroupInfo(kernel,
@@ -415,94 +465,81 @@ SimpleConvolution::runCLKernels(void)
         return SDK_FAILURE;
     }
 
+
     /*** Set appropriate arguments to the kernel ***/
+    /* 1st argument to the kernel - outputBuffer */
     status = clSetKernelArg(
                     kernel, 
                     0, 
                     sizeof(cl_mem), 
                     (void *)&outputBuffer);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (outputBuffer)"))
+            status,
+            CL_SUCCESS,
+            "clSetKernelArg failed. (outputBuffer)"))
         return SDK_FAILURE;
 
+    /* 2nd argument to the kernel - inputBuffer */
     status = clSetKernelArg(
                     kernel, 
                     1, 
                     sizeof(cl_mem), 
                     (void *)&inputBuffer);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (inputBuffer)"))
+            status,
+            CL_SUCCESS,
+            "clSetKernelArg failed. (inputBuffer)"))
         return SDK_FAILURE;
 
+    /* 3rd argument to the kernel - local memory */
     status = clSetKernelArg(
                     kernel, 
                     2, 
-                    sizeof(cl_mem), 
-                    (void *)&maskBuffer);
+                    length*sizeof(cl_float), 
+                    NULL);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (maskBuffer)"))
+            status,
+            CL_SUCCESS,
+            "clSetKernelArg failed. (local)"))
         return SDK_FAILURE;
 
-
-	cl_uint2 inputDimensions = {width, height};
-	cl_uint2 maskDimensions  = {maskWidth, maskHeight};
-
+    /* 4th argument to the kernel - length */
     status = clSetKernelArg(
                     kernel, 
                     3, 
-                    sizeof(cl_uint2), 
-                    (void *)&inputDimensions);
+                    sizeof(cl_int),
+                    (void*)&length);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (inputDimensions)"))
+            status,
+            CL_SUCCESS,
+            "clSetKernelArg failed. (length)"))
         return SDK_FAILURE;
-
-    status = clSetKernelArg(
-                    kernel, 
-                    4, 
-                    sizeof(cl_uint2), 
-                    (void *)&maskDimensions);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (maskDimensions)"))
-        return SDK_FAILURE;
-
-
-    /* 
-     * Enqueue a kernel run call.
-     */
+    
+    /* Enqueue a kernel run call.*/
     status = clEnqueueNDRangeKernel(
-            commandQueue,
-            kernel,
-            1,
-            NULL,
-            globalThreads,
-            localThreads,
-            0,
-            NULL,
-            &events[0]);
-
+                 commandQueue,
+                 kernel,
+                 1,
+                 NULL,
+                 globalThreads,
+                 localThreads,
+                 0,
+                 NULL,
+                 &events[0]);
+    
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clEnqueueNDRangeKernel failed."))
+            status,
+            CL_SUCCESS,
+            "clEnqueueNDRangeKernel failed."))
         return SDK_FAILURE;
 
 
     /* wait for the kernel call to finish execution */
     status = clWaitForEvents(1, &events[0]);
     if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clWaitForEvents failed."))
+            status,
+            CL_SUCCESS,
+            "clWaitForEvents failed."))
         return SDK_FAILURE;
 
     /* Enqueue readBuffer*/
@@ -511,7 +548,7 @@ SimpleConvolution::runCLKernels(void)
                 outputBuffer,
                 CL_TRUE,
                 0,
-                width * height * sizeof(cl_uint),
+                length * sizeof(cl_float),
                 output,
                 0,
                 NULL,
@@ -530,118 +567,53 @@ SimpleConvolution::runCLKernels(void)
     		"clWaitForEvents failed."))
     	return SDK_FAILURE;
     
-    clReleaseEvent(events[1]);
+    status = clReleaseEvent(events[1]);
+    if(!sampleCommon->checkVal(
+                status,
+                CL_SUCCESS,
+                "clReleaseEvent failed.(events[1]"))
+            return SDK_FAILURE;
+
     return SDK_SUCCESS;
 }
 
-/**
- * Reference CPU implementation of Simple Convolution 
- * for performance comparison
+/*
+ * Naive implementation of prefix sum
  */
 void 
-SimpleConvolution::simpleConvolutionCPUReference(cl_uint  *output,
-                                                 const cl_uint  *input,
-                                                 const cl_float *mask,
-                                                 const cl_uint  width,
-                                                 const cl_uint height,
-                                                 const cl_uint maskWidth,
-                                                 const cl_uint maskHeight)
+PrefixSum::prefixSumCPUReference(
+    cl_float * output,
+    cl_float * input,
+    const cl_uint length)
 {
-    cl_uint vstep = (maskWidth  -1)/2;
-    cl_uint hstep = (maskHeight -1)/2;
+    output[0] = 0;
 
-    /*
-     * for each pixel in the input
-     */
-    for(cl_uint x = 0; x < width; x++)
-        for(cl_uint y = 0; y < height; y++)
-        {
-            /*
-             * find the left, right, top and bottom indices such that
-             * the indices do not go beyond image boundaires
-             */
-            cl_uint left    = (x           <  vstep) ? 0         : (x - vstep);
-            cl_uint right   = ((x + vstep) >= width) ? width - 1 : (x + vstep); 
-            cl_uint top     = (y           <  hstep) ? 0         : (y - hstep);
-            cl_uint bottom  = ((y + hstep) >= height)? height - 1: (y + hstep); 
-
-            /*
-             * initializing wighted sum value
-             */
-            cl_float sumFX = 0;
-
-            for(cl_uint i = left; i <= right; ++i)
-                for(cl_uint j = top ; j <= bottom; ++j)    
-                {
-                    /*
-                     * performing wighted sum within the mask boundaries
-                     */
-                    cl_uint maskIndex = (j - (y - hstep)) * maskWidth  + (i - (x - vstep));
-                    cl_uint index     = j                 * width      + i;
-                    
-                    /*
-                     * to round to the nearest integer
-                     */
-                    sumFX += ((float)input[index] * mask[maskIndex]);
-                }
-            sumFX += 0.5f;
-            output[y*width + x] = cl_uint(sumFX);
-        }
+    for(cl_uint i = 1; i< length; ++i)
+    {
+        output[i] = input[i-1] + output[i-1];
+    }
 }
 
-int SimpleConvolution::initialize()
+int PrefixSum::initialize()
 {
-   // Call base class Initialize to get default configuration
-   if(!this->SDKSample::initialize())
-      return SDK_FAILURE;
+    // Call base class Initialize to get default configuration
+    if(!this->SDKSample::initialize())
+        return SDK_FAILURE;
 
-   // Now add customized options
-    streamsdk::Option* width_option = new streamsdk::Option;
-    if(!width_option)
+    streamsdk::Option* array_length = new streamsdk::Option;
+    if(!array_length)
     {
         sampleCommon->error("Memory allocation error.\n");
         return SDK_FAILURE;
     }
     
-    width_option->_sVersion = "x";
-    width_option->_lVersion = "width";
-    width_option->_description = "Width of the input matrix";
-    width_option->_type = streamsdk::CA_ARG_INT;
-    width_option->_value = &width;
-
-    sampleArgs->AddOption(width_option);
-    delete width_option;
-
-    streamsdk::Option* height_option = new streamsdk::Option;
-    if(!height_option)
-    {
-        sampleCommon->error("Memory allocation error.\n");
-        return SDK_FAILURE;
-    }
-    
-    height_option->_sVersion = "y";
-    height_option->_lVersion = "height";
-    height_option->_description = "Height of the input matrix";
-    height_option->_type = streamsdk::CA_ARG_INT;
-    height_option->_value = &height;
-
-    sampleArgs->AddOption(height_option);
-    delete height_option;
-
-    streamsdk::Option* mask_width = new streamsdk::Option;
-    if(!mask_width)
-    {
-       sampleCommon->error("Memory allocation error.\n");
-       return SDK_FAILURE;
-    }
-    maskWidth = 3;
-    mask_width->_sVersion = "m";
-    mask_width->_lVersion = "masksize";
-    mask_width->_description = "Width of the mask matrix";
-    mask_width->_type = streamsdk::CA_ARG_INT;
-    mask_width->_value = &maskWidth;
-    sampleArgs->AddOption(mask_width);
-    delete mask_width;
+    array_length->_sVersion = "x";
+    array_length->_lVersion = "length";
+    array_length->_description = "Length of the input array";
+    array_length->_type = streamsdk::CA_ARG_INT;
+    array_length->_value = &length;
+    sampleArgs->AddOption(array_length);
+    delete array_length;
 
     streamsdk::Option* num_iterations = new streamsdk::Option;
     if(!num_iterations)
@@ -659,42 +631,33 @@ int SimpleConvolution::initialize()
     sampleArgs->AddOption(num_iterations);
     delete num_iterations;
 
-   return SDK_SUCCESS;
+    return SDK_SUCCESS;
 }
 
-int SimpleConvolution::setup()
-{
-   if(!sampleCommon->isPowerOf2(width))
-      width = sampleCommon->roundToPowerOf2(width);
-   if(!sampleCommon->isPowerOf2(height))
-      height = sampleCommon->roundToPowerOf2(height);
+int PrefixSum::setup()
+{  
+    if(!sampleCommon->isPowerOf2(length))
+        length = sampleCommon->roundToPowerOf2(length);
 
-   maskHeight = maskWidth;
-
-   if(!(maskWidth%2))
-      maskWidth++;
-   if(!(maskHeight%2))
-      maskHeight++;
-
-   if(setupSimpleConvolution()!=SDK_SUCCESS)
-      return SDK_FAILURE;
+    if(setupPrefixSum()!=SDK_SUCCESS)
+        return SDK_FAILURE;
     
     int timer = sampleCommon->createTimer();
     sampleCommon->resetTimer(timer);
     sampleCommon->startTimer(timer);
 
     if(setupCL()!=SDK_SUCCESS)
-      return SDK_FAILURE;
+        return SDK_FAILURE;
 
     sampleCommon->stopTimer(timer);
 
     setupTime = (cl_double)sampleCommon->readTimer(timer);
 
-   return SDK_SUCCESS;
+    return SDK_SUCCESS;
 }
 
 
-int SimpleConvolution::run()
+int PrefixSum::run()
 {
     int timer = sampleCommon->createTimer();
     sampleCommon->resetTimer(timer);
@@ -715,39 +678,26 @@ int SimpleConvolution::run()
     totalKernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
 
     if(!quiet) {
-        sampleCommon->printArray<cl_uint >("Output", output, width, 1);
+        sampleCommon->printArray<cl_float>("Output", output, length, 1);
     }
 
     return SDK_SUCCESS;
 }
 
-int SimpleConvolution::verifyResults()
+int PrefixSum::verifyResults()
 {
     if(verify)
     {
-        verificationOutput = (cl_uint  *) malloc(width*height*sizeof(cl_uint ));
-        if(verificationOutput==NULL)   { 
-            sampleCommon->error("Failed to allocate host memory. (verificationOutput)");
-            return SDK_FAILURE;
-        }
-
-        /* 
-         * reference implementation
-         */
+        /* reference implementation */
         int refTimer = sampleCommon->createTimer();
         sampleCommon->resetTimer(refTimer);
         sampleCommon->startTimer(refTimer);
-
-		cl_uint2 inputDimensions = {width    , height};
-		cl_uint2 maskDimensions  = {maskWidth, maskHeight};
-
-        simpleConvolutionCPUReference(verificationOutput, input, mask, width, height,
-                                        maskWidth, maskHeight);
+        prefixSumCPUReference(verificationOutput, input, length);
         sampleCommon->stopTimer(refTimer);
         referenceKernelTime = sampleCommon->readTimer(refTimer);
 
         /* compare the results and see if they match */
-        if(memcmp(output, verificationOutput, height*width*sizeof(cl_uint )) == 0)
+        if(sampleCommon->compare(output, verificationOutput, length))
         {
             std::cout<<"Passed!\n";
             return SDK_SUCCESS;
@@ -759,25 +709,24 @@ int SimpleConvolution::verifyResults()
         }
     }
 
-    return SDK_SUCCESS;
+	return SDK_SUCCESS;
 }
 
-void SimpleConvolution::printStats()
+void PrefixSum::printStats()
 {
-    std::string strArray[4] = {"Width", "Height", "mask Size", "Time(sec)"};
-    std::string stats[4];
+	std::string strArray[3] = {"Length", "Time(sec)", "KerneTime(sec)"};
+    std::string stats[3];
 
     totalTime = setupTime + totalKernelTime;
-
-    stats[0]  = sampleCommon->toString(width    , std::dec);
-    stats[1]  = sampleCommon->toString(height   , std::dec);
-    stats[2]  = sampleCommon->toString(maskWidth, std::dec);
-    stats[3]  = sampleCommon->toString(totalTime, std::dec);
     
-    this->SDKSample::printStats(strArray, stats, 4);
+    stats[0]  = sampleCommon->toString(length, std::dec);
+    stats[1]  = sampleCommon->toString(totalTime, std::dec);
+	stats[2]  = sampleCommon->toString(totalKernelTime, std::dec);
+    
+    this->SDKSample::printStats(strArray, stats, 3);
 }
 
-int SimpleConvolution::cleanup()
+int PrefixSum::cleanup()
 {
     /* Releases OpenCL resources (Context, Memory etc.) */
     cl_int status;
@@ -796,50 +745,40 @@ int SimpleConvolution::cleanup()
         "clReleaseProgram failed."))
         return SDK_FAILURE;
 
-   status = clReleaseMemObject(inputBuffer);
-   if(!sampleCommon->checkVal(
-      status,
-      CL_SUCCESS,
-      "clReleaseMemObject failed."))
-      return SDK_FAILURE;
+    status = clReleaseMemObject(inputBuffer);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+        return SDK_FAILURE;
 
-   status = clReleaseMemObject(outputBuffer);
-   if(!sampleCommon->checkVal(
-      status,
-      CL_SUCCESS,
-      "clReleaseMemObject failed."))
-      return SDK_FAILURE;
-
-   status = clReleaseMemObject(maskBuffer);
-   if(!sampleCommon->checkVal(
-      status,
-      CL_SUCCESS,
-      "clReleaseMemObject failed."))
-      return SDK_FAILURE;
+    status = clReleaseMemObject(outputBuffer);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+        return SDK_FAILURE;
 
     status = clReleaseCommandQueue(commandQueue);
-     if(!sampleCommon->checkVal(
+    if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseCommandQueue failed."))
         return SDK_FAILURE;
 
     status = clReleaseContext(context);
-   if(!sampleCommon->checkVal(
-         status,
-         CL_SUCCESS,
-         "clReleaseContext failed."))
-      return SDK_FAILURE;
+    if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clReleaseContext failed."))
+        return SDK_FAILURE;
 
     /* release program resources (input memory etc.) */
     if(input) 
         free(input);
 
-   if(output) 
+    if(output)
         free(output);
-
-   if(mask) 
-        free(mask);
 
     if(verificationOutput) 
         free(verificationOutput);
@@ -847,27 +786,29 @@ int SimpleConvolution::cleanup()
     if(devices)
         free(devices);
 
-   return SDK_SUCCESS;
+    if(maxWorkItemSizes)
+        free(maxWorkItemSizes);
+
+    return SDK_SUCCESS;
 }
 
 int 
 main(int argc, char * argv[])
 {
-   SimpleConvolution clSimpleConvolution("OpenCL Simple Convolution");
+    PrefixSum clPrefixSum("OpenCL Matrix Multiplication");
 
-   if(clSimpleConvolution.initialize()!=SDK_SUCCESS)
-	   return SDK_FAILURE;
-   if(!clSimpleConvolution.parseCommandLine(argc, argv))
-      return SDK_FAILURE;
-   if(clSimpleConvolution.setup()!=SDK_SUCCESS)
-      return SDK_FAILURE;
-   if(clSimpleConvolution.run()!=SDK_SUCCESS)
-      return SDK_FAILURE;
-   if(clSimpleConvolution.verifyResults()!=SDK_SUCCESS)
-      return SDK_FAILURE;
-   if(clSimpleConvolution.cleanup()!=SDK_SUCCESS)
-      return SDK_FAILURE;
-   clSimpleConvolution.printStats();
+    clPrefixSum.initialize();
+    if(!clPrefixSum.parseCommandLine(argc, argv))
+        return SDK_FAILURE;
+    if(clPrefixSum.setup()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clPrefixSum.run()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clPrefixSum.verifyResults()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clPrefixSum.cleanup()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    clPrefixSum.printStats();
 
     return SDK_SUCCESS;
 }

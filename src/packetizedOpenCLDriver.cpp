@@ -37,7 +37,9 @@
 
 #include <jitRT/llvmWrapper.h> // packetizer & LLVM wrapper ('jitRT')
 
-#define PACKETIZED_OPENCL_USE_OPENMP
+#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+
+//#define PACKETIZED_OPENCL_USE_OPENMP
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 #include <omp.h>
 #endif
@@ -49,7 +51,6 @@
 
 //#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
 
-#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
 template<typename T, typename U> T ptr_cast(U* p) {
 	return reinterpret_cast<T>(reinterpret_cast<size_t>(p));
@@ -970,7 +971,7 @@ clGetDeviceInfo(cl_device_id    device,
                 void *          param_value,
                 size_t *        param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	//assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
@@ -1426,7 +1427,7 @@ clCreateKernel(cl_program      program,
 
 	// packetize scalar function into SIMD function
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(f, "scalar.ll"); );
-	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, false);
+	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, false, false);
 	f_SIMD = jitRT::getFunction(kernel_simd_name, module); //pointer not valid anymore!
 	program->function_SIMD = f_SIMD;
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );

@@ -1,13 +1,13 @@
 /* ============================================================
 
 Copyright (c) 2009 Advanced Micro Devices, Inc.  All rights reserved.
- 
+
 Redistribution and use of this material is permitted under the following 
 conditions:
- 
+
 Redistributions must retain the above copyright notice and all terms of this 
 license.
- 
+
 In no event shall anyone redistributing or accessing or using this material 
 commence or participate in any arbitration or legal action relating to this 
 material against Advanced Micro Devices, Inc. or any copyright holders or 
@@ -90,14 +90,10 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef SIMPLECONVOLUTION_H_
-#define SIMPLECONVOLUTION_H_
-
-
-
+#ifndef _SCANLARGEARRAYS_H_
+#define _SCANLARGEARRAYS_H_
 
 #include <CL/cl.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -107,152 +103,204 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKCommandArgs.hpp>
 #include <SDKUtil/SDKFile.hpp>
 
+
+#ifndef max
+#define max(a,b) (((a) > (b)) ? (a) : (b))
+#endif
+
+#ifndef min
+#define min(a,b) (((a) < (b)) ? (a) : (b))
+#endif
+
+
 /**
- * SimpleConvolution 
- * Class implements OpenCL SimpleConvolution sample
- * Derived from SDKSample base class
- */
+* ScanLargerrays 
+* Class implements OpenCL Scan Large Arrays sample
+* Derived from SDKSample base class
+*/
 
-class SimpleConvolution : public SDKSample
+#define GROUP_SIZE 256
+
+class ScanLargeArrays : public SDKSample
 {
-    cl_uint      seed;               /**< Seed value for random number generation */
-    cl_double        setupTime;      /**< Time for setting up OpenCL */
-    cl_double    totalKernelTime;    /**< Time for kernel execution */
-    cl_double    totalProgramTime;   /**< Time for program execution */
-    cl_double    referenceKernelTime;/**< Time for reference implementation */
-    cl_int       width;              /**< Width of the Input array */
-    cl_int       height;             /**< Height of the Input array */
-    cl_uint      *input;             /**< Input array */
-    cl_uint      *output;            /**< Output array */
-    cl_float     *mask;              /**< mask array */
-    cl_uint      maskWidth;          /**< mask dimensions */
-    cl_uint      maskHeight;         /**< mask dimensions */
-    cl_uint      *verificationOutput;/**< Output array for reference implementation */
-    cl_context   context;            /**< CL context */
-    cl_device_id *devices;           /**< CL device list */
-    cl_mem       inputBuffer;        /**< CL memory input buffer */
-    cl_mem       outputBuffer;       /**< CL memory output buffer */
-    cl_mem       maskBuffer;         /**< CL memory mask buffer */
-    cl_command_queue commandQueue;   /**< CL command queue */
-    cl_program   program;            /**< CL program  */
-    cl_kernel    kernel;             /**< CL kernel */
-    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
-    int          iterations;         /**< Number of iterations to execute kernel */
+    cl_double setupTime;            /**< time taken to setup OpenCL resources and building kernel */
+    cl_double kernelTime;           /**< time taken to run kernel and read result back */
 
-    public:
+    size_t maxWorkGroupSize;        /**< Max allowed work-items in a group */
+    cl_uint maxDimensions;          /**< Max group dimensions allowed */
+    size_t* maxWorkItemSizes;       /**< Max work-items sizes in each dimensions */
+    cl_ulong totalLocalMemory;      /**< Max local memory allowed */
+    cl_ulong usedLocalMemory;       /**< Used local memory by kernel */
+    cl_ulong availableLocalMemory;  /**< Available local memory to be set from host */
+    cl_ulong neededLocalMemory;     /**< Local memory need by application which set from host */
+
+    cl_float            *input;                 /**< Input array */
+    cl_float            *output;                /**< Output Array */
+    cl_float            *verificationOutput;    /**< Output array for reference implementation */
+    cl_context          context;                /**< CL context */
+    cl_device_id        *devices;               /**< CL device list */
+    cl_mem              inputBuffer;            /**< CL memory buffer */
+    cl_mem              *outputBuffer;          /**< Array of output buffers */
+    cl_mem              *blockSumBuffer;        /**< Array of block sum buffers */
+    cl_mem              tempBuffer;             /**< Temporary bufer */
+    cl_command_queue    commandQueue;           /**< CL command queue */
+    cl_program          program;                /**< CL program  */
+    cl_kernel           bScanKernel;            /**< CL kernel for block-wise scan */
+    cl_kernel           bAddKernel;             /**< CL Kernel for block-wise add */
+    cl_kernel           pScanKernel;            /**< CL Kernel for prefix sum */
+    cl_uint             blockSize;              /**< Size of a block */
+    cl_uint             length;                 /**< Length of output */
+    cl_uint             pass;                   /**< Number of passes */
+    size_t              kernelWorkGroupSize;    /**< Group Size returned by kernel */
+    int                 iterations;             /**< Number of iterations for kernel execution */
+
+public:
     /** 
-     * Constructor 
-     * Initialize member variables
-     * @param name name of sample (string)
-     */
-    SimpleConvolution(std::string name)
-        : SDKSample(name)   {
-            seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;
-            width = 64;
-            height = 64;
-            setupTime = 0;
-            totalKernelTime = 0;
-            iterations = 1;
-        }
+    * Constructor 
+    * Initialize member variables
+    * @param name name of sample (string)
+    */
+    ScanLargeArrays(std::string name)
+        : SDKSample(name)
+    {
+        input = NULL;
+        output = NULL;
+        verificationOutput = NULL;
+        maxWorkItemSizes = NULL;
+        blockSize = GROUP_SIZE;
+        length = 1024;
+        kernelTime = 0;
+        setupTime = 0;
+        iterations = 1;
+    }
 
     /** 
-     * Constructor 
-     * Initialize member variables
-     * @param name name of sample (const char*)
-     */
-    SimpleConvolution(const char* name)
-        : SDKSample(name)   {
-            seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;      
-            width = 64;
-            height = 64;
-            setupTime = 0;
-            totalKernelTime = 0;
-            iterations = 1;
-        }
+    * Constructor 
+    * Initialize member variables
+    * @param name name of sample (const char*)
+    */
+    ScanLargeArrays(const char* name)
+        : SDKSample(name)
+    {
+        input = NULL;
+        output = NULL;
+        verificationOutput = NULL;
+        maxWorkItemSizes = NULL;
+        blockSize = GROUP_SIZE;
+        length = 1024;
+        kernelTime = 0;
+        setupTime = 0;
+        iterations = 1;
+    }
 
     /**
-     * Allocate and initialize host memory array with random values
-     * @return 1 on success and 0 on failure
-     */
-    int setupSimpleConvolution();
+    * Allocate and initialize host memory array with random values
+    * Calculate number of pass required and allocate device buffers accordingly
+    * @return 1 on success and 0 on failure
+    */
+    int setupScanLargeArrays();
 
     /**
-     * OpenCL related initialisations. 
-     * Set up Context, Device list, Command Queue, Memory buffers
-     * Build CL kernel program executable
-     * @return 1 on success and 0 on failure
-     */
+    * OpenCL related initialisations. 
+    * Set up Context, Device list, Command Queue, Memory buffers
+    * Build CL kernel program executable
+    * @return 1 on success and 0 on failure
+    */
     int setupCL();
 
     /**
-     * Set values for kernels' arguments, enqueue calls to the kernels
-     * on to the command queue, wait till end of kernel execution.
-     * Get kernel start and end time if timing is enabled
-     * @return 1 on success and 0 on failure
-     */
+    * Set values for kernels' arguments, enqueue calls to the kernels
+    * on to the command queue, wait till end of kernel execution.
+    * Get kernel start and end time if timing is enabled
+    * @return 1 on success and 0 on failure
+    */
     int runCLKernels();
 
     /**
-     * Reference CPU implementation of Simple Convolution 
-     * for performance comparison
-     * @param output Output matrix after performing convolution
-     * @param input  Input  matrix on which convolution is to be performed
-     * @param mask   mask matrix using which convolution was to be performed
-     * @param inputDimensions dimensions of the input matrix
-     * @param maskDimensions  dimensions of the mask matrix
-     */
-    void simpleConvolutionCPUReference(
-            cl_uint  *output,
-            const cl_uint  *input,
-            const cl_float  *mask,
-            const cl_uint  width,
-            const cl_uint  height,
-            const cl_uint maskWidth,
-            const cl_uint maskHeight);
+    * Enqueue bScan Kernel 
+    * Scans the inputBuffer block-wise and stores scanned elements in outputBuffer
+    * and sum of blocks in blockSumBuffer
+    * @param len size of input buffer
+    * @param inputBuffer input buffer
+    * @param outputBuffer output buffer
+    * @param blockSumBuffer sum of blocks of inputbuffer
+    * @return 1 on success and 0 on failure
+    */
+    int bScan(cl_uint len, 
+              cl_mem *inputBuffer,
+              cl_mem *outputBuffer,
+              cl_mem *blockSumBuffer);
+
     /**
-     * Override from SDKSample. Print sample stats.
-     */
+    * Enqueue pScan Kernel
+    * Basic prefix sum
+    * @param len size of input buffer
+    * @param inputBuffer input buffer
+    * @param outputBuffer output buffer
+    * @return 1 on success and 0 on failure
+    */
+    int pScan(cl_uint len,
+              cl_mem *inputBuffer,
+              cl_mem *outputBuffer);
+
+    /** 
+    * Enqueue bAddition Kernel
+    * Elements of inputBuffer are added block-wise to outputBuffer
+    * @param len size of output buffer
+    * @param inputBuffer input buffer
+    * @param outputBuffer output buffer
+    * @return 1 on success and 0 on failure
+    */
+    int bAddition(cl_uint len,
+                  cl_mem *inputBuffer,
+                  cl_mem *outputBuffer);
+
+
+    /**
+    * Reference CPU implementation of Prefix Sum
+    * @param output the array that stores the prefix sum
+    * @param input the input array
+    * @param length length of the input array
+    */
+    void scanLargeArraysCPUReference(cl_float * output,
+                                     cl_float * input,
+                                     const cl_uint length);
+    /**
+    * Override from SDKSample. Print sample stats.
+    */
     void printStats();
 
     /**
-     * Override from SDKSample. Initialize 
-     * command line parser, add custom options
-     */
+    * Override from SDKSample. Initialize 
+    * command line parser, add custom options
+    */
     int initialize();
 
     /**
-     * Override from SDKSample, adjust width and height 
-     * of execution domain, perform all sample setup
-     */
+    * Override from SDKSample, adjust width and height 
+    * of execution domain, perform all sample setup
+    */
     int setup();
 
     /**
-     * Override from SDKSample
-     * Run OpenCL Bitonic Sort
-     */
+    * Override from SDKSample
+    * Run OpenCL FastWalsh Transform 
+    */
     int run();
 
     /**
-     * Override from SDKSample
-     * Cleanup memory allocations
-     */
+    * Override from SDKSample
+    * Cleanup memory allocations
+    */
     int cleanup();
 
     /**
-     * Override from SDKSample
-     * Verify against reference implementation
-     */
+    * Override from SDKSample
+    * Verify against reference implementation
+    */
     int verifyResults();
 };
 
 
 
-#endif
+#endif //_SCANLARGEARRAYS_H_

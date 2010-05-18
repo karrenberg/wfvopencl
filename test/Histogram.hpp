@@ -1,13 +1,13 @@
 /* ============================================================
 
 Copyright (c) 2009 Advanced Micro Devices, Inc.  All rights reserved.
- 
+
 Redistribution and use of this material is permitted under the following 
 conditions:
- 
+
 Redistributions must retain the above copyright notice and all terms of this 
 license.
- 
+
 In no event shall anyone redistributing or accessing or using this material 
 commence or participate in any arbitration or legal action relating to this 
 material against Advanced Micro Devices, Inc. or any copyright holders or 
@@ -90,11 +90,8 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#ifndef SIMPLECONVOLUTION_H_
-#define SIMPLECONVOLUTION_H_
-
-
-
+#ifndef HISTOGRAM_H_
+#define HISTOGRAM_H_
 
 #include <CL/cl.h>
 
@@ -107,152 +104,220 @@ jurisdiction and venue of these courts.
 #include <SDKUtil/SDKCommandArgs.hpp>
 #include <SDKUtil/SDKFile.hpp>
 
+
+#define WIDTH 1024
+#define HEIGHT 1024
+#define BIN_SIZE 256
+#define GROUP_SIZE 128
+#define SUB_HISTOGRAM_COUNT ((WIDTH * HEIGHT) /(GROUP_SIZE * BIN_SIZE))
+
+
 /**
- * SimpleConvolution 
- * Class implements OpenCL SimpleConvolution sample
- * Derived from SDKSample base class
- */
+* Histogram 
+* Class implements 256 Histogram bin implementation 
+* Derived from SDKSample base class
+*/
 
-class SimpleConvolution : public SDKSample
+class Histogram : public SDKSample
 {
-    cl_uint      seed;               /**< Seed value for random number generation */
-    cl_double        setupTime;      /**< Time for setting up OpenCL */
-    cl_double    totalKernelTime;    /**< Time for kernel execution */
-    cl_double    totalProgramTime;   /**< Time for program execution */
-    cl_double    referenceKernelTime;/**< Time for reference implementation */
-    cl_int       width;              /**< Width of the Input array */
-    cl_int       height;             /**< Height of the Input array */
-    cl_uint      *input;             /**< Input array */
-    cl_uint      *output;            /**< Output array */
-    cl_float     *mask;              /**< mask array */
-    cl_uint      maskWidth;          /**< mask dimensions */
-    cl_uint      maskHeight;         /**< mask dimensions */
-    cl_uint      *verificationOutput;/**< Output array for reference implementation */
-    cl_context   context;            /**< CL context */
-    cl_device_id *devices;           /**< CL device list */
-    cl_mem       inputBuffer;        /**< CL memory input buffer */
-    cl_mem       outputBuffer;       /**< CL memory output buffer */
-    cl_mem       maskBuffer;         /**< CL memory mask buffer */
-    cl_command_queue commandQueue;   /**< CL command queue */
-    cl_program   program;            /**< CL program  */
-    cl_kernel    kernel;             /**< CL kernel */
-    size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
-    int          iterations;         /**< Number of iterations to execute kernel */
 
-    public:
+    cl_int binSize;         /**< Size of Histogram bin */
+    cl_int groupSize;       /**< Number of threads in group */
+    cl_int subHistgCnt;     /**< Sub histogram count */
+    cl_uint *data;          /**< input data initialized with normalized(0 - binSize) random values */
+    cl_int width;           /**< width of the input */
+    cl_int height;          /**< height of the input */
+    cl_uint *hostBin;       /**< Host result for histogram bin */
+    cl_uint *midDeviceBin;  /**< Intermittent sub-histogram bins */
+    cl_uint *deviceBin;     /**< Device result for histogram bin */
+
+    cl_double setupTime;    /**< time taken to setup OpenCL resources and building kernel */
+    cl_double kernelTime;   /**< time taken to run kernel and read result back */
+
+    size_t maxWorkGroupSize;        /**< Max allowed work-items in a group */
+    cl_uint maxDimensions;          /**< Max group dimensions allowed */
+    size_t *maxWorkItemSizes;       /**< Max work-items sizes in each dimensions */
+    cl_ulong totalLocalMemory;      /**< Max local memory allowed */
+    cl_ulong usedLocalMemory;       /**< Used local memory by kernel */
+
+    cl_context context;             /**< CL context */
+    cl_device_id *devices;          /**< CL device list */
+
+    cl_mem dataBuf;                 /**< CL memory buffer for data */
+    cl_mem midDeviceBinBuf;         /**< CL memory buffer for intermittent device bin */
+    cl_mem deviceBinBuf;            /**< CL memory buffer for deviceBin */
+
+    cl_command_queue commandQueue;  /**< CL command queue */
+    cl_program program;             /**< CL program  */
+    cl_kernel kernel;               /**< CL kernel */
+    size_t kernelWorkGroupSize;     /**< Max Group size that can be executed on kernel */
+    int iterations;                 /**< Number of iterations for kernel execution */
+    cl_bool byteRWSupport;
+    cl_int atomics;
+    cl_int memAccess;
+
+public:
     /** 
-     * Constructor 
-     * Initialize member variables
-     * @param name name of sample (string)
-     */
-    SimpleConvolution(std::string name)
-        : SDKSample(name)   {
-            seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;
-            width = 64;
-            height = 64;
-            setupTime = 0;
-            totalKernelTime = 0;
-            iterations = 1;
+    * Constructor 
+    * Initialize member variables
+    * @param name name of sample (string)
+    */
+    Histogram(std::string name)
+        : SDKSample(name),
+        binSize(BIN_SIZE),
+        groupSize(GROUP_SIZE),
+        setupTime(0),
+        kernelTime(0),
+        subHistgCnt(SUB_HISTOGRAM_COUNT),
+        data(NULL),
+        hostBin(NULL),
+        midDeviceBin(NULL),
+        deviceBin(NULL),
+        devices(NULL),
+        maxWorkItemSizes(NULL),
+        byteRWSupport(true),
+        atomics(-1),
+        memAccess(BIN_SIZE),
+        iterations(1)
+    {
+        /* Set default values for width and height */
+        width = WIDTH;
+        height = HEIGHT;
+    }
+
+    /** 
+    * Constructor 
+    * Initialize member variables
+    * @param name name of sample (const char*)
+    */
+    Histogram(const char* name)
+        : SDKSample(name),
+        binSize(BIN_SIZE),
+        groupSize(GROUP_SIZE),
+        setupTime(0),
+        kernelTime(0),
+        subHistgCnt(SUB_HISTOGRAM_COUNT),
+        data(NULL),
+        hostBin(NULL),
+        midDeviceBin(NULL),
+        deviceBin(NULL),
+        devices(NULL),
+        maxWorkItemSizes(NULL),
+        byteRWSupport(true),
+        atomics(-1),
+        memAccess(BIN_SIZE),
+        iterations(1)
+    {
+        /* Set default values for width and height */
+        width = WIDTH;
+        height = HEIGHT;
+    }
+
+    ~Histogram()
+    {
+        if(data) 
+        {
+            free(data);
+            data = NULL;
         }
 
-    /** 
-     * Constructor 
-     * Initialize member variables
-     * @param name name of sample (const char*)
-     */
-    SimpleConvolution(const char* name)
-        : SDKSample(name)   {
-            seed = 123;
-            input = NULL;
-            output = NULL;
-            mask   = NULL;
-            verificationOutput = NULL;      
-            width = 64;
-            height = 64;
-            setupTime = 0;
-            totalKernelTime = 0;
-            iterations = 1;
+        if(hostBin) 
+        {
+            free(hostBin);
+            hostBin = NULL;
         }
 
-    /**
-     * Allocate and initialize host memory array with random values
-     * @return 1 on success and 0 on failure
-     */
-    int setupSimpleConvolution();
+        if(midDeviceBin) 
+        {
+            free(midDeviceBin);
+            midDeviceBin = NULL;
+        }
+
+
+        if(deviceBin) 
+        {
+            free(deviceBin);
+            deviceBin = NULL;
+        }
+
+        if(devices)
+        {
+            free(devices);
+            devices = NULL;
+        }
+
+        if(maxWorkItemSizes)
+        {
+            free(maxWorkItemSizes);
+            maxWorkItemSizes = NULL;
+        }
+    }
 
     /**
-     * OpenCL related initialisations. 
-     * Set up Context, Device list, Command Queue, Memory buffers
-     * Build CL kernel program executable
-     * @return 1 on success and 0 on failure
-     */
+    * Allocate and initialize required host memory with appropriate values
+    * @return 1 on success and 0 on failure
+    */
+    int setupHistogram();
+
+    /**
+    * OpenCL related initialisations. 
+    * Set up Context, Device list, Command Queue, Memory buffers
+    * Build CL kernel program executable
+    * @return 1 on success and 0 on failure
+    */
     int setupCL();
 
     /**
-     * Set values for kernels' arguments, enqueue calls to the kernels
-     * on to the command queue, wait till end of kernel execution.
-     * Get kernel start and end time if timing is enabled
-     * @return 1 on success and 0 on failure
-     */
+    * Set values for kernels' arguments, enqueue calls to the kernels
+    * on to the command queue, wait till end of kernel execution.
+    * Get kernel start and end time if timing is enabled
+    * @return 1 on success and 0 on failure
+    */
     int runCLKernels();
 
     /**
-     * Reference CPU implementation of Simple Convolution 
-     * for performance comparison
-     * @param output Output matrix after performing convolution
-     * @param input  Input  matrix on which convolution is to be performed
-     * @param mask   mask matrix using which convolution was to be performed
-     * @param inputDimensions dimensions of the input matrix
-     * @param maskDimensions  dimensions of the mask matrix
-     */
-    void simpleConvolutionCPUReference(
-            cl_uint  *output,
-            const cl_uint  *input,
-            const cl_float  *mask,
-            const cl_uint  width,
-            const cl_uint  height,
-            const cl_uint maskWidth,
-            const cl_uint maskHeight);
-    /**
-     * Override from SDKSample. Print sample stats.
-     */
+    * Override from SDKSample. Print sample stats.
+    */
     void printStats();
 
     /**
-     * Override from SDKSample. Initialize 
-     * command line parser, add custom options
-     */
+    * Override from SDKSample. Initialize 
+    * command line parser, add custom options
+    */
     int initialize();
 
     /**
-     * Override from SDKSample, adjust width and height 
-     * of execution domain, perform all sample setup
-     */
+    * Override from SDKSample, adjust width and height 
+    * of execution domain, perform all sample setup
+    */
     int setup();
 
     /**
-     * Override from SDKSample
-     * Run OpenCL Bitonic Sort
-     */
+    * Override from SDKSample
+    * Run OpenCL Black-Scholes
+    */
     int run();
 
     /**
-     * Override from SDKSample
-     * Cleanup memory allocations
-     */
+    * Override from SDKSample
+    * Cleanup memory allocations
+    */
     int cleanup();
 
     /**
-     * Override from SDKSample
-     * Verify against reference implementation
-     */
+    * Override from SDKSample
+    * Verify against reference implementation
+    */
     int verifyResults();
+
+private:
+
+    /**
+    *  Calculate histogram bin on host 
+    */
+    void calculateHostBin();
 };
 
 
 
-#endif
+#endif 
