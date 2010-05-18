@@ -1,5 +1,5 @@
 #home
-#export JITRT_INSTALL_DIR=/home/ralf/PRojekte/proj_anysl/install/build-icc-debug/jitRT
+#export JITRT_INSTALL_DIR=/home/ralf/Projekte/proj_anysl/install/build-icc-debug/jitRT
 #export LLVM_BIN=/home/ralf/Projekte/proj_anysl/install/build-gcc-debug/llvm/bin
 #uni
 export JITRT_INSTALL_DIR=/local/karrenberg/proj/anysl/install/build-icc-debug/jitRT

@@ -44,8 +44,8 @@
 
 
 // debug output
-#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
-//#define PACKETIZED_OPENCL_DRIVER_DEBUG(x)
+//#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+#define PACKETIZED_OPENCL_DRIVER_DEBUG(x)
 
 //#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
 
@@ -736,7 +736,7 @@ public:
 
 	inline size_t get_element_size() const { return element_size; }
 	inline cl_uint get_address_space() const { return address_space; }
-	inline const void* get_data() { assert(data); return data; }
+	inline const void* get_data() { return data; } // must not assert (data) -> can be 0 if non-pointer type (e.g. float)
 	inline const void* get_data_raw() {
 		assert(data);
 		switch (address_space) {
