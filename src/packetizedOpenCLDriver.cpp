@@ -971,7 +971,7 @@ clGetDeviceInfo(cl_device_id    device,
                 void *          param_value,
                 size_t *        param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	//assert (false && "NOT IMPLEMENTED!");
+	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
