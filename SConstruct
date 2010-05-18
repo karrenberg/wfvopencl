@@ -7,15 +7,17 @@ env = Environment(ENV = os.environ)
 
 env['CC'] = 'clang'
 env['CXX'] = 'clang++'
+#env['CC'] = 'gcc'
+#env['CXX'] = 'g++'
 
 # TODO: add debug/opt mode
 #cxxflags = env.Split("-O3 -msse2")
-cxxflags = env.Split("-O0 -g -DDEBUG -Wall -pedantic -msse3")
+cxxflags = env.Split("-O0 -g -DDEBUG -Wall -pedantic -msse3 -fopenmp")
 env.Append(CXXFLAGS = cxxflags)
 
-env.Append(CPPPATH = env.Split("-Iinclude"))
-env.Append(LIBPATH = env.Split("-Llib"))
-
+env.Append(CPPPATH = env.Split("include"))
+env.Append(LIBPATH = env.Split("lib"))
+env.Append(LINKFLAGS = env.Split("-fopenmp"))
 
 # build Packetized OpenCL Driver
 PacketizedOpenCLDriver = env.Object(target='build/obj/packetizedOpenCLDriver', source='src/packetizedOpenCLDriver.cpp')
@@ -30,37 +32,31 @@ env.Depends(SDKUtil, PacketizedOpenCLDriver)
 ###
 
 # build simpleTest
-env.Object(target='build/obj/simpleTest', source='test/simpleTest.cpp')
-env.Program(target='build/bin/simpleTest', source=Split('build/obj/simpleTest.o build/obj/packetizedOpenCLDriver.o'), LIBS=['jitRT'])
+env.Program(target='build/bin/simpleTest', source=PacketizedOpenCLDriver+Split('test/simpleTest.cpp'), LIBS=['jitRT'])
 
 # build NBody simulation
-env.Object(target='build/obj/NBody', source='test/NBody.cpp')
-Test_NBody = env.Program(target='build/bin/NBody', source=Split('build/obj/NBody.o build/obj/packetizedOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil', 'glut'])
+Test_NBody = env.Program(target='build/bin/NBody', source=PacketizedOpenCLDriver+Split('test/NBody.cpp'), LIBS=['jitRT', 'SDKUtil', 'glut'])
 env.Depends(Test_NBody, SDKUtil)
 
 # build Mandelbrot application
-env.Object(target='build/obj/Mandelbrot', source='test/Mandelbrot.cpp')
-env.Object(target='build/obj/MandelbrotDisplay', source='test/MandelbrotDisplay.cpp')
-Test_Mandelbrot = env.Program(target='build/bin/Mandelbrot', source=Split('build/obj/Mandelbrot.o build/obj/MandelbrotDisplay.o build/obj/packetizedOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil', 'glut', 'GLEW'])
+Test_Mandelbrot = env.Program(target='build/bin/Mandelbrot', source=PacketizedOpenCLDriver+Split('test/Mandelbrot.cpp test/MandelbrotDisplay.cpp'), LIBS=['jitRT', 'SDKUtil', 'glut', 'GLEW'])
 env.Depends(Test_Mandelbrot, SDKUtil)
 
 # build SimpleConvolution application
-env.Object(target='build/obj/SimpleConvolution', source='test/SimpleConvolution.cpp')
-Test_SimpleConvolution = env.Program(target='build/bin/SimpleConvolution', source=Split('build/obj/SimpleConvolution.o build/obj/packetizedOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+Test_SimpleConvolution = env.Program(target='build/bin/SimpleConvolution', source=PacketizedOpenCLDriver+Split('test/SimpleConvolution.cpp'), LIBS=['jitRT', 'SDKUtil'])
 env.Depends(Test_SimpleConvolution, SDKUtil)
 
 # build FastWalshTransform application
-env.Object(target='build/obj/FastWalshTransform', source='test/FastWalshTransform.cpp')
-Test_FastWalshTransform = env.Program(target='build/bin/FastWalshTransform', source=Split('build/obj/FastWalshTransform.o build/obj/packetizedOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+Test_FastWalshTransform = env.Program(target='build/bin/FastWalshTransform', source=PacketizedOpenCLDriver+Split('test/FastWalshTransform.cpp'), LIBS=['jitRT', 'SDKUtil'])
 env.Depends(Test_FastWalshTransform, SDKUtil)
 
 # build BitonicSort application
-env.Object(target='build/obj/BitonicSort', source='test/BitonicSort.cpp')
-Test_BitonicSort = env.Program(target='build/bin/BitonicSort', source=Split('build/obj/BitonicSort.o build/obj/packetizedOpenCLDriver.o'), LIBS=['jitRT', 'SDKUtil'])
+Test_BitonicSort = env.Program(target='build/bin/BitonicSort', source=PacketizedOpenCLDriver+Split('test/BitonicSort.cpp'), LIBS=['jitRT', 'SDKUtil'])
 env.Depends(Test_BitonicSort, SDKUtil)
 
-
-# build bitcode from OpenCL files
+###
+### build bitcode from OpenCL files ###
+###
 
 # NOTE: using --march automatically generates a stub-function
 # NOTE: using --march also inserts calls to builtin functions instead of e.g. printf

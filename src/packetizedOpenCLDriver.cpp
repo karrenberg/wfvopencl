@@ -27,8 +27,6 @@
 #include <sstream>  // std::stringstream
 #include <string.h> // memcpy
 
-#include <jitRT/llvmWrapper.h> // packetizer & LLVM wrapper ('jitRT')
-
 #ifdef __APPLE__
 #include <OpenCL/cl_platform.h>
 #include <OpenCL/cl.h>
@@ -37,6 +35,14 @@
 #include <CL/cl.h>          // e.g. for cl_platform_id
 #endif
 
+#include <jitRT/llvmWrapper.h> // packetizer & LLVM wrapper ('jitRT')
+
+//#define PACKETIZED_OPENCL_USE_OPENMP
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#include <omp.h>
+#endif
+
+
 // debug output
 //#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
 #define PACKETIZED_OPENCL_DRIVER_DEBUG(x)
@@ -44,6 +50,14 @@
 //#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
 
 #define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+
+template<typename T, typename U> T ptr_cast(U* p) {
+	return reinterpret_cast<T>(reinterpret_cast<size_t>(p));
+}
+
+template<typename T> void* void_cast(T* p) {
+	return ptr_cast<void*>(p);
+}
 
 #ifdef __cplusplus
 extern "C" {
@@ -382,49 +396,29 @@ namespace {
 	{
 		return jitRT::generateFunctionWrapper(wrapper_name, f_SIMD, mod);
 	}
+
 	void __resolveRuntimeCalls(llvm::Module* mod) {
 		std::vector< std::pair<llvm::Function*, void*> > funs;
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_work_dim", mod),
-				(void*)get_work_dim));
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_global_size", mod),
-				(void*)get_global_size));
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_global_id", mod),
-				(void*)get_global_id));
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_local_size", mod),
-				(void*)get_local_size));
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_num_groups", mod),
-				(void*)get_num_groups));
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_group_id", mod),
-				(void*)get_group_id));
+		using std::make_pair;
+		funs.push_back(make_pair(jitRT::getFunction("get_work_dim",    mod), void_cast(get_work_dim)));
+		funs.push_back(make_pair(jitRT::getFunction("get_global_size", mod), void_cast(get_global_size)));
+		funs.push_back(make_pair(jitRT::getFunction("get_global_id",   mod), void_cast(get_global_id)));
+		funs.push_back(make_pair(jitRT::getFunction("get_local_size",  mod), void_cast(get_local_size)));
+		funs.push_back(make_pair(jitRT::getFunction("get_num_groups",  mod), void_cast(get_num_groups)));
+		funs.push_back(make_pair(jitRT::getFunction("get_group_id",    mod), void_cast(get_group_id)));
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_local_id", mod),
-				(void*)get_local_id));
+		funs.push_back(make_pair(jitRT::getFunction("get_local_id", mod), void_cast(get_local_id)));
 #else
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_global_id_SIMD", mod),
-				(void*)get_global_id_SIMD));
-		funs.push_back(std::make_pair(
-				jitRT::getFunction("get_local_id_SIMD", mod),
-				(void*)get_local_id_SIMD));
+		funs.push_back(make_pair(jitRT::getFunction("get_global_id_SIMD", mod), void_cast(get_global_id_SIMD)));
+		funs.push_back(make_pair(jitRT::getFunction("get_local_id_SIMD",  mod), void_cast(get_local_id_SIMD)));
 #endif
 
 		for (cl_uint i=0, e=funs.size(); i<e; ++i) {
 			llvm::Function* funDecl = funs[i].first;
 			void* funImpl = funs[i].second;
 
-			if (funDecl) {
-				jitRT::replaceAllUsesWith(
-						funDecl,
-						jitRT::createFunctionPointer(funDecl, funImpl));
-			}
+			if (funDecl) jitRT::replaceAllUsesWith(funDecl, jitRT::createFunctionPointer(funDecl, funImpl));
 		}
 	}
 
@@ -575,38 +569,48 @@ public:
 	inline const void* get_data_raw() {
 		assert(data);
 		switch (address_space) {
-			case CL_PRIVATE:
+			case CL_PRIVATE: {
 				return data;
-			case CL_GLOBAL:
+			}
+			case CL_GLOBAL: {
 				const _cl_mem* mem = *(const _cl_mem**)data;
 				return mem->get_data();
-			case CL_LOCAL:
+			}
+			case CL_LOCAL: {
 				assert (false && "local address space not supported yet!");
 				return NULL;
-			case CL_CONSTANT:
+			}
+			case CL_CONSTANT: {
 				assert (false && "constant address space not supported yet!");
 				return NULL;
-			default:
+			}
+			default: {
 				assert (false && "bad address space found!");
 				return NULL;
+			}
 		}
 	}
 	inline size_t get_full_size() const {
 		switch (address_space) {
-			case CL_PRIVATE:
+			case CL_PRIVATE: {
 				return element_size;
-			case CL_GLOBAL:
+			}
+			case CL_GLOBAL: {
 				const _cl_mem* mem = *(const _cl_mem**)data;
 				return mem->get_size();
-			case CL_LOCAL:
+			}
+			case CL_LOCAL: {
 				assert (false && "local address space not supported yet!");
 				return NULL;
-			case CL_CONSTANT:
+			}
+			case CL_CONSTANT: {
 				assert (false && "constant address space not supported yet!");
 				return NULL;
-			default:
+			}
+			default: {
 				assert (false && "bad address space found!");
 				return NULL;
+			}
 		}
 	}
 
@@ -1575,8 +1579,8 @@ CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueReadImage(cl_command_queue     command_queue,
                    cl_mem               image,
                    cl_bool              blocking_read,
-                   const size_t *       origin[3],
-                   const size_t *       region[3],
+                   const size_t         origin[3],
+                   const size_t         region[3],
                    size_t               row_pitch,
                    size_t               slice_pitch,
                    void *               ptr,
@@ -1592,8 +1596,8 @@ CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWriteImage(cl_command_queue    command_queue,
                     cl_mem              image,
                     cl_bool             blocking_write,
-                    const size_t *      origin[3],
-                    const size_t *      region[3],
+                    const size_t        origin[3],
+                    const size_t        region[3],
                     size_t              input_row_pitch,
                     size_t              input_slice_pitch,
                     const void *        ptr,
@@ -1609,9 +1613,9 @@ CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyImage(cl_command_queue     command_queue,
                    cl_mem               src_image,
                    cl_mem               dst_image,
-                   const size_t *       src_origin[3],
-                   const size_t *       dst_origin[3],
-                   const size_t *       region[3],
+                   const size_t         src_origin[3],
+                   const size_t         dst_origin[3],
+                   const size_t         region[3],
                    cl_uint              num_events_in_wait_list,
                    const cl_event *     event_wait_list,
                    cl_event *           event) CL_API_SUFFIX__VERSION_1_0
@@ -1624,8 +1628,8 @@ CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyImageToBuffer(cl_command_queue command_queue,
                            cl_mem           src_image,
                            cl_mem           dst_buffer,
-                           const size_t *   src_origin[3],
-                           const size_t *   region[3],
+                           const size_t     src_origin[3],
+                           const size_t     region[3],
                            size_t           dst_offset,
                            cl_uint          num_events_in_wait_list,
                            const cl_event * event_wait_list,
@@ -1640,8 +1644,8 @@ clEnqueueCopyBufferToImage(cl_command_queue command_queue,
                            cl_mem           src_buffer,
                            cl_mem           dst_image,
                            size_t           src_offset,
-                           const size_t *   dst_origin[3],
-                           const size_t *   region[3],
+                           const size_t     dst_origin[3],
+                           const size_t     region[3],
                            cl_uint          num_events_in_wait_list,
                            const cl_event * event_wait_list,
                            cl_event *       event) CL_API_SUFFIX__VERSION_1_0
@@ -1671,8 +1675,8 @@ clEnqueueMapImage(cl_command_queue  command_queue,
                   cl_mem            image,
                   cl_bool           blocking_map,
                   cl_map_flags      map_flags,
-                  const size_t *    origin[3],
-                  const size_t *    region[3],
+                  const size_t      origin[3],
+                  const size_t      region[3],
                   size_t *          image_row_pitch,
                   size_t *          image_slice_pitch,
                   cl_uint           num_events_in_wait_list,
@@ -1772,9 +1776,8 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	}
 	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "copying of arguments finished.\n"; );
 
-	void* fnPtr = kernel->get_compiled_function();
 	typedef void (*kernelFnPtr)(void*);
-	kernelFnPtr typedPtr = (kernelFnPtr)fnPtr;
+	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	//
 	// execute the kernel
@@ -1784,6 +1787,9 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	const size_t num_iterations = *global_work_size; // = total # threads
 	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
 
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+	#pragma omp parallel for
+#endif
 	for (unsigned i=0; i<num_iterations; ++i) {
 		// update runtime environment
 		//this is not correct, work_dim is not the current one, but the number of dimensions!
