@@ -5,10 +5,10 @@ import os
 # simply clone entire environment
 env = Environment(ENV = os.environ)
 
-env['CC'] = 'clang'
-env['CXX'] = 'clang++'
-#env['CC'] = 'gcc'
-#env['CXX'] = 'g++'
+#env['CC'] = 'clang'
+#env['CXX'] = 'clang++'
+env['CC'] = 'gcc'
+env['CXX'] = 'g++'
 
 # TODO: add debug/opt mode
 #cxxflags = env.Split("-O3 -msse2")

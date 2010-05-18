@@ -197,8 +197,9 @@ namespace jitRT {
 	JITRT_API const llvm::Type* getArgumentType(const llvm::Function* f, const unsigned arg_index);
 	JITRT_API unsigned getAddressSpace(const llvm::Type* type);
 
-	JITRT_API llvm::Function* generateFunctionWrapper(const std::string& wrapper_name, llvm::Function* f, llvm::Module* mod);
 	// OpenCL stuff
+	JITRT_API llvm::Function* generateFunctionWrapper(const std::string& wrapper_name, llvm::Function* f, llvm::Module* mod);
+	JITRT_API llvm::Function* generateFunctionWrapperOMP(const std::string& wrapper_name, llvm::Function* f, llvm::Module* mod);
 	JITRT_API void replaceNonContiguousIndexUsage(llvm::Function* f, llvm::Function* oldF, llvm::Function* newF);
 	JITRT_API void generateOpenCLFunctions(llvm::Module* mod);
 	JITRT_API llvm::Function* generatePacketPrototypeFromOpenCLKernel(const llvm::Function* kernel, const std::string& packetKernelName, llvm::Module* mod);
