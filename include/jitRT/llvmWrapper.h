@@ -200,9 +200,10 @@ namespace jitRT {
 	// OpenCL stuff
 	JITRT_API llvm::Function* generateFunctionWrapper(const std::string& wrapper_name, llvm::Function* f, llvm::Module* mod);
 	JITRT_API llvm::Function* generateFunctionWrapperOMP(const std::string& wrapper_name, llvm::Function* f, llvm::Module* mod);
-	JITRT_API void replaceNonContiguousIndexUsage(llvm::Function* f, llvm::Function* oldF, llvm::Function* newF);
 	JITRT_API void generateOpenCLFunctions(llvm::Module* mod);
 	JITRT_API llvm::Function* generatePacketPrototypeFromOpenCLKernel(const llvm::Function* kernel, const std::string& packetKernelName, llvm::Module* mod);
+	JITRT_API void replaceNonContiguousIndexUsage(llvm::Function* f, llvm::Function* oldF, llvm::Function* newF);
+	JITRT_API void fixUniformPacketizedArrayAccesses(llvm::Function* f, llvm::Function* splitF, const unsigned simdWidth);
 
     //llvmCloning
     JITRT_API llvm::Module * cloneModule(const llvm::Module*);

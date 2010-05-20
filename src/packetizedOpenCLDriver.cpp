@@ -37,7 +37,9 @@
 
 #include <jitRT/llvmWrapper.h> // packetizer & LLVM wrapper ('jitRT')
 
-#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+#include <xmmintrin.h>
+
+//#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
 //#define PACKETIZED_OPENCL_USE_OPENMP
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
@@ -60,6 +62,20 @@ template<typename T> void* void_cast(T* p) {
 	return ptr_cast<void*>(p);
 }
 
+// helper: extract ith element of a __m128
+inline float& get(const __m128& v, const unsigned idx) {
+    return ((float*)&v)[idx];
+}
+inline unsigned& get(const __m128i& v, const unsigned idx) {
+    return ((unsigned*)&v)[idx];
+}
+inline void printV(const __m128& v) {
+	std::cout << get(v, 0) << " " << get(v, 1) << " " << get(v, 2) << " " << get(v, 3);
+}
+inline void printV(const __m128i& v) {
+	std::cout << get(v, 0) << " " << get(v, 1) << " " << get(v, 2) << " " << get(v, 3);
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -72,7 +88,6 @@ extern "C" {
 //                 OpenCL Runtime Implementation                         //
 ///////////////////////////////////////////////////////////////////////////
 
-#include <xmmintrin.h>
 // a class 'OpenCLRuntime' would be nicer,
 // but we cannot store address of member function to bitcode
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
@@ -1395,17 +1410,13 @@ clCreateKernel(cl_program      program,
 #else
 
 	// PACKETIZATION ENABLED
-	// USE HAND-WRITTEN PACKET WRAPPER
+	// USE AUTO-GENERATED PACKET WRAPPER
 	//
 	// save SIMD function for argument checking (uniform vs. varying)
 	std::stringstream strs2;
 	strs2 << kernel_name << "_SIMD";
 	const std::string kernel_simd_name = strs2.str();
-#if 0
-	llvm::Function* f_SIMD = jitRT::getFunction(kernel_simd_name, module);
-#else
 	llvm::Function* f_SIMD = jitRT::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module);
-#endif
 	program->function_SIMD = f_SIMD;
 
 	//jitRT::printFunction(f);
@@ -1416,11 +1427,13 @@ clCreateKernel(cl_program      program,
 	llvm::Function* gid_split = jitRT::getFunction("get_global_id_split", module);
 	if (!gid) {
 		std::cerr << "ERROR: could not find function 'get_global_id' in module!\n";
-		exit(-1);
+		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+		return NULL;
 	}
 	if (!gid_split) {
 		std::cerr << "ERROR: could not find function 'get_global_id_split' in module!\n";
-		exit(-1);
+		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+		return NULL;
 	}
 	jitRT::replaceNonContiguousIndexUsage(f, gid, gid_split);
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
@@ -1438,6 +1451,7 @@ clCreateKernel(cl_program      program,
 	__generateKernelWrapper(wrapper_name, f_SIMD, module);
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 
+	jitRT::fixUniformPacketizedArrayAccesses(f_SIMD, jitRT::getFunction("get_global_id_SIMD", module), simdWidth);
 #endif
 
 	// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
@@ -1953,6 +1967,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	#else
 	typedef void (*kernelFnPtr)(void*);
 	#endif
+
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	//
@@ -2032,6 +2047,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			std::cout << "\niteration " << i << "\n";
 			std::cout << "  current global: " << i << "\n";
 			std::cout << "  get_global_id: " << get_global_id(0) << "\n";
+			std::cout << "  get_global_id_SIMD: "; printV(get_global_id_SIMD(0)); std::cout << "\n";
 
 			//hardcoded debug output for simpleTest
 			//typedef struct { __m128* input; __m128* output; unsigned count; } tt;
@@ -2049,13 +2065,20 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			//std::cout << "  width : " << ((tt*)argument_struct)->width << "\n";
 
 			//hardcoded debug output for fastwalshtransform
-			typedef struct { __m128* output; unsigned step; } tt;
-			std::cout << "  output-addr     : " << ((tt*)argument_struct)->output << "\n";
-			std::cout << "  step : " << ((tt*)argument_struct)->step << "\n";
+			//jitRT::writeFunctionToFile(jitRT::getFunction(jitRT::getFunctionName(kernel->get_program()->function_wrapper), kernel->get_program()->module), "executed.ll");
+			//typedef struct { __m128* output; int step; } tt;
+			//std::cout << "  array-addr     : " << ((tt*)argument_struct)->output << "\n";
+			//std::cout << "  step : " << ((tt*)argument_struct)->step << "\n";
+			//const float* arr = (float*)((tt*)argument_struct)->output;
+			//float before[64];
+			//for (unsigned j=0; j<64; ++j) {
+				//before[j] = arr[j];
+			//}
+
+			_cl_program* program = kernel->get_program();
+			jitRT::verifyModule(program->module);
+			//std::cout << "  verification before execution successful!\n";
 		);
-		_cl_program* program = kernel->get_program();
-		jitRT::verifyModule(program->module);
-		std::cout << "  verification before execution successful!\n";
 
 		// call kernel
 		typedPtr(argument_struct);
@@ -2071,15 +2094,16 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			//const __m128i res = ((tt*)argument_struct)->output[i];
 			//std::cout << "  result: " << ((int*)&res)[0] << " " << ((int*)&res)[1] << " " << ((int*)&res)[2] << " " << ((int*)&res)[3] << "\n";
 
-			//hardcoded debug output for fastwalshtransform
-			typedef struct { __m128* output; unsigned step; } tt;
-			const __m128 res = ((tt*)argument_struct)->output[i];
-			std::cout << "  result: " << ((float*)&res)[0] << " " << ((float*)&res)[1] << " " << ((float*)&res)[2] << " " << ((float*)&res)[3] << "\n";
+			//hardcoded debug output for FastWalshTransform
+			//typedef struct { __m128* output; unsigned step; } tt;
+			//const float* arr = (float*)((tt*)argument_struct)->output;
+			std::cout << "  iteration " << i << " finished!\n";
+
+			_cl_program* program = kernel->get_program();
+			jitRT::verifyModule(program->module);
+			//std::cout << "  verification after execution successful!\n";
 		);
 
-		std::cout << "  iteration " << i << " finished!\n";
-		jitRT::verifyModule(program->module);
-		std::cout << "  verification after execution successful!\n";
 	}
 	
 	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nexecution of kernel finished!\n"; );

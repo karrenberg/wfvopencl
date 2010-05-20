@@ -416,11 +416,8 @@ FastWalshTransform::runCLKernels(void)
             "clSetKernelArg failed. (inputBuffer)"))
         return SDK_FAILURE;
 
-    for(cl_int step = 1; step < length; step<<= 1) 
+    for(cl_int step = 1; step < length; step<<= 1)
     {
-//		printf("\n=============================================================\n");
-//		printf("step = %d\n", step);
-//		printf("=============================================================\n");
         /* stage of the algorithm */
         status = clSetKernelArg(
                         kernel, 
@@ -433,8 +430,6 @@ FastWalshTransform::runCLKernels(void)
                 "clSetKernelArg failed. (step)"))
             return SDK_FAILURE;
 
-//		printf("\n#### kernel argument updated! ####\n");
-        
         /* Enqueue a kernel run call */
         status = clEnqueueNDRangeKernel(
                      commandQueue,
@@ -460,8 +455,6 @@ FastWalshTransform::runCLKernels(void)
                 CL_SUCCESS,
                 "clWaitForEvents failed."))
             return SDK_FAILURE;
-
-//		printf("\n#### kernels finished! ####\n");
     }
 
 
@@ -527,13 +520,6 @@ FastWalshTransform::fastWalshTransformCPUReference(
                 /* store the sum and difference of the numbers in the same locations */
                 vinput[pair] = T1 + T2;
                 vinput[match] = T1 - T2;
-//				printf("step : %d\n", step);
-//				printf("pair : %d\n", pair);
-//				printf("match: %d\n", match);
-//				printf("in[pair]  : %f\n", T1);
-//				printf("in[match] : %f\n", T2);
-//				printf("out[pair] : %f\n", T1+T2);
-//				printf("out[match]: %f\n", T1-T2);
             }
         }
     }
@@ -618,7 +604,7 @@ FastWalshTransform::run()
         " iterations" << std::endl;
     std::cout << "-------------------------------------------" << std::endl;
 
-    for(int i = 0; i < iterations; i++)
+	for(int i = 0; i < iterations; i++)
     {
         /* Arguments are set and execution call is enqueued on command buffer */
         if(runCLKernels() != SDK_SUCCESS)
@@ -629,7 +615,8 @@ FastWalshTransform::run()
     totalKernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
 
     if(!quiet) {
-        sampleCommon->printArray<cl_float>("Output", input, length, 1);
+        //sampleCommon->printArray<cl_float>("Output", input, length, 1);
+        sampleCommon->printArray<cl_float>("Output", output, length, 1);
     }
 
     return SDK_SUCCESS;
