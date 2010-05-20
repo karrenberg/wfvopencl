@@ -41,7 +41,7 @@
 
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
-//#define PACKETIZED_OPENCL_USE_OPENMP
+#define PACKETIZED_OPENCL_USE_OPENMP
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 #include <omp.h>
 #endif
@@ -206,7 +206,7 @@ namespace {
 			currentLocal[i] = new size_t[dim]();
 			currentGroup[i] = new size_t[dim]();
 
-			for (cl_uint j=0; j<dimensions; ++j) {
+			for (cl_uint j=0; j<dim; ++j) {
 				currentGlobal[i][j] = 0;
 				currentLocal[i][j] = 0;
 				currentGroup[i][j] = 0;
@@ -218,15 +218,203 @@ namespace {
 
 #else
 
-	// packetized implementation with openMP not done yet!
+	// packetized implementation
+	//
+	__m128i** currentLocal;  // 0 -> SIMD width -1 (always 0 for non-simd dims)
+
+	cl_uint simdDimension;
+
+	// TODO: implement in bitcode!
+	// -> call get_global_id(D) and return __m128i as here
+	// -> if call is placed and inlined correctly, we should only have one call
+	//    to get_global_id left (= no overhead)
+	inline __m128i get_global_id_SIMD(cl_uint D, cl_uint thread) {
+		assert (thread < maxNumThreads);
+		assert (D < dimensions);
+		const size_t simd_id = currentGlobal[thread][D];
+		const unsigned id0 = simd_id * 4;
+		const unsigned id1 = id0 + 1;
+		const unsigned id2 = id0 + 2;
+		const unsigned id3 = id0 + 3;
+		//return _mm_set_epi32(id0, id1, id2, id3);
+		return _mm_set_epi32(id3, id2, id1, id0);
+	}
+	inline __m128i get_local_id_SIMD(cl_uint D, cl_uint thread) {
+		assert (thread < maxNumThreads);
+		assert (D < dimensions);
+		return currentLocal[thread][D];
+	}
+
+	inline void setCurrentGlobal(cl_uint D, size_t id, cl_uint thread) {
+		assert (thread < maxNumThreads);
+		assert (D < dimensions);
+		assert (id < get_global_size(D));
+		currentGlobal[thread][D] = id;
+	}
+	inline void setCurrentLocal(cl_uint D, __m128i id, cl_uint thread) {
+		assert (thread < maxNumThreads);
+		assert (D < dimensions);
+		assert (((unsigned*)&id)[0] < get_local_size(D));
+		assert (((unsigned*)&id)[1] < get_local_size(D));
+		assert (((unsigned*)&id)[2] < get_local_size(D));
+		assert (((unsigned*)&id)[3] < get_local_size(D));
+		currentLocal[thread][D] = id;
+	}
+
+	// called automatically by initializeOpenCL
+	inline void initializeThreads(size_t* gThreads, size_t* lThreads) {
+		size_t globalThreadNum = 0;
+		size_t localThreadNum = 0;
+		bool* alignedGlobalDims = new bool[dimensions]();
+		bool* alignedLocalDims = new bool[dimensions]();
+
+		bool error = false;
+
+		for (cl_uint i=0; i<dimensions; ++i) {
+			const size_t globalThreadsDimI = gThreads[i];
+			globalThreadNum += globalThreadsDimI;
+			alignedGlobalDims[i] = (globalThreadsDimI % simdWidth == 0);
+			globalThreads[i] = globalThreadsDimI;
+
+			const size_t localThreadsDimI = lThreads[i];
+			localThreadNum += localThreadsDimI;
+			alignedLocalDims[i] = (localThreadsDimI % simdWidth == 0);
+			localThreads[i] = localThreadsDimI;
+
+			if (i == simdDimension && !alignedGlobalDims[i]) {
+				std::cerr << "ERROR: chosen SIMD dimension " << i
+						<< " is globally not dividable by " << simdWidth
+						<< " (global dimension)!\n";
+				error = true;
+			}
+			if (i == simdDimension && !alignedLocalDims[i]) {
+				std::cerr << "ERROR: chosen SIMD dimension " << i
+						<< " is locally not dividable by " << simdWidth
+						<< " (work-group dimension)!\n";
+				error = true;
+			}
+			if (globalThreadsDimI % localThreadsDimI != 0) {
+				std::cerr << "ERROR: global dimension " << i
+						<< " not dividable by local dimension ("
+						<< globalThreadsDimI << " / " << localThreadsDimI
+						<< ")!\n";
+				error = true;
+			}
+		}
+		if (globalThreadNum % simdWidth != 0) {
+			std::cerr << "ERROR: global number of threads is not dividable by "
+					<< simdWidth << "!\n";
+			error = true;
+		}
+		if (localThreadNum % simdWidth != 0) {
+			std::cerr << "ERROR: number of threads in a group is not dividable"
+					"by " << simdWidth << "!\n";
+			error = true;
+		}
+
+		if (error) exit(-1);
+	}
+	void initializeOpenCL(const cl_uint dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
+		if (dims > 3) {
+			std::cerr << "ERROR: max # dimensions is 3!\n";
+			exit(-1);
+		}
+		if (simdDim > dims) {
+			std::cerr << "ERROR: chosen SIMD dimension out of bounds ("
+					<< simdWidth << " > " << dims << ")!\n";
+			exit(-1);
+		}
+		dimensions = dims;
+		simdDimension = simdDim-1; //-1 for array access
+
+		globalThreads = new size_t[dims]();
+		localThreads = new size_t[dims]();
+
+		currentGlobal = new size_t*[maxNumThreads]();
+		currentLocal = new __m128i*[maxNumThreads]();
+		currentGroup = new size_t*[maxNumThreads]();
+
+		for (cl_uint i=0; i<maxNumThreads; ++i) {
+			currentGlobal[i] = new size_t[dims]();
+			currentLocal[i] = new __m128i[dims]();
+			currentGroup[i] = new size_t[dims]();
+
+			for (cl_uint j=0; j<dimensions; ++j) {
+				if (j == simdDimension) {
+					currentGlobal[i][j] = 0;
+					currentLocal[i][j] = _mm_set_epi32(0, 1, 2, 3);
+				} else {
+					currentGlobal[i][j] = 0;
+					currentLocal[i][j] = _mm_set_epi32(0, 0, 0, 0);
+				}
+				currentGroup[i][j] = 0;
+			}
+		}
+
+		initializeThreads(gThreads, lThreads);
+	}
+
+
+	bool __packetizeKernelFunction(
+			const std::string& kernelName,
+			const std::string& targetKernelName,
+			llvm::Module* mod,
+			const cl_uint packetizationSize,
+			const bool use_sse41,
+			const bool verbose)
+	{
+		if (!jitRT::getFunction(kernelName, mod)) {
+			std::cerr << "ERROR: source function '" << kernelName
+					<< "' not found in module!\n";
+			return false;
+		}
+		if (!jitRT::getFunction(targetKernelName, mod)) {
+			std::cerr << "ERROR: target function '" << targetKernelName
+					<< "' not found in module!\n";
+			return false;
+		}
+
+		Packetizer::Packetizer* packetizer = Packetizer::getPacketizer(use_sse41, verbose);
+		Packetizer::addFunctionToPacketizer(
+				packetizer,
+				kernelName,
+				targetKernelName,
+				packetizationSize);
+
+		Packetizer::addNativeFunctionToPacketizer(
+				packetizer,
+				"get_global_id",
+				-1,
+				jitRT::getFunction("get_global_id", mod),
+				true); // although call does not return packet, packetize everything that depends on it!
+		Packetizer::addNativeFunctionToPacketizer(
+				packetizer,
+				"get_global_id_split",
+				-1,
+				jitRT::getFunction("get_global_id_SIMD", mod),
+				true); // packetization is mandatory
+		Packetizer::addNativeFunctionToPacketizer(
+				packetizer,
+				"get_local_id",
+				-1,
+				jitRT::getFunction("get_local_id_SIMD", mod),
+				true); // packetization is mandatory
+
+		Packetizer::runPacketizer(packetizer, mod);
+
+		if (!jitRT::getFunction(targetKernelName, mod)) {
+			std::cerr << "ERROR: packetized target function not found in"
+					"module!\n";
+			return false;
+		}
+
+		return true;
+	}
+
 	
 #endif
 
 	// common functionality, with or without packetization
-
-	void __generateOpenCLFunctions(llvm::Module* mod) {
-		jitRT::generateOpenCLFunctions(mod);
-	}
 
 	llvm::Function* __generateKernelWrapper(
 			const std::string& wrapper_name,
@@ -571,10 +759,6 @@ namespace {
 #endif
 
 	// common functionality, with or without packetization
-
-	void __generateOpenCLFunctions(llvm::Module* mod) {
-		jitRT::generateOpenCLFunctions(mod);
-	}
 
 	llvm::Function* __generateKernelWrapper(
 			const std::string& wrapper_name,
@@ -2035,6 +2219,23 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "global_size(0): " << get_global_size(0) << "\n"; );
 
+	#ifdef PACKETIZED_OPENCL_USE_OPENMP
+
+	#pragma omp parallel for private(i) shared(work_dim, argument_struct)
+	for (unsigned i=0; i<num_iterations; ++i) {
+		//std::cout << "Hello from thread " << omp_get_thread_num() << ", nthreads " << omp_get_num_threads() << "\n";
+		// update runtime environment
+		const cl_uint thread = omp_get_thread_num();
+		setCurrentGlobal(work_dim-1, i, thread);
+		setCurrentGroup(work_dim-1, i, thread);
+		setCurrentLocal(work_dim-1, _mm_set_epi32(3, 2, 1, 0), thread);
+		// call kernel
+		typedPtr(argument_struct, thread);
+	}
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
+
+	#else // PACKETIZED_OPENCL_USE_OPENMP
+
 	for (unsigned i=0; i<num_iterations; ++i) {
 		// update runtime environment
 		//this is not correct, work_dim is not the current one, but the number of dimensions!
@@ -2105,8 +2306,11 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		);
 
 	}
-	
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nexecution of kernel finished!\n"; );
+
+	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
+
+	#endif // PACKETIZED_OPENCL_USE_OPENMP
+
 #endif
 
 	return CL_SUCCESS;
