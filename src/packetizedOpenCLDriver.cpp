@@ -41,7 +41,7 @@
 
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
-//#define PACKETIZED_OPENCL_USE_OPENMP
+#define PACKETIZED_OPENCL_USE_OPENMP
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 #include <omp.h>
 #endif
@@ -98,7 +98,7 @@ extern "C" {
 namespace {
 
 	static const cl_uint simdWidth = 4;
-	static const cl_uint maxNumThreads = 2; // TODO: determine somehow, omp_get_num_threads() is dynamic (=1 here)
+	static cl_uint maxNumThreads = 8; // TODO: determine somehow, omp_get_num_threads() is dynamic (=1 here)
 
 	cl_uint dimensions; // max 3
 	size_t* globalThreads; // total # work items per dimension, arbitrary size
@@ -1514,6 +1514,7 @@ clBuildProgram(cl_program           program,
 	llvm::Module* mod = jitRT::createModuleFromFile(program->fileName);
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
 
+	// do this here or only after packetization?
 	jitRT::setTargetData(mod,
 		"e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128",
 		""); // have to reset target triple (LLVM does not know amd-opencl)
@@ -2166,9 +2167,9 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 
 	#ifdef PACKETIZED_OPENCL_USE_OPENMP
 
+	omp_set_num_threads(maxNumThreads);
 	#pragma omp parallel for private(i) shared(work_dim, argument_struct)
 	for (unsigned i=0; i<num_iterations; ++i) {
-		//std::cout << "Hello from thread " << omp_get_thread_num() << ", nthreads " << omp_get_num_threads() << "\n";
 		// update runtime environment
 		const cl_uint thread = omp_get_thread_num();
 		setCurrentGlobal(work_dim-1, i, thread);
@@ -2223,9 +2224,9 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 
 	#ifdef PACKETIZED_OPENCL_USE_OPENMP
 
+	omp_set_num_threads(maxNumThreads);
 	#pragma omp parallel for private(i) shared(work_dim, argument_struct)
 	for (unsigned i=0; i<num_iterations; ++i) {
-		//std::cout << "Hello from thread " << omp_get_thread_num() << ", nthreads " << omp_get_num_threads() << "\n";
 		// update runtime environment
 		const cl_uint thread = omp_get_thread_num();
 		setCurrentGlobal(work_dim-1, i, thread);
