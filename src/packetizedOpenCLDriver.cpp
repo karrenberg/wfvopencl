@@ -41,15 +41,19 @@
 
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
-#define PACKETIZED_OPENCL_USE_OPENMP
+//#define PACKETIZED_OPENCL_USE_OPENMP
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 #include <omp.h>
 #endif
 
 
 // debug output
-//#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+//#define NDEBUG
+#ifdef NDEBUG
 #define PACKETIZED_OPENCL_DRIVER_DEBUG(x)
+#else
+#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+#endif
 
 //#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
 
@@ -1510,6 +1514,12 @@ clBuildProgram(cl_program           program,
 	llvm::Module* mod = jitRT::createModuleFromFile(program->fileName);
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
 
+	jitRT::setTargetData(mod,
+		"e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128",
+		""); // have to reset target triple (LLVM does not know amd-opencl)
+	assert (program->context);
+	program->context->targetData = jitRT::getTargetData(mod);
+
 	program->module = mod;
 	return CL_SUCCESS;
 }
@@ -1624,10 +1634,11 @@ clCreateKernel(cl_program      program,
 
 	// packetize scalar function into SIMD function
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(f, "scalar.ll"); );
-	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, false, false);
+	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, false);
 	f_SIMD = jitRT::getFunction(kernel_simd_name, module); //pointer not valid anymore!
 	program->function_SIMD = f_SIMD;
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(f_SIMD, "packetized.ll"); );
 
 	strs2 << "_wrapper";
 	const std::string wrapper_name = strs2.str();
@@ -1636,10 +1647,12 @@ clCreateKernel(cl_program      program,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 
 	jitRT::fixUniformPacketizedArrayAccesses(f_SIMD, jitRT::getFunction("get_global_id_SIMD", module), simdWidth);
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 #endif
 
 	// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
 	__resolveRuntimeCalls(module);
+	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
 
 	// save wrapper function in _cl_program object
 	llvm::Function* wrapper_fn = jitRT::getFunction(wrapper_name, module);
@@ -1659,10 +1672,6 @@ clCreateKernel(cl_program      program,
 	program->function_wrapper = wrapper_fn;
 
 	// compile wrapper function (to be called in clEnqueueNDRangeKernel())
-	jitRT::setTargetData(module,
-		"e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128",
-		""); // have to reset target triple (LLVM does not know amd-opencl)
-	program->context->targetData = jitRT::getTargetData(module);
 	void* compiledFnPtr = jitRT::getPointerToFunction(module, wrapper_name);
 	if (!compiledFnPtr) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
 
@@ -1724,7 +1733,6 @@ clSetKernelArg(cl_kernel    kernel,
 	//       We must not access arg_value as a _cl_mem** if it is e.g. an unsigned int
 	// -> all handled by _cl_kernel_arg
 	_cl_program* program = kernel->get_program();
-	jitRT::verifyModule(program->module);
 	const llvm::Function* f = program->function;
 	const llvm::Type* argType = jitRT::getArgumentType(f, arg_index);
 	const size_t arg_size_bytes = jitRT::getTypeSizeInBits(program->context->targetData, argType) / 8;
@@ -1746,14 +1754,8 @@ clSetKernelArg(cl_kernel    kernel,
 	// save info if argument is uniform or varying
 	// TODO: implement in packetizer directly
 	// HACK: if types match, they are considered uniform, varying otherwise
-	jitRT::writeModuleToFile(program->module, "mod.ll");
-//	const std::string fname = jitRT::getFunctionName(program->function_SIMD);
-//	std::cout << "\n---------------------------------------------\n";
-//	std::cout << "Function name: " << fname << "\n";
-//	std::cout << "\n---------------------------------------------\n";
+	//jitRT::writeModuleToFile(program->module, "mod.ll");
 
-
-	jitRT::verifyModule(program->module);
 	const llvm::Function* f_SIMD = program->function_SIMD;
 	const llvm::Type* argType_SIMD = jitRT::getArgumentType(f_SIMD, arg_index);
 	const bool arg_uniform = argType == argType_SIMD;
