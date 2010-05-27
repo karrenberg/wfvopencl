@@ -3,5 +3,6 @@
 build/
 *.o
 *.so
+*.os
 *.a
 .sconsign.dblite

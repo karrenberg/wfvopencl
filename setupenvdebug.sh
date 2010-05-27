@@ -1,12 +1,16 @@
 #home
-#export JITRT_INSTALL_DIR=/home/ralf/Projekte/proj_anysl/install/build-icc-debug/jitRT
-#export LLVM_BIN=/home/ralf/Projekte/proj_anysl/install/build-gcc-debug/llvm/bin
+#export PACKETIZER_INSTALL_DIR=/home/ralf/Projekte/proj_anysl/anysl/install/build-gcc-debug/packetizer
+#export LLVM_INSTALL_DIR=/home/ralf/Projekte/proj_anysl/install/build-gcc-debug/llvm
 #uni
-export JITRT_INSTALL_DIR=/local/karrenberg/proj/anysl/install/build-icc-debug/jitRT
-export LLVM_BIN=/local/karrenberg/proj/anysl/install/build-gcc-debug/llvm/bin
+export PACKETIZER_INSTALL_DIR=/local/karrenberg/proj/anysl/install/build-gcc-debug/packetizer
+export LLVM_INSTALL_DIR=/local/karrenberg/proj/anysl/install/build-gcc-debug/llvm
 
-export PATH=$PATH:$LLVM_BIN:./include
+export PATH=$PATH:./include
+export PATH=$PATH:$LLVM_INSTALL_DIR/bin
+export PATH=$PATH:$LLVM_INSTALL_DIR/include
+export PATH=$PATH:$PACKETIZER_INSTALL_DIR/include
+
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./lib
-
-cp $JITRT_INSTALL_DIR/include/jitRT/llvmWrapper.h ./include/jitRT/llvmWrapper.h
-cp $JITRT_INSTALL_DIR/lib/libjitRT.so ./lib/libjitRT.so
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./build/lib
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$LLVM_INSTALL_DIR/lib
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PACKETIZER_INSTALL_DIR/lib

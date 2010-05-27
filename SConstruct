@@ -2,25 +2,61 @@ import os
 #env = Environment(ENV = {'PATH'            : os.environ['PATH'],
 #						 'LD_LIBRARY_PATH' : os.environ['LD_LIBRARY_PATH']})
 
+# build variables
+debug = ARGUMENTS.get('debug', 0)
+use_openmp = ARGUMENTS.get('openmp', 0)
+packetize = ARGUMENTS.get('packetize', 0)
+
+if int(debug) and int(use_openmp):
+	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
+
 # simply clone entire environment
 env = Environment(ENV = os.environ)
 
-#env['CC'] = 'clang'
-#env['CXX'] = 'clang++'
+#env['CC'] = 'clang'    # no -fopenmp :(
+#env['CXX'] = 'clang++' # no -fopenmp :(
 env['CC'] = 'gcc'
 env['CXX'] = 'g++'
 
-# TODO: add debug/opt mode
-#cxxflags = env.Split("-O3 -msse2")
-cxxflags = env.Split("-O0 -g -DDEBUG -Wall -pedantic -msse3 -fopenmp")
+# query llvm-config
+llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
+
+# set up CXXFLAGS
+cxxflags = env.Split("-Wall -pedantic -msse3")+llvm_vars.get('CCFLAGS')
+
+if int(debug):
+	cxxflags=cxxflags+env.Split("-O0 -g -DDEBUG")
+else:
+	cxxflags=cxxflags+env.Split("-O3 -DNDEBUG")
+
+if int(use_openmp):
+	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_OPENMP -fopenmp")
+	env.Append(LINKFLAGS = env.Split("-fopenmp"))
+
+if not int(packetize):
+	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION")
+
 env.Append(CXXFLAGS = cxxflags)
 
+# set up paths
 env.Append(CPPPATH = env.Split("include"))
-env.Append(LIBPATH = env.Split("lib"))
-env.Append(LINKFLAGS = env.Split("-fopenmp"))
+env.Append(CPPPATH = llvm_vars.get('CPPPATH'))
+env.Append(CPPPATH = [os.path.join(env['ENV']['LLVM_INSTALL_DIR'], 'include')])
+env.Append(CPPPATH = [os.path.join(env['ENV']['PACKETIZER_INSTALL_DIR'], 'include')])
+
+env.Append(LIBPATH = env.Split("lib build/lib"))
+env.Append(LIBPATH = [os.path.join(env['ENV']['LLVM_INSTALL_DIR'], 'lib')])
+env.Append(LIBPATH = [os.path.join(env['ENV']['PACKETIZER_INSTALL_DIR'], 'lib')])
+env.Append(LIBPATH = llvm_vars.get('LIBPATH'))
+
+# set up libraries
+driverLibs = llvm_vars.get('LIBS') + env.Split('Packetizer')
+appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut GLEW') # glut, GLEW not required for all
+
 
 # build Packetized OpenCL Driver
-PacketizedOpenCLDriver = env.Object(target='build/obj/packetizedOpenCLDriver', source='src/packetizedOpenCLDriver.cpp')
+driverSrc = env.Glob('src/*.cpp')
+PacketizedOpenCLDriver = env.SharedLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 
 
 # build AMD-ATI SDKUtil as a static library (required for test applications)
@@ -31,67 +67,26 @@ env.Depends(SDKUtil, PacketizedOpenCLDriver)
 ### test applications ###
 ###
 
-# build simpleTest
-env.Program(target='build/bin/simpleTest', source=PacketizedOpenCLDriver+Split('test/simpleTest.cpp'), LIBS=['jitRT'])
+testApps = env.Split("""
+BitonicSort
+DwtHaar1D
+EigenValue
+FastWalshTransform
+FloydWarshall
+Histogram
+Mandelbrot
+MatrixTranspose
+NBody
+PrefixSum
+RadixSort
+ScanLargeArrays
+SimpleConvolution
+SimpleTest
+""")
 
-# build BitonicSort application
-Test_BitonicSort = env.Program(target='build/bin/BitonicSort', source=PacketizedOpenCLDriver+Split('test/BitonicSort.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build DwtHaar1D application
-Test_DwtHaar1D = env.Program(target='build/bin/DwtHaar1D', source=PacketizedOpenCLDriver+Split('test/DwtHaar1D.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build EigenValue application
-Test_EigenValue = env.Program(target='build/bin/EigenValue', source=PacketizedOpenCLDriver+Split('test/EigenValue.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build FastWalshTransform application
-Test_FastWalshTransform = env.Program(target='build/bin/FastWalshTransform', source=PacketizedOpenCLDriver+Split('test/FastWalshTransform.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build FloydWarshall application
-Test_FloydWarshall = env.Program(target='build/bin/FloydWarshall', source=PacketizedOpenCLDriver+Split('test/FloydWarshall.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build Histogram application
-Test_Histogram = env.Program(target='build/bin/Histogram', source=PacketizedOpenCLDriver+Split('test/Histogram.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build Mandelbrot application
-Test_Mandelbrot = env.Program(target='build/bin/Mandelbrot', source=PacketizedOpenCLDriver+Split('test/Mandelbrot.cpp test/MandelbrotDisplay.cpp'), LIBS=['jitRT', 'SDKUtil', 'glut', 'GLEW'])
-
-# build MatrixTranspose application
-Test_MatrixTranspose = env.Program(target='build/bin/MatrixTranspose', source=PacketizedOpenCLDriver+Split('test/MatrixTranspose.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build NBody simulation -> uses float4 -> can not be used with packetization atm
-Test_NBody = env.Program(target='build/bin/NBody', source=PacketizedOpenCLDriver+Split('test/NBody.cpp'), LIBS=['jitRT', 'SDKUtil', 'glut'])
-
-# build PrefixSum application
-Test_PrefixSum = env.Program(target='build/bin/PrefixSum', source=PacketizedOpenCLDriver+Split('test/PrefixSum.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build RadixSort application
-Test_RadixSort = env.Program(target='build/bin/RadixSort', source=PacketizedOpenCLDriver+Split('test/RadixSort.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build ScanLargeArrays application
-Test_ScanLargeArrays = env.Program(target='build/bin/ScanLargeArrays', source=PacketizedOpenCLDriver+Split('test/ScanLargeArrays.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-# build SimpleConvolution application
-Test_SimpleConvolution = env.Program(target='build/bin/SimpleConvolution', source=PacketizedOpenCLDriver+Split('test/SimpleConvolution.cpp'), LIBS=['jitRT', 'SDKUtil'])
-
-
-
-
-#### dependencies ###
-env.Depends(Test_BitonicSort, SDKUtil)
-env.Depends(Test_DwtHaar1D, SDKUtil)
-env.Depends(Test_EigenValue, SDKUtil)
-env.Depends(Test_FastWalshTransform, SDKUtil)
-env.Depends(Test_FloydWarshall, SDKUtil)
-env.Depends(Test_Histogram, SDKUtil)
-env.Depends(Test_Mandelbrot, SDKUtil)
-env.Depends(Test_MatrixTranspose, SDKUtil)
-env.Depends(Test_NBody, SDKUtil)
-env.Depends(Test_PrefixSum, SDKUtil)
-env.Depends(Test_RadixSort, SDKUtil)
-env.Depends(Test_ScanLargeArrays, SDKUtil)
-env.Depends(Test_SimpleConvolution, SDKUtil)
-
-
+for a in testApps:
+	App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
+	env.Depends(App, SDKUtil)
 
 ###
 ### build bitcode from OpenCL files ###
@@ -102,50 +97,15 @@ env.Depends(Test_SimpleConvolution, SDKUtil)
 # NOTE: --march=x86-64 generates bad code for packetization :(
 #       --march-x86 (or left out) generates 32bit data structures etc., making wrapper unusable
 
-#env.Command('simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
-#env.Command('simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86 --msse2 $SOURCE")
-env.Command('simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('simpleTest_Kernels.bc', 'simpleTest_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
+#env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
+#env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86 --msse2 $SOURCE")
 
-env.Command('BitonicSort_Kernels.ll', 'test/BitonicSort_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('BitonicSort_Kernels.bc', 'BitonicSort_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
+#cmd_ll = "clc -o $TARGET --msse2 $SOURCE"
+#cmd_bc = "llvm-as $SOURCE -o $TARGET"
 
-env.Command('DwtHaar1D_Kernels.ll', 'test/DwtHaar1D_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('DwtHaar1D_Kernels.bc', 'DwtHaar1D_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
+for a in testApps:
+	env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
+				["clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
+				"llvm-as -o ${TARGET.file}.bc ${TARGET.file}.ll",
+				Delete('${TARGET.file}.ll')])
 
-env.Command('EigenValue_Kernels.ll', 'test/EigenValue_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('EigenValue_Kernels.bc', 'EigenValue_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('FastWalshTransform_Kernels.ll', 'test/FastWalshTransform_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('FastWalshTransform_Kernels.bc', 'FastWalshTransform_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('FloydWarshall_Kernels.ll', 'test/FloydWarshall_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('FloydWarshall_Kernels.bc', 'FloydWarshall_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('Histogram_Kernels.ll', 'test/Histogram_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('Histogram_Kernels.bc', 'Histogram_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('Mandelbrot_Kernels.ll', 'test/Mandelbrot_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('Mandelbrot_Kernels.bc', 'Mandelbrot_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('MatrixTranspose_Kernels.ll', 'test/MatrixTranspose_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('MatrixTranspose_Kernels.bc', 'MatrixTranspose_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('NBody_Kernels.ll', 'test/NBody_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('NBody_Kernels.bc', 'NBody_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('PrefixSum_Kernels.ll', 'test/PrefixSum_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('PrefixSum_Kernels.bc', 'PrefixSum_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('RadixSort_Kernels.ll', 'test/RadixSort_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('RadixSort_Kernels.bc', 'RadixSort_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('ScanLargeArrays_Kernels.ll', 'test/ScanLargeArrays_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('ScanLargeArrays_Kernels.bc', 'ScanLargeArrays_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-env.Command('SimpleConvolution_Kernels.ll', 'test/SimpleConvolution_Kernels.cl', "clc --msse2 $SOURCE")
-env.Command('SimpleConvolution_Kernels.bc', 'SimpleConvolution_Kernels.ll', "llvm-as $SOURCE -o $TARGET")
-
-
-#env.Command(os.path.join(env['ENV']['JITRT_INC'], 'jitRT/llvmWrapper.h'), 'include/jitRT/llvmWrapper.h', "cp $SOURCE $TARGET")
-#env.Append(LIBPATH = env['ENV']['JITRT_LIB'])

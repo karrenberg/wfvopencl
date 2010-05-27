@@ -558,7 +558,7 @@ int DwtHaar1D::runDwtHaar1DKernel()
     if(localThreads > maxWorkItemSizes[0] || localThreads > maxWorkGroupSize)
     {
         std::cout << "Unsupported: Device does not support"
-                     "requested number of work items.";
+                     "requested number of work items.\n";
         return SDK_FAILURE;
     }
 

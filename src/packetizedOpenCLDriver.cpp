@@ -23,9 +23,10 @@
  *
  */
 #include <assert.h>
-#include <iostream> // std::cout
 #include <sstream>  // std::stringstream
 #include <string.h> // memcpy
+
+#include <xmmintrin.h> // test output etc.
 
 #ifdef __APPLE__
 #include <OpenCL/cl_platform.h>
@@ -35,28 +36,42 @@
 #include <CL/cl.h>          // e.g. for cl_platform_id
 #endif
 
-#include <jitRT/llvmWrapper.h> // packetizer & LLVM wrapper ('jitRT')
+#include "Packetizer/api.h" // packetizer
+#include "llvmTools.hpp" // all LLVM functionality
 
-#include <xmmintrin.h>
 
+//----------------------------------------------------------------------------//
+// Configuration
+//----------------------------------------------------------------------------//
+#define PACKETIZED_OPENCL_DRIVER_VERSION_STRING "0.1" // <major_number>.<minor_number>
+
+// these are assumed to be set by build script
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+//#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+//#define NDEBUG
+//#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
+//----------------------------------------------------------------------------//
 
-#define PACKETIZED_OPENCL_USE_OPENMP
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 #include <omp.h>
 #endif
 
-
-// debug output
-//#define NDEBUG
-#ifdef NDEBUG
-#define PACKETIZED_OPENCL_DRIVER_DEBUG(x)
-#else
+#ifdef DEBUG
 #define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+#else
+#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) ((void)0)
 #endif
 
-//#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
+#ifdef NDEBUG // force debug output disabled
+#undef PACKETIZED_OPENCL_DRIVER_DEBUG
+#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) ((void)0)
+#endif
 
+
+//----------------------------------------------------------------------------//
+// Tools
+//----------------------------------------------------------------------------//
 
 template<typename T, typename U> T ptr_cast(U* p) {
 	return reinterpret_cast<T>(reinterpret_cast<size_t>(p));
@@ -74,11 +89,14 @@ inline unsigned& get(const __m128i& v, const unsigned idx) {
     return ((unsigned*)&v)[idx];
 }
 inline void printV(const __m128& v) {
-	std::cout << get(v, 0) << " " << get(v, 1) << " " << get(v, 2) << " " << get(v, 3);
+	outs() << get(v, 0) << " " << get(v, 1) << " " << get(v, 2) << " " << get(v, 3);
 }
 inline void printV(const __m128i& v) {
-	std::cout << get(v, 0) << " " << get(v, 1) << " " << get(v, 2) << " " << get(v, 3);
+	outs() << get(v, 0) << " " << get(v, 1) << " " << get(v, 2) << " " << get(v, 3);
 }
+
+//----------------------------------------------------------------------------//
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,388 +112,27 @@ extern "C" {
 
 // a class 'OpenCLRuntime' would be nicer,
 // but we cannot store address of member function to bitcode
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
 namespace {
 
-	static const cl_uint simdWidth = 4;
-	static cl_uint maxNumThreads = 8; // TODO: determine somehow, omp_get_num_threads() is dynamic (=1 here)
-
-	cl_uint dimensions; // max 3
-	size_t* globalThreads; // total # work items per dimension, arbitrary size
-	size_t* localThreads;  // size of each work group per dimension
-
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+	static const cl_uint numCores = 4; // TODO: determine somehow, omp_get_num_threads() is dynamic (=1 here)
 	size_t** currentGlobal; // 0 -> globalThreads[D] -1  (packetized: 0->globalThreads[D]/4 if D == simd dim)
 	size_t** currentGroup;  // 0 -> (globalThreads[D] / localThreads[D]) -1
-
-	// D is dimension index.
-
-	/* Num. of dimensions in use */
-	inline cl_uint get_work_dim() {
-		return dimensions;
-	}
-
-	/* Num. of global work-items */
-	inline size_t get_global_size(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		return globalThreads[D];
-	}
-
-	/* Global work-item ID value */
-	inline size_t get_global_id(cl_uint D, cl_uint thread) {
-		//std::cout << "thread = " << thread << ", maxNumThreads = " << maxNumThreads << "\n";
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		if (D >= dimensions) return 0;
-		return currentGlobal[thread][D];
-	}
-
-	/* Num. of local work-items */
-	inline size_t get_local_size(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		return localThreads[D];
-	}
-
-	/* Num. of work-groups */
-	inline size_t get_num_groups(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		return globalThreads[D] / localThreads[D];
-	}
-
-	/* Returns the work-group ID */
-	inline size_t get_group_id(cl_uint D, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		if (D >= dimensions) return CL_SUCCESS;
-		return currentGroup[thread][D];
-	}
-
-	inline void setCurrentGroup(cl_uint D, size_t id, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		assert (id < get_num_groups(D));
-		currentGroup[thread][D] = id;
-	}
-
-
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-
-	// scalar implementation
-	//
-	size_t** currentLocal;  // 0 -> SIMD width -1
-
-	/* Local work-item ID */
-	inline size_t get_local_id(cl_uint D, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		if (D >= dimensions) return 0;
-		return currentLocal[thread][D];
-	}
-
-	inline void setCurrentGlobal(cl_uint D, size_t id, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		assert (id < get_global_size(D));
-		currentGlobal[thread][D] = id;
-	}
-	inline void setCurrentLocal(cl_uint D, size_t id, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		assert (id < get_local_size(D));
-		currentLocal[thread][D] = id;
-	}
-
-	// called automatically by initializeOpenCL
-	inline void initializeThreads(size_t* gThreads, size_t* lThreads) {
-		for (cl_uint i=0; i<dimensions; ++i) {
-			globalThreads[i] = gThreads[i];
-			localThreads[i] = lThreads[i];
-		}
-	}
-	void initializeOpenCL(const cl_uint dim, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
-		assert (dim < 4 && "max # dimensions is 3!");
-		dimensions = dim;
-
-		globalThreads = new size_t[dim]();
-		localThreads = new size_t[dim]();
-
-		currentGlobal = new size_t*[maxNumThreads]();
-		currentLocal = new size_t*[maxNumThreads]();
-		currentGroup = new size_t*[maxNumThreads]();
-
-		for (cl_uint i=0; i<maxNumThreads; ++i) {
-			currentGlobal[i] = new size_t[dim]();
-			currentLocal[i] = new size_t[dim]();
-			currentGroup[i] = new size_t[dim]();
-
-			for (cl_uint j=0; j<dim; ++j) {
-				currentGlobal[i][j] = 0;
-				currentLocal[i][j] = 0;
-				currentGroup[i][j] = 0;
-			}
-		}
-
-		initializeThreads(gThreads, lThreads);
-	}
-
 #else
-
-	// packetized implementation
-	//
-	__m128i** currentLocal;  // 0 -> SIMD width -1 (always 0 for non-simd dims)
-
-	cl_uint simdDimension;
-
-	// TODO: implement in bitcode!
-	// -> call get_global_id(D) and return __m128i as here
-	// -> if call is placed and inlined correctly, we should only have one call
-	//    to get_global_id left (= no overhead)
-	inline __m128i get_global_id_SIMD(cl_uint D, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		const size_t simd_id = currentGlobal[thread][D];
-		const unsigned id0 = simd_id * 4;
-		const unsigned id1 = id0 + 1;
-		const unsigned id2 = id0 + 2;
-		const unsigned id3 = id0 + 3;
-		//return _mm_set_epi32(id0, id1, id2, id3);
-		return _mm_set_epi32(id3, id2, id1, id0);
-	}
-	inline __m128i get_local_id_SIMD(cl_uint D, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		return currentLocal[thread][D];
-	}
-
-	inline void setCurrentGlobal(cl_uint D, size_t id, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		assert (id < get_global_size(D));
-		currentGlobal[thread][D] = id;
-	}
-	inline void setCurrentLocal(cl_uint D, __m128i id, cl_uint thread) {
-		assert (thread < maxNumThreads);
-		assert (D < dimensions);
-		assert (((unsigned*)&id)[0] < get_local_size(D));
-		assert (((unsigned*)&id)[1] < get_local_size(D));
-		assert (((unsigned*)&id)[2] < get_local_size(D));
-		assert (((unsigned*)&id)[3] < get_local_size(D));
-		currentLocal[thread][D] = id;
-	}
-
-	// called automatically by initializeOpenCL
-	inline void initializeThreads(size_t* gThreads, size_t* lThreads) {
-		size_t globalThreadNum = 0;
-		size_t localThreadNum = 0;
-		bool* alignedGlobalDims = new bool[dimensions]();
-		bool* alignedLocalDims = new bool[dimensions]();
-
-		bool error = false;
-
-		for (cl_uint i=0; i<dimensions; ++i) {
-			const size_t globalThreadsDimI = gThreads[i];
-			globalThreadNum += globalThreadsDimI;
-			alignedGlobalDims[i] = (globalThreadsDimI % simdWidth == 0);
-			globalThreads[i] = globalThreadsDimI;
-
-			const size_t localThreadsDimI = lThreads[i];
-			localThreadNum += localThreadsDimI;
-			alignedLocalDims[i] = (localThreadsDimI % simdWidth == 0);
-			localThreads[i] = localThreadsDimI;
-
-			if (i == simdDimension && !alignedGlobalDims[i]) {
-				std::cerr << "ERROR: chosen SIMD dimension " << i
-						<< " is globally not dividable by " << simdWidth
-						<< " (global dimension)!\n";
-				error = true;
-			}
-			if (i == simdDimension && !alignedLocalDims[i]) {
-				std::cerr << "ERROR: chosen SIMD dimension " << i
-						<< " is locally not dividable by " << simdWidth
-						<< " (work-group dimension)!\n";
-				error = true;
-			}
-			if (globalThreadsDimI % localThreadsDimI != 0) {
-				std::cerr << "ERROR: global dimension " << i
-						<< " not dividable by local dimension ("
-						<< globalThreadsDimI << " / " << localThreadsDimI
-						<< ")!\n";
-				error = true;
-			}
-		}
-		if (globalThreadNum % simdWidth != 0) {
-			std::cerr << "ERROR: global number of threads is not dividable by "
-					<< simdWidth << "!\n";
-			error = true;
-		}
-		if (localThreadNum % simdWidth != 0) {
-			std::cerr << "ERROR: number of threads in a group is not dividable"
-					"by " << simdWidth << "!\n";
-			error = true;
-		}
-
-		if (error) exit(-1);
-	}
-	void initializeOpenCL(const cl_uint dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
-		if (dims > 3) {
-			std::cerr << "ERROR: max # dimensions is 3!\n";
-			exit(-1);
-		}
-		if (simdDim > dims) {
-			std::cerr << "ERROR: chosen SIMD dimension out of bounds ("
-					<< simdWidth << " > " << dims << ")!\n";
-			exit(-1);
-		}
-		dimensions = dims;
-		simdDimension = simdDim-1; //-1 for array access
-
-		globalThreads = new size_t[dims]();
-		localThreads = new size_t[dims]();
-
-		currentGlobal = new size_t*[maxNumThreads]();
-		currentLocal = new __m128i*[maxNumThreads]();
-		currentGroup = new size_t*[maxNumThreads]();
-
-		for (cl_uint i=0; i<maxNumThreads; ++i) {
-			currentGlobal[i] = new size_t[dims]();
-			currentLocal[i] = new __m128i[dims]();
-			currentGroup[i] = new size_t[dims]();
-
-			for (cl_uint j=0; j<dimensions; ++j) {
-				if (j == simdDimension) {
-					currentGlobal[i][j] = 0;
-					currentLocal[i][j] = _mm_set_epi32(0, 1, 2, 3);
-				} else {
-					currentGlobal[i][j] = 0;
-					currentLocal[i][j] = _mm_set_epi32(0, 0, 0, 0);
-				}
-				currentGroup[i][j] = 0;
-			}
-		}
-
-		initializeThreads(gThreads, lThreads);
-	}
-
-
-	bool __packetizeKernelFunction(
-			const std::string& kernelName,
-			const std::string& targetKernelName,
-			llvm::Module* mod,
-			const cl_uint packetizationSize,
-			const bool use_sse41,
-			const bool verbose)
-	{
-		if (!jitRT::getFunction(kernelName, mod)) {
-			std::cerr << "ERROR: source function '" << kernelName
-					<< "' not found in module!\n";
-			return false;
-		}
-		if (!jitRT::getFunction(targetKernelName, mod)) {
-			std::cerr << "ERROR: target function '" << targetKernelName
-					<< "' not found in module!\n";
-			return false;
-		}
-
-		Packetizer::Packetizer* packetizer = Packetizer::getPacketizer(use_sse41, verbose);
-		Packetizer::addFunctionToPacketizer(
-				packetizer,
-				kernelName,
-				targetKernelName,
-				packetizationSize);
-
-		Packetizer::addNativeFunctionToPacketizer(
-				packetizer,
-				"get_global_id",
-				-1,
-				jitRT::getFunction("get_global_id", mod),
-				true); // although call does not return packet, packetize everything that depends on it!
-		Packetizer::addNativeFunctionToPacketizer(
-				packetizer,
-				"get_global_id_split",
-				-1,
-				jitRT::getFunction("get_global_id_SIMD", mod),
-				true); // packetization is mandatory
-		Packetizer::addNativeFunctionToPacketizer(
-				packetizer,
-				"get_local_id",
-				-1,
-				jitRT::getFunction("get_local_id_SIMD", mod),
-				true); // packetization is mandatory
-
-		Packetizer::runPacketizer(packetizer, mod);
-
-		if (!jitRT::getFunction(targetKernelName, mod)) {
-			std::cerr << "ERROR: packetized target function not found in"
-					"module!\n";
-			return false;
-		}
-
-		return true;
-	}
-
-	
+	static const cl_uint numCores = 1;
+	size_t* currentGlobal; // 0 -> globalThreads[D] -1  (packetized: 0->globalThreads[D]/4 if D == simd dim)
+	size_t* currentGroup;  // 0 -> (globalThreads[D] / localThreads[D]) -1
 #endif
-
-	// common functionality, with or without packetization
-
-	llvm::Function* __generateKernelWrapper(
-			const std::string& wrapper_name,
-			llvm::Function* f_SIMD,
-			llvm::Module* mod)
-	{
-		return jitRT::generateFunctionWrapperOMP(wrapper_name, f_SIMD, mod);
-	}
-
-	void __resolveRuntimeCalls(llvm::Module* mod) {
-		std::vector< std::pair<llvm::Function*, void*> > funs;
-		using std::make_pair;
-		funs.push_back(make_pair(jitRT::getFunction("get_work_dim",    mod), void_cast(get_work_dim)));
-		funs.push_back(make_pair(jitRT::getFunction("get_global_size", mod), void_cast(get_global_size)));
-		funs.push_back(make_pair(jitRT::getFunction("get_global_id",   mod), void_cast(get_global_id)));
-		funs.push_back(make_pair(jitRT::getFunction("get_local_size",  mod), void_cast(get_local_size)));
-		funs.push_back(make_pair(jitRT::getFunction("get_num_groups",  mod), void_cast(get_num_groups)));
-		funs.push_back(make_pair(jitRT::getFunction("get_group_id",    mod), void_cast(get_group_id)));
-
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		funs.push_back(make_pair(jitRT::getFunction("get_local_id", mod), void_cast(get_local_id)));
-#else
-		funs.push_back(make_pair(jitRT::getFunction("get_global_id_SIMD", mod), void_cast(get_global_id_SIMD)));
-		funs.push_back(make_pair(jitRT::getFunction("get_local_id_SIMD",  mod), void_cast(get_local_id_SIMD)));
-#endif
-
-		for (cl_uint i=0, e=funs.size(); i<e; ++i) {
-			llvm::Function* funDecl = funs[i].first;
-			void* funImpl = funs[i].second;
-
-			if (funDecl) jitRT::replaceAllUsesWith(funDecl, jitRT::createFunctionPointer(funDecl, funImpl));
-		}
-	}
-
-	inline cl_uint __convertLLVMAddressSpace(cl_uint llvm_address_space) {
-		switch (llvm_address_space) {
-			case 0 : return CL_PRIVATE;
-			case 1 : return CL_GLOBAL;
-			default : return llvm_address_space;
-		}
-	}
-
-}
-#else
-namespace {
 
 	static const cl_uint simdWidth = 4;
-	static const cl_uint maxNumThreads = 1;
+	static const cl_uint maxNumThreads = numCores;
 
-	cl_uint dimensions; // max 3
+	static const cl_uint maxNumDimensions = 3;
+
+	cl_uint dimensions;
 	size_t* globalThreads; // total # work items per dimension, arbitrary size
 	size_t* localThreads;  // size of each work group per dimension
 
-	size_t* currentGlobal; // 0 -> globalThreads[D] -1  (packetized: 0->globalThreads[D]/4 if D == simd dim)
-	size_t* currentGroup;  // 0 -> (globalThreads[D] / localThreads[D]) -1
-
-	// D is dimension index.
 
 	/* Num. of dimensions in use */
 	inline cl_uint get_work_dim() {
@@ -493,7 +150,13 @@ namespace {
 	inline size_t get_global_id(cl_uint D) {
 		assert (D < dimensions);
 		if (D >= dimensions) return 0;
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		return currentGlobal[thread][D];
+#else
 		return currentGlobal[D];
+#endif
 	}
 
 	/* Num. of local work-items */
@@ -514,13 +177,46 @@ namespace {
 	inline size_t get_group_id(cl_uint D) {
 		assert (D < dimensions);
 		if (D >= dimensions) return CL_SUCCESS;
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		return currentGroup[thread][D];
+#else
 		return currentGroup[D];
+#endif
 	}
 
 	inline void setCurrentGroup(cl_uint D, size_t id) {
 		assert (D < dimensions);
 		assert (id < get_num_groups(D));
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		currentGroup[thread][D] = id;
+#else
 		currentGroup[D] = id;
+#endif
+	}
+
+	/*
+	 * CLK_LOCAL_MEM_FENCE - The barrier function
+	 * will either flush any variables stored in local memory
+	 * or queue a memory fence to ensure correct ordering of
+	 * memory operations to local memory.
+	 * CLK_GLOBAL_MEM_FENCE – The barrier function
+	 * will queue a memory fence to ensure correct ordering
+	 * of memory operations to global memory. This can be
+	 * useful when work-items, for example, write to buffer or
+	 * image objects and then want to read the updated data.
+	 */
+	// TODO: no idea what the parameters do :P
+	void barrier(unsigned a, unsigned b) {
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		#pragma omp barrier
+		outs() << "#threads: " << omp_get_num_threads() << "\n";
+#else
+		// barrier does not do anything if no openmp is activated :P
+#endif
 	}
 
 
@@ -528,24 +224,47 @@ namespace {
 
 	// scalar implementation
 	//
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+	size_t** currentLocal;  // 0 -> SIMD width -1
+#else
 	size_t* currentLocal;  // 0 -> SIMD width -1
+#endif
 
 	/* Local work-item ID */
 	inline size_t get_local_id(cl_uint D) {
 		assert (D < dimensions);
 		if (D >= dimensions) return 0;
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		return currentLocal[thread][D];
+#else
 		return currentLocal[D];
+#endif
 	}
 
 	inline void setCurrentGlobal(cl_uint D, size_t id) {
 		assert (D < dimensions);
 		assert (id < get_global_size(D));
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		currentGlobal[thread][D] = id;
+#else
 		currentGlobal[D] = id;
+#endif
 	}
 	inline void setCurrentLocal(cl_uint D, size_t id) {
 		assert (D < dimensions);
 		assert (id < get_local_size(D));
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		currentLocal[thread][D] = id;
+#else
 		currentLocal[D] = id;
+#endif
 	}
 
 	// called automatically by initializeOpenCL
@@ -555,22 +274,52 @@ namespace {
 			localThreads[i] = lThreads[i];
 		}
 	}
-	void initializeOpenCL(const cl_uint dim, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
-		assert (dim < 4 && "max # dimensions is 3!");
-		dimensions = dim;
+	void initializeOpenCL(const cl_uint dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
+		// print some information
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nAutomatic Packetization disabled!\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
 
-		globalThreads = new size_t[dim]();
-		localThreads = new size_t[dim]();
+		if (dims > maxNumDimensions) {
+			errs() << "ERROR: max # dimensions is " << maxNumDimensions << "!\n";
+			exit(-1);
+		}
+		if (simdDim > dims) {
+			errs() << "ERROR: chosen SIMD dimension out of bounds ("
+					<< simdWidth << " > " << dims << ")!\n";
+			exit(-1);
+		}
+		dimensions = dims;
 
-		currentGlobal = new size_t[dim]();
-		currentLocal = new size_t[dim]();
-		currentGroup = new size_t[dim]();
+		globalThreads = new size_t[dims]();
+		localThreads = new size_t[dims]();
 
-		for (cl_uint i=0; i<dimensions; ++i) {
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		currentGlobal = new size_t*[maxNumThreads]();
+		currentLocal = new size_t*[maxNumThreads]();
+		currentGroup = new size_t*[maxNumThreads]();
+
+		for (cl_uint i=0; i<maxNumThreads; ++i) {
+			currentGlobal[i] = new size_t[dims]();
+			currentLocal[i] = new size_t[dims]();
+			currentGroup[i] = new size_t[dims]();
+
+			for (cl_uint j=0; j<dims; ++j) {
+				currentGlobal[i][j] = 0;
+				currentLocal[i][j] = 0;
+				currentGroup[i][j] = 0;
+			}
+		}
+#else
+		currentGlobal = new size_t[dims]();
+		currentLocal = new size_t[dims]();
+		currentGroup = new size_t[dims]();
+
+		for (cl_uint i=0; i<dims; ++i) {
 			currentGlobal[i] = 0;
 			currentLocal[i] = 0;
 			currentGroup[i] = 0;
 		}
+#endif
 
 		initializeThreads(gThreads, lThreads);
 	}
@@ -579,7 +328,12 @@ namespace {
 
 	// packetized implementation
 	//
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+	__m128i** currentLocal;  // 0 -> SIMD width -1 (always 0 for non-simd dims)
+#else
 	__m128i* currentLocal;  // 0 -> SIMD width -1 (always 0 for non-simd dims)
+#endif
 
 	cl_uint simdDimension;
 
@@ -589,23 +343,40 @@ namespace {
 	//    to get_global_id left (= no overhead)
 	inline __m128i get_global_id_SIMD(cl_uint D) {
 		assert (D < dimensions);
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		const size_t simd_id = currentGlobal[thread][D];
+#else
 		const size_t simd_id = currentGlobal[D];
+#endif
 		const unsigned id0 = simd_id * 4;
 		const unsigned id1 = id0 + 1;
 		const unsigned id2 = id0 + 2;
 		const unsigned id3 = id0 + 3;
-		//return _mm_set_epi32(id0, id1, id2, id3);
 		return _mm_set_epi32(id3, id2, id1, id0);
 	}
 	inline __m128i get_local_id_SIMD(cl_uint D) {
 		assert (D < dimensions);
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		return currentLocal[thread][D];
+#else
 		return currentLocal[D];
+#endif
 	}
 
 	inline void setCurrentGlobal(cl_uint D, size_t id) {
 		assert (D < dimensions);
 		assert (id < get_global_size(D));
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		currentGlobal[thread][D] = id;
+#else
 		currentGlobal[D] = id;
+#endif
 	}
 	inline void setCurrentLocal(cl_uint D, __m128i id) {
 		assert (D < dimensions);
@@ -613,7 +384,13 @@ namespace {
 		assert (((unsigned*)&id)[1] < get_local_size(D));
 		assert (((unsigned*)&id)[2] < get_local_size(D));
 		assert (((unsigned*)&id)[3] < get_local_size(D));
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		const unsigned thread = omp_get_thread_num();
+		assert (thread < maxNumThreads);
+		currentLocal[thread][D] = id;
+#else
 		currentLocal[D] = id;
+#endif
 	}
 
 	// called automatically by initializeOpenCL
@@ -637,19 +414,19 @@ namespace {
 			localThreads[i] = localThreadsDimI;
 
 			if (i == simdDimension && !alignedGlobalDims[i]) {
-				std::cerr << "ERROR: chosen SIMD dimension " << i
+				errs() << "ERROR: chosen SIMD dimension " << i
 						<< " is globally not dividable by " << simdWidth
 						<< " (global dimension)!\n";
 				error = true;
 			}
 			if (i == simdDimension && !alignedLocalDims[i]) {
-				std::cerr << "ERROR: chosen SIMD dimension " << i
+				errs() << "ERROR: chosen SIMD dimension " << i
 						<< " is locally not dividable by " << simdWidth
 						<< " (work-group dimension)!\n";
 				error = true;
 			}
 			if (globalThreadsDimI % localThreadsDimI != 0) {
-				std::cerr << "ERROR: global dimension " << i
+				errs() << "ERROR: global dimension " << i
 						<< " not dividable by local dimension ("
 						<< globalThreadsDimI << " / " << localThreadsDimI
 						<< ")!\n";
@@ -657,12 +434,12 @@ namespace {
 			}
 		}
 		if (globalThreadNum % simdWidth != 0) {
-			std::cerr << "ERROR: global number of threads is not dividable by "
+			errs() << "ERROR: global number of threads is not dividable by "
 					<< simdWidth << "!\n";
 			error = true;
 		}
 		if (localThreadNum % simdWidth != 0) {
-			std::cerr << "ERROR: number of threads in a group is not dividable"
+			errs() << "ERROR: number of threads in a group is not dividable"
 					"by " << simdWidth << "!\n";
 			error = true;
 		}
@@ -670,26 +447,52 @@ namespace {
 		if (error) exit(-1);
 	}
 	void initializeOpenCL(const cl_uint dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
-		if (dims > 3) {
-			std::cerr << "ERROR: max # dimensions is 3!\n";
+		// print some information
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nAutomatic Packetization enabled!\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
+
+		if (dims > maxNumDimensions) {
+			errs() << "ERROR: max # dimensions is " << maxNumDimensions << "!\n";
 			exit(-1);
 		}
 		if (simdDim > dims) {
-			std::cerr << "ERROR: chosen SIMD dimension out of bounds ("
+			errs() << "ERROR: chosen SIMD dimension out of bounds ("
 					<< simdWidth << " > " << dims << ")!\n";
 			exit(-1);
 		}
 		dimensions = dims;
 		simdDimension = simdDim-1; //-1 for array access
 
-		globalThreads = new size_t[dimensions]();
-		localThreads = new size_t[dimensions]();
+		globalThreads = new size_t[dims]();
+		localThreads = new size_t[dims]();
 
-		currentGlobal = new size_t[dimensions]();
-		currentLocal = new __m128i[dimensions]();
-		currentGroup = new size_t[dimensions]();
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		currentGlobal = new size_t*[maxNumThreads]();
+		currentLocal = new __m128i*[maxNumThreads]();
+		currentGroup = new size_t*[maxNumThreads]();
 
-		for (cl_uint i=0; i<dimensions; ++i) {
+		for (cl_uint i=0; i<maxNumThreads; ++i) {
+			currentGlobal[i] = new size_t[dims]();
+			currentLocal[i] = new __m128i[dims]();
+			currentGroup[i] = new size_t[dims]();
+
+			for (cl_uint j=0; j<dims; ++j) {
+				if (j == simdDimension) {
+					currentGlobal[i][j] = 0;
+					currentLocal[i][j] = _mm_set_epi32(0, 1, 2, 3);
+				} else {
+					currentGlobal[i][j] = 0;
+					currentLocal[i][j] = _mm_set_epi32(0, 0, 0, 0);
+				}
+				currentGroup[i][j] = 0;
+			}
+		}
+#else
+		currentGlobal = new size_t[dims]();
+		currentLocal = new __m128i[dims]();
+		currentGroup = new size_t[dims]();
+
+		for (cl_uint i=0; i<dims; ++i) {
 			if (i == simdDimension) {
 				currentGlobal[i] = 0;
 				currentLocal[i] = _mm_set_epi32(0, 1, 2, 3);
@@ -699,11 +502,12 @@ namespace {
 			}
 			currentGroup[i] = 0;
 		}
+#endif
 
 		initializeThreads(gThreads, lThreads);
 	}
 
-	
+
 	bool __packetizeKernelFunction(
 			const std::string& kernelName,
 			const std::string& targetKernelName,
@@ -712,13 +516,13 @@ namespace {
 			const bool use_sse41,
 			const bool verbose)
 	{
-		if (!jitRT::getFunction(kernelName, mod)) {
-			std::cerr << "ERROR: source function '" << kernelName
+		if (!PacketizedOpenCLDriver::getFunction(kernelName, mod)) {
+			errs() << "ERROR: source function '" << kernelName
 					<< "' not found in module!\n";
 			return false;
 		}
-		if (!jitRT::getFunction(targetKernelName, mod)) {
-			std::cerr << "ERROR: target function '" << targetKernelName
+		if (!PacketizedOpenCLDriver::getFunction(targetKernelName, mod)) {
+			errs() << "ERROR: target function '" << targetKernelName
 					<< "' not found in module!\n";
 			return false;
 		}
@@ -734,25 +538,25 @@ namespace {
 				packetizer,
 				"get_global_id",
 				-1,
-				jitRT::getFunction("get_global_id", mod),
+				PacketizedOpenCLDriver::getFunction("get_global_id", mod),
 				true); // although call does not return packet, packetize everything that depends on it!
 		Packetizer::addNativeFunctionToPacketizer(
 				packetizer,
 				"get_global_id_split",
 				-1,
-				jitRT::getFunction("get_global_id_SIMD", mod),
+				PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", mod),
 				true); // packetization is mandatory
 		Packetizer::addNativeFunctionToPacketizer(
 				packetizer,
 				"get_local_id",
 				-1,
-				jitRT::getFunction("get_local_id_SIMD", mod),
+				PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", mod),
 				true); // packetization is mandatory
 
 		Packetizer::runPacketizer(packetizer, mod);
 
-		if (!jitRT::getFunction(targetKernelName, mod)) {
-			std::cerr << "ERROR: packetized target function not found in"
+		if (!PacketizedOpenCLDriver::getFunction(targetKernelName, mod)) {
+			errs() << "ERROR: packetized target function not found in"
 					"module!\n";
 			return false;
 		}
@@ -762,38 +566,56 @@ namespace {
 
 #endif
 
-	// common functionality, with or without packetization
+
+
+	// common functionality, with or without packetization/openmp
 
 	llvm::Function* __generateKernelWrapper(
 			const std::string& wrapper_name,
 			llvm::Function* f_SIMD,
 			llvm::Module* mod)
 	{
-		return jitRT::generateFunctionWrapper(wrapper_name, f_SIMD, mod);
+		return PacketizedOpenCLDriver::generateFunctionWrapper(wrapper_name, f_SIMD, mod);
 	}
 
 	void __resolveRuntimeCalls(llvm::Module* mod) {
 		std::vector< std::pair<llvm::Function*, void*> > funs;
 		using std::make_pair;
-		funs.push_back(make_pair(jitRT::getFunction("get_work_dim",    mod), void_cast(get_work_dim)));
-		funs.push_back(make_pair(jitRT::getFunction("get_global_size", mod), void_cast(get_global_size)));
-		funs.push_back(make_pair(jitRT::getFunction("get_global_id",   mod), void_cast(get_global_id)));
-		funs.push_back(make_pair(jitRT::getFunction("get_local_size",  mod), void_cast(get_local_size)));
-		funs.push_back(make_pair(jitRT::getFunction("get_num_groups",  mod), void_cast(get_num_groups)));
-		funs.push_back(make_pair(jitRT::getFunction("get_group_id",    mod), void_cast(get_group_id)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_work_dim",    mod), void_cast(get_work_dim)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_global_size", mod), void_cast(get_global_size)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_global_id",   mod), void_cast(get_global_id)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_local_size",  mod), void_cast(get_local_size)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_num_groups",  mod), void_cast(get_num_groups)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_group_id",    mod), void_cast(get_group_id)));
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		funs.push_back(make_pair(jitRT::getFunction("get_local_id", mod), void_cast(get_local_id)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_local_id", mod), void_cast(get_local_id)));
 #else
-		funs.push_back(make_pair(jitRT::getFunction("get_global_id_SIMD", mod), void_cast(get_global_id_SIMD)));
-		funs.push_back(make_pair(jitRT::getFunction("get_local_id_SIMD",  mod), void_cast(get_local_id_SIMD)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", mod), void_cast(get_global_id_SIMD)));
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_local_id_SIMD",  mod), void_cast(get_local_id_SIMD)));
 #endif
+
+		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("barrier", mod), void_cast(barrier)));
 
 		for (cl_uint i=0, e=funs.size(); i<e; ++i) {
 			llvm::Function* funDecl = funs[i].first;
 			void* funImpl = funs[i].second;
 
-			if (funDecl) jitRT::replaceAllUsesWith(funDecl, jitRT::createFunctionPointer(funDecl, funImpl));
+			if (funDecl) PacketizedOpenCLDriver::replaceAllUsesWith(funDecl, PacketizedOpenCLDriver::createFunctionPointer(funDecl, funImpl));
+		}
+
+
+		// fix __sqrt_f32
+		if (PacketizedOpenCLDriver::getFunction("__sqrt_f32", mod)) {
+
+			// create llvm.sqrt.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("llvm.sqrt.f32", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("llvm.sqrt.f32", mod));
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__sqrt_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.sqrt.f32", mod));
 		}
 	}
 
@@ -801,12 +623,19 @@ namespace {
 		switch (llvm_address_space) {
 			case 0 : return CL_PRIVATE;
 			case 1 : return CL_GLOBAL;
+			case 3 : return CL_LOCAL;
 			default : return llvm_address_space;
 		}
 	}
 
+
+	// TODO: get real info :p
+	unsigned long long getDeviceMaxMemAllocSize() {
+		return 0x3B9ACA00; // 1 GB
+	}
+
 }
-#endif
+
 
 ///////////////////////////////////////////////////////////////////////////
 //             Packetized OpenCL Internal Data Structures                //
@@ -952,8 +781,7 @@ public:
 				return mem->get_data();
 			}
 			case CL_LOCAL: {
-				assert (false && "local address space not supported yet!");
-				return NULL;
+				return data;
 			}
 			case CL_CONSTANT: {
 				assert (false && "constant address space not supported yet!");
@@ -975,8 +803,7 @@ public:
 				return mem->get_size();
 			}
 			case CL_LOCAL: {
-				assert (false && "local address space not supported yet!");
-				return NULL;
+				return element_size;
 			}
 			case CL_CONSTANT: {
 				assert (false && "constant address space not supported yet!");
@@ -1157,7 +984,7 @@ clGetDeviceIDs(cl_platform_id   platform,
                cl_uint *        num_devices) CL_API_SUFFIX__VERSION_1_0
 {
 	if (device_type != CL_DEVICE_TYPE_CPU) {
-		std::cerr << "ERROR: can not handle devices other than CPU!\n";
+		errs() << "ERROR: packetized OpenCL driver can not handle devices other than CPU!\n";
 		return CL_INVALID_DEVICE_TYPE;
 	}
 	if (devices && num_entries < 1) return CL_INVALID_VALUE;
@@ -1174,7 +1001,295 @@ clGetDeviceInfo(cl_device_id    device,
                 void *          param_value,
                 size_t *        param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	if (!device) return CL_INVALID_DEVICE;
+
+	// TODO: move into _cl_device_id, this here is the wrong place !!
+	switch (param_name) {
+		case CL_DEVICE_TYPE: {
+			if (param_value_size < sizeof(cl_device_type)) return CL_INVALID_VALUE;
+			if (param_value) *(cl_device_type*)param_value = CL_DEVICE_TYPE_CPU;
+			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_device_type);
+			break;
+		}
+		case CL_DEVICE_VENDOR_ID: {
+			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
+			if (param_value) *(cl_uint*)param_value = 0; // should be some "unique device vendor identifier"
+			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_uint);
+			break;
+		}
+		case CL_DEVICE_MAX_COMPUTE_UNITS: {
+			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
+
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+	#ifndef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+			if (param_value) *(cl_uint*)param_value = 1;
+	#else
+			if (param_value) *(cl_uint*)param_value = numCores;
+	#endif
+#else
+	#ifndef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+			if (param_value) *(cl_uint*)param_value = simdWidth;
+	#else
+			if (param_value) *(cl_uint*)param_value = numCores*simdWidth;
+	#endif
+#endif
+
+			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_uint);
+			break;
+		}
+		case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS: {
+			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
+			if (param_value) *(cl_uint*)param_value = maxNumDimensions;
+			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_uint);
+			break;
+		}
+		case CL_DEVICE_MAX_WORK_ITEM_SIZES: {
+			if (param_value_size < sizeof(size_t)) return CL_INVALID_VALUE;
+			if (param_value) {
+				for (unsigned i=0; i<maxNumDimensions; ++i) {
+					((size_t*)param_value)[i] = getDeviceMaxMemAllocSize(); // FIXME
+				}
+			}
+			if (param_value_size_ret) *param_value_size_ret = sizeof(size_t)*maxNumDimensions;
+			break;
+		}
+		case CL_DEVICE_MAX_WORK_GROUP_SIZE: {
+			if (param_value_size < sizeof(size_t)) return CL_INVALID_VALUE;
+			if (param_value) *(size_t*)param_value = getDeviceMaxMemAllocSize(); // FIXME
+			if (param_value_size_ret) *param_value_size_ret = sizeof(size_t*);
+			break;
+		}
+		case CL_DEVICE_PREFERRED_VECTOR_WIDTH_CHAR: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_PREFERRED_VECTOR_WIDTH_SHORT: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_PREFERRED_VECTOR_WIDTH_DOUBLE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MAX_CLOCK_FREQUENCY: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_ADDRESS_BITS: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MAX_MEM_ALLOC_SIZE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_IMAGE_SUPPORT: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MAX_READ_IMAGE_ARGS: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MAX_WRITE_IMAGE_ARGS: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_IMAGE2D_MAX_WIDTH: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_IMAGE2D_MAX_HEIGHT: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_IMAGE3D_MAX_WIDTH: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_IMAGE3D_MAX_HEIGHT: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_IMAGE3D_MAX_DEPTH: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MAX_SAMPLERS: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MAX_PARAMETER_SIZE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MEM_BASE_ADDR_ALIGN: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MIN_DATA_TYPE_ALIGN_SIZE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_SINGLE_FP_CONFIG: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_GLOBAL_MEM_CACHE_TYPE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_GLOBAL_MEM_CACHE_SIZE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_GLOBAL_MEM_SIZE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_MAX_CONSTANT_ARGS: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_LOCAL_MEM_TYPE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_LOCAL_MEM_SIZE: {
+			// local memory == global memory for cpu
+			// TODO: make sure size*maxNumThreads(*simdWidth?) is really available on host ;)
+			if (param_value_size < sizeof(unsigned long long)) return CL_INVALID_VALUE;
+			if (param_value) *(unsigned long long*)param_value = getDeviceMaxMemAllocSize(); // FIXME: use own function
+			if (param_value_size_ret) *param_value_size_ret = sizeof(unsigned long long);
+			break;
+		}
+		case CL_DEVICE_ERROR_CORRECTION_SUPPORT: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_PROFILING_TIMER_RESOLUTION: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_ENDIAN_LITTLE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_AVAILABLE: {
+			if (param_value_size < sizeof(cl_bool)) return CL_INVALID_VALUE;
+			if (param_value) *(cl_bool*)param_value = true; // TODO: check if cpu supports SSE
+			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_bool);
+			break;
+		}
+		case CL_DEVICE_COMPILER_AVAILABLE: {
+			if (param_value_size < sizeof(cl_bool)) return CL_INVALID_VALUE;
+			if (param_value) *(cl_bool*)param_value = true; // TODO: check if clang/llvm is available
+			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_bool);
+			break;
+		}
+		case CL_DEVICE_EXECUTION_CAPABILITIES: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_QUEUE_PROPERTIES: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_PLATFORM: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_NAME: {
+			if (param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
+			if (param_value) *(std::string*)param_value = "sse cpu"; // TODO: should just return "cpu"?
+			if (param_value_size_ret) *param_value_size_ret = sizeof(char*);
+			break;
+		}
+		case CL_DEVICE_VENDOR: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DRIVER_VERSION: {
+			if (param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
+			if (param_value) *(std::string*)param_value = PACKETIZED_OPENCL_DRIVER_VERSION_STRING;
+			if (param_value_size_ret) *param_value_size_ret = sizeof(char*);
+			break;
+		}
+		case CL_DEVICE_PROFILE: {
+			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
+			assert (false && "NOT IMPLEMENTED!");
+			return CL_INVALID_VALUE;
+		}
+		case CL_DEVICE_VERSION: {
+			if (param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
+			if (param_value) *(std::string*)param_value = "OpenCL 1.0 Packetized";
+			if (param_value_size_ret) *param_value_size_ret = sizeof(char*);
+			break;
+		}
+		case CL_DEVICE_EXTENSIONS: {
+			if (param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
+			if (param_value) *(std::string*)param_value = ""; // no extensions supported yet
+			if (param_value_size_ret) *param_value_size_ret = sizeof(char*);
+			break;
+		}
+
+		default: {
+			errs() << "ERROR: unknown param_name found: " << param_name << "!\n";
+			return CL_INVALID_VALUE;
+		}
+	}
+
 	return CL_SUCCESS;
 }
 
@@ -1216,7 +1331,7 @@ clRetainContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseContext()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clReleaseContext()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1227,7 +1342,7 @@ clGetContextInfo(cl_context         context,
                  void *             param_value,
                  size_t *           param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clGetContextInfo()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clGetContextInfo()\n"; );
 	if (param_value_size_ret) *param_value_size_ret = 4;
 	return CL_SUCCESS;
 }
@@ -1260,7 +1375,7 @@ clRetainCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseCommandQueue()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clReleaseCommandQueue()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1304,12 +1419,12 @@ clCreateBuffer(cl_context   context,
                cl_int *     errcode_ret) CL_API_SUFFIX__VERSION_1_0
 {
 	if (!context) { if (errcode_ret) *errcode_ret = CL_INVALID_CONTEXT; return NULL; }
-	if (size == 0 || size > CL_DEVICE_MAX_MEM_ALLOC_SIZE) { if (errcode_ret) *errcode_ret = CL_INVALID_BUFFER_SIZE; return NULL; }
+	if (size == 0 || size > getDeviceMaxMemAllocSize()) { if (errcode_ret) *errcode_ret = CL_INVALID_BUFFER_SIZE; return NULL; }
 	if (!host_ptr && ((flags & CL_MEM_USE_HOST_PTR) || (flags & CL_MEM_COPY_HOST_PTR))) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
 	if (host_ptr && !(flags & CL_MEM_USE_HOST_PTR) & !(flags & CL_MEM_COPY_HOST_PTR)) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
 
 	_cl_mem* mem = new _cl_mem(context, size, host_ptr ? host_ptr : malloc(size));
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nclCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
 
 	if (errcode_ret) *errcode_ret = CL_SUCCESS;
 	return mem;
@@ -1355,7 +1470,7 @@ clRetainMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseMemObject()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clReleaseMemObject()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1476,7 +1591,7 @@ clRetainProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseProgram()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clReleaseProgram()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1508,18 +1623,18 @@ clBuildProgram(cl_program           program,
 	//TODO: read .cl representation, invoke clc, invoke llvm-as
 	// alternative: link libClang and use it directly from here :)
 
-	//llvm::Module* mod = jitRT::createModuleFromFile("packetizedOpenCL.tmp.mod.bc");
+	//llvm::Module* mod = PacketizedOpenCLDriver::createModuleFromFile("packetizedOpenCL.tmp.mod.bc");
 
 	//FIXME: hardcoded for testing ;)
-	llvm::Module* mod = jitRT::createModuleFromFile(program->fileName);
+	llvm::Module* mod = PacketizedOpenCLDriver::createModuleFromFile(program->fileName);
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
 
 	// do this here or only after packetization?
-	jitRT::setTargetData(mod,
+	PacketizedOpenCLDriver::setTargetData(mod,
 		"e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128",
 		""); // have to reset target triple (LLVM does not know amd-opencl)
 	assert (program->context);
-	program->context->targetData = jitRT::getTargetData(mod);
+	program->context->targetData = PacketizedOpenCLDriver::getTargetData(mod);
 
 	program->module = mod;
 	return CL_SUCCESS;
@@ -1576,11 +1691,11 @@ clCreateKernel(cl_program      program,
 	strs << "__OpenCL_" << kernel_name << "_kernel";
 	const std::string new_kernel_name = strs.str();
 
-	llvm::Function* f = jitRT::getFunction(new_kernel_name, module);
+	llvm::Function* f = PacketizedOpenCLDriver::getFunction(new_kernel_name, module);
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
 
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
-	jitRT::optimizeFunction(f);
+	PacketizedOpenCLDriver::optimizeFunction(f);
 
 	program->function = f;
 
@@ -1611,69 +1726,69 @@ clCreateKernel(cl_program      program,
 	std::stringstream strs2;
 	strs2 << kernel_name << "_SIMD";
 	const std::string kernel_simd_name = strs2.str();
-	llvm::Function* f_SIMD = jitRT::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module);
+	llvm::Function* f_SIMD = PacketizedOpenCLDriver::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module);
 	program->function_SIMD = f_SIMD;
 
-	//jitRT::printFunction(f);
+	//PacketizedOpenCLDriver::printFunction(f);
 
-	jitRT::generateOpenCLFunctions(module);
+	PacketizedOpenCLDriver::generateOpenCLFunctions(module);
 
-	llvm::Function* gid = jitRT::getFunction("get_global_id", module);
-	llvm::Function* gid_split = jitRT::getFunction("get_global_id_split", module);
+	llvm::Function* gid = PacketizedOpenCLDriver::getFunction("get_global_id", module);
+	llvm::Function* gid_split = PacketizedOpenCLDriver::getFunction("get_global_id_split", module);
 	if (!gid) {
-		std::cerr << "ERROR: could not find function 'get_global_id' in module!\n";
+		errs() << "ERROR: could not find function 'get_global_id' in module!\n";
 		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
 		return NULL;
 	}
 	if (!gid_split) {
-		std::cerr << "ERROR: could not find function 'get_global_id_split' in module!\n";
+		errs() << "ERROR: could not find function 'get_global_id_split' in module!\n";
 		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
 		return NULL;
 	}
-	jitRT::replaceNonContiguousIndexUsage(f, gid, gid_split);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PacketizedOpenCLDriver::replaceNonContiguousIndexUsage(f, gid, gid_split);
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
 	// packetize scalar function into SIMD function
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(f, "scalar.ll"); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "scalar.ll"); );
 	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, false);
-	f_SIMD = jitRT::getFunction(kernel_simd_name, module); //pointer not valid anymore!
+	f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
 	program->function_SIMD = f_SIMD;
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(f_SIMD, "packetized.ll"); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "packetized.ll"); );
 
 	strs2 << "_wrapper";
 	const std::string wrapper_name = strs2.str();
 
 	__generateKernelWrapper(wrapper_name, f_SIMD, module);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
-	jitRT::fixUniformPacketizedArrayAccesses(f_SIMD, jitRT::getFunction("get_global_id_SIMD", module), simdWidth);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), simdWidth);
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 #endif
 
 	// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
 	__resolveRuntimeCalls(module);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
 	// save wrapper function in _cl_program object
-	llvm::Function* wrapper_fn = jitRT::getFunction(wrapper_name, module);
+	llvm::Function* wrapper_fn = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
 	if (!wrapper_fn) {
-		std::cerr << "ERROR: could not find wrapper function in kernel module!\n";
+		errs() << "ERROR: could not find wrapper function in kernel module!\n";
 		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
 		return NULL;
 	}
 
 	// inline all calls inside wrapper_fn
-	jitRT::inlineFunctionCalls(wrapper_fn);
+	PacketizedOpenCLDriver::inlineFunctionCalls(wrapper_fn);
 	// optimize wrapper with inlined kernel
-	jitRT::optimizeFunction(wrapper_fn);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::verifyModule(module); );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( jitRT::writeFunctionToFile(wrapper_fn, "wrapper.ll"); );
+	PacketizedOpenCLDriver::optimizeFunction(wrapper_fn);
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(wrapper_fn, "wrapper.ll"); );
 
 	program->function_wrapper = wrapper_fn;
 
 	// compile wrapper function (to be called in clEnqueueNDRangeKernel())
-	void* compiledFnPtr = jitRT::getPointerToFunction(module, wrapper_name);
+	void* compiledFnPtr = PacketizedOpenCLDriver::getPointerToFunction(module, wrapper_name);
 	if (!compiledFnPtr) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
 
 	// create kernel object
@@ -1683,7 +1798,7 @@ clCreateKernel(cl_program      program,
 	kernel->set_compiled_function(compiledFnPtr);
 
 	// initialize kernel arguments (empty)
-	const cl_uint num_args = jitRT::getNumArgs(f);
+	const cl_uint num_args = PacketizedOpenCLDriver::getNumArgs(f);
 	kernel->set_num_args(num_args);
 
 	*errcode_ret = CL_SUCCESS;
@@ -1710,7 +1825,7 @@ clRetainKernel(cl_kernel    kernel) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseKernel(cl_kernel   kernel) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseKernel()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clReleaseKernel()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1720,11 +1835,9 @@ clSetKernelArg(cl_kernel    kernel,
                size_t       arg_size,
                const void * arg_value) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nclSetKernelArg(" << arg_index << ", " << arg_size << ")\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclSetKernelArg(" << arg_index << ", " << arg_size << ")\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (arg_index > kernel->get_num_args()) return CL_INVALID_ARG_INDEX;
-	const bool is_local = kernel->arg_is_local(arg_index);
-	if ((!arg_value && !is_local) || (arg_value && is_local)) return CL_INVALID_ARG_VALUE;
 	//const size_t kernel_arg_size = kernel->arg_get_size(arg_index);
 	//if (arg_size != kernel_arg_size) return CL_INVALID_ARG_SIZE; //more checks required
 
@@ -1735,19 +1848,19 @@ clSetKernelArg(cl_kernel    kernel,
 	// -> all handled by _cl_kernel_arg
 	_cl_program* program = kernel->get_program();
 	const llvm::Function* f = program->function;
-	const llvm::Type* argType = jitRT::getArgumentType(f, arg_index);
-	const size_t arg_size_bytes = jitRT::getTypeSizeInBits(program->context->targetData, argType) / 8;
-	const cl_uint address_space = __convertLLVMAddressSpace(jitRT::getAddressSpace(argType));
+	const llvm::Type* argType = PacketizedOpenCLDriver::getArgumentType(f, arg_index);
+	const size_t arg_size_bytes = PacketizedOpenCLDriver::getTypeSizeInBits(program->context->targetData, argType) / 8;
+	const cl_uint address_space = __convertLLVMAddressSpace(PacketizedOpenCLDriver::getAddressSpace(argType));
 
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "function argument:\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "argument " << arg_index << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "  size per element: " << arg_size_bytes << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "  memory address: " << arg_value << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "  addrspace: "; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_PRIVATE) std::cout << "CL_PRIVATE\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_GLOBAL) std::cout << "CL_GLOBAL\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_LOCAL) std::cout << "CL_LOCAL\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_CONSTANT) std::cout << "CL_CONSTANT\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "function argument:\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "argument " << arg_index << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  size per element: " << arg_size_bytes << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  memory address: " << arg_value << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  addrspace: "; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_PRIVATE) outs() << "CL_PRIVATE\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_GLOBAL) outs() << "CL_GLOBAL\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_LOCAL) outs() << "CL_LOCAL\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_CONSTANT) outs() << "CL_CONSTANT\n"; );
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	const bool arg_uniform = true; // no packetization = no need for uniform/varying
@@ -1755,10 +1868,10 @@ clSetKernelArg(cl_kernel    kernel,
 	// save info if argument is uniform or varying
 	// TODO: implement in packetizer directly
 	// HACK: if types match, they are considered uniform, varying otherwise
-	//jitRT::writeModuleToFile(program->module, "mod.ll");
+	//PacketizedOpenCLDriver::writeModuleToFile(program->module, "mod.ll");
 
 	const llvm::Function* f_SIMD = program->function_SIMD;
-	const llvm::Type* argType_SIMD = jitRT::getArgumentType(f_SIMD, arg_index);
+	const llvm::Type* argType_SIMD = PacketizedOpenCLDriver::getArgumentType(f_SIMD, arg_index);
 	const bool arg_uniform = argType == argType_SIMD;
 
 	// check for sanity
@@ -1767,14 +1880,18 @@ clSetKernelArg(cl_kernel    kernel,
 		//       is always a scalar (the user's host program is not changed)!
 		// NOTE: This case would mean there are values that change for each thread in a group
 		//       but that is the same for the ith thread of any group.
-		std::cerr << "ERROR: packet function must not use varying, non-pointer agument!\n";
+		errs() << "ERROR: packet function must not use varying, non-pointer agument!\n";
 		return CL_INVALID_ARG_SIZE;
 	}
 #endif
 
 	if (address_space == CL_GLOBAL) kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value, arg_uniform);
 	else if (address_space == CL_PRIVATE) kernel->set_arg(arg_index, arg_size_bytes, address_space, *(const void**)arg_value, arg_uniform);
+	else if (address_space == CL_LOCAL) kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value, arg_uniform);
 	else assert (false && "support for local and constant memory not implemented here!");
+
+	const bool is_local = kernel->arg_is_local(arg_index);
+	if ((!arg_value && !is_local) || (arg_value && is_local)) return CL_INVALID_ARG_VALUE;
 
 	return CL_SUCCESS;
 }
@@ -1801,9 +1918,18 @@ clGetKernelWorkGroupInfo(cl_kernel                  kernel,
 	if (!kernel) return CL_INVALID_KERNEL;
 	//if (!device) return CL_INVALID_DEVICE;
 	switch (param_name) {
-		case CL_KERNEL_WORK_GROUP_SIZE: *(size_t*)param_value = simdWidth * maxNumThreads; break; // type conversion slightly hacked (should use param_value_size) ;)
-		case CL_KERNEL_COMPILE_WORK_GROUP_SIZE: assert (false && "NOT IMPLEMENTED"); break; //*(size_t**)param_value = new size_t[3](); break;
-		case CL_KERNEL_LOCAL_MEM_SIZE: assert (false && "NOT IMPLEMENTED!"); break;//*(cl_ulong*)param_value = 0; break;
+		case CL_KERNEL_WORK_GROUP_SIZE:{
+			*(size_t*)param_value = simdWidth * maxNumThreads;
+			break; // type conversion slightly hacked (should use param_value_size) ;)
+		}
+		case CL_KERNEL_COMPILE_WORK_GROUP_SIZE: {
+			assert (false && "NOT IMPLEMENTED");
+			break;
+		}
+		case CL_KERNEL_LOCAL_MEM_SIZE: {
+			*(cl_ulong*)param_value = 0; // FIXME ?
+			break;
+		}
 		default: return CL_INVALID_VALUE;
 	}
 	return CL_SUCCESS;
@@ -1814,7 +1940,7 @@ CL_API_ENTRY cl_int CL_API_CALL
 clWaitForEvents(cl_uint             num_events,
                 const cl_event *    event_list) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clWaitForEvents()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clWaitForEvents()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -1839,7 +1965,7 @@ clRetainEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 CL_API_ENTRY cl_int CL_API_CALL
 clReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "TODO: implement clReleaseEvent()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clReleaseEvent()\n"; );
 	return CL_SUCCESS;
 }
 
@@ -2084,7 +2210,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
                        const cl_event * event_wait_list,
                        cl_event *       event) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nclEnqueueNDRangeKernel()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclEnqueueNDRangeKernel()\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (command_queue->context != kernel->get_context()) return CL_INVALID_CONTEXT;
@@ -2121,40 +2247,35 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	// allocate memory for the struct
 	// TODO: do we have to care about type padding?
 	void* argument_struct = malloc(arg_str_size);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "address of argument-struct: " << argument_struct << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "address of argument-struct: " << argument_struct << "\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG(
-		const llvm::Type* argType = jitRT::getArgumentType(kernel->get_program()->function_wrapper, 0);
-		std::cout << "LLVM type: "; std::flush(std::cout); jitRT::printType(argType);
-		const llvm::Type* sType = jitRT::getContainedType(argType, 0); // get size of struct, not of pointer to struct
-		std::cout << "\nLLVM type size: " << jitRT::getTypeSizeInBits(kernel->get_context()->targetData, sType)/8 << "\n";
+		const llvm::Type* argType = PacketizedOpenCLDriver::getArgumentType(kernel->get_program()->function_wrapper, 0);
+		outs() << "LLVM type: " << *argType << "\n";
+		const llvm::Type* sType = PacketizedOpenCLDriver::getContainedType(argType, 0); // get size of struct, not of pointer to struct
+		outs() << "\nLLVM type size: " << PacketizedOpenCLDriver::getTypeSizeInBits(kernel->get_context()->targetData, sType)/8 << "\n";
 	);
 
 	// copy the correct data into the struct
 	size_t current_size = 0;
 	for (unsigned i=0; i<num_args; ++i) {
 		char* cur_pos = ((char*)argument_struct)+current_size;
-		const void* data = kernel->arg_get_address_space(i) == CL_PRIVATE
-			? (kernel->arg_get_data(i))
-			: (*(const _cl_mem**)kernel->arg_get_data(i))->get_data(); // TODO: use kernel->get_data_raw(i)
+		const void* data = kernel->arg_get_address_space(i) == CL_GLOBAL
+			? (*(const _cl_mem**)kernel->arg_get_data(i))->get_data() // TODO: use kernel->get_data_raw(i) ?
+			: (kernel->arg_get_data(i));
 		const size_t data_size = kernel->arg_get_element_size(i);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "  argument " << i << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "    size: " << data_size << " bytes\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "    data: " << data << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "    pos : " << (void*)cur_pos << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  argument " << i << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    size: " << data_size << " bytes\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    data: " << data << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    pos : " << (void*)cur_pos << "\n"; );
 		memcpy(cur_pos, &data, data_size);
 		current_size += data_size;
-		PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "    new size : " << current_size << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    new size : " << current_size << "\n"; );
 
 	}
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "copying of arguments finished.\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "copying of arguments finished.\n"; );
 
-	#ifdef PACKETIZED_OPENCL_USE_OPENMP
-	typedef void (*kernelFnPtr)(void*, cl_uint);
-	#else
 	typedef void (*kernelFnPtr)(void*);
-	#endif
-
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	//
@@ -2163,25 +2284,12 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	//this is not correct, global_work_size is an array of size of the number of dimensions!
 	const size_t num_iterations = *global_work_size; // = total # threads
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
 
-	#ifdef PACKETIZED_OPENCL_USE_OPENMP
-
+	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	omp_set_num_threads(maxNumThreads);
 	#pragma omp parallel for private(i) shared(work_dim, argument_struct)
-	for (unsigned i=0; i<num_iterations; ++i) {
-		// update runtime environment
-		const cl_uint thread = omp_get_thread_num();
-		setCurrentGlobal(work_dim-1, i, thread);
-		setCurrentGroup(work_dim-1, i / 4, thread);
-		setCurrentLocal(work_dim-1, i % 4, thread);
-		// call kernel
-		typedPtr(argument_struct, thread);
-	}
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
-
-	#else // PACKETIZED_OPENCL_USE_OPENMP
-
+	#endif
 	for (unsigned i=0; i<num_iterations; ++i) {
 		// update runtime environment
 		//this is not correct, work_dim is not the current one, but the number of dimensions!
@@ -2190,55 +2298,58 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		setCurrentLocal(work_dim-1, i % 4);
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			//std::cout << "\niteration " << i << "\n";
-			//std::cout << "  global id: " << get_global_id(work_dim-1) << "\n";
-			//std::cout << "  local id: " << get_local_id(work_dim-1) << "\n";
-			//std::cout << "  group id: " << get_group_id(work_dim-1) << "\n";
+			outs() << "\niteration " << i << "\n";
+			outs() << "  global id: " << get_global_id(work_dim-1) << "\n";
+			outs() << "  local id: " << get_local_id(work_dim-1) << "\n";
+			outs() << "  group id: " << get_group_id(work_dim-1) << "\n";
 
 			//hardcoded debug output for simpleTest
 			//typedef struct { float* input; float* output; unsigned count; } tt;
-			//std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
-			//std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
-			//std::cout << "  input : " << ((tt*)argument_struct)->input[i] << "\n";
-			//std::cout << "  output: " << ((tt*)argument_struct)->output[i] << "\n";
-			//std::cout << "  count : " << ((tt*)argument_struct)->count << "\n";
+			//outs() << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
+			//outs() << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
+			//outs() << "  input : " << ((tt*)argument_struct)->input[i] << "\n";
+			//outs() << "  output: " << ((tt*)argument_struct)->output[i] << "\n";
+			//outs() << "  count : " << ((tt*)argument_struct)->count << "\n";
+
+			//hardcoded debug output for DwtHaar1D
+			PacketizedOpenCLDriver::writeFunctionToFile(kernel->get_program()->function_wrapper, "executed.ll");
+			typedef struct { float* inSignal; float *coefsSignal; float *AverageSignal; float *sharedArray;
+				unsigned tLevels; unsigned signalLength; unsigned levelsDone; unsigned mLevels; } tt;
+			outs() << "  inSignal : " << ((tt*)argument_struct)->inSignal << "\n";
+			outs() << "  coefsSignal : " << ((tt*)argument_struct)->coefsSignal << "\n";
+			outs() << "  AverageSignal : " << ((tt*)argument_struct)->AverageSignal << "\n";
+			outs() << "  sharedArray : " << ((tt*)argument_struct)->sharedArray << "\n";
+			outs() << "  tLevels : " << ((tt*)argument_struct)->tLevels << "\n";
+			outs() << "  signalLength : " << ((tt*)argument_struct)->signalLength << "\n";
+			outs() << "  levelsDone : " << ((tt*)argument_struct)->levelsDone << "\n";
+			outs() << "  mLevels : " << ((tt*)argument_struct)->mLevels << "\n";
+			//const float* arr = (float*)((tt*)argument_struct)->inSignal;
+			//float before[64];
+			//for (unsigned j=0; j<64; ++j) {
+				//before[j] = arr[j];
+			//}
 		);
 
 		// call kernel
 		typedPtr(argument_struct);
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
+		//PACKETIZED_OPENCL_DRIVER_DEBUG(
 			//hardcoded debug output
 			//typedef struct { float* input; float* output; unsigned count; } tt;
-			//std::cout << "  result: " << ((tt*)argument_struct)->output[i] << "\n";
-		);
+			//outs() << "  result: " << ((tt*)argument_struct)->output[i] << "\n";
+		//);
 	}
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
-
-	#endif // PACKETIZED_OPENCL_USE_OPENMP
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
 
 #else
 	const size_t num_iterations = *global_work_size / 4; //*local_work_size; // = #groups
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "global_size(0): " << get_global_size(0) << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "global_size(0): " << get_global_size(0) << "\n"; );
 
-	#ifdef PACKETIZED_OPENCL_USE_OPENMP
-
+	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	omp_set_num_threads(maxNumThreads);
 	#pragma omp parallel for private(i) shared(work_dim, argument_struct)
-	for (unsigned i=0; i<num_iterations; ++i) {
-		// update runtime environment
-		const cl_uint thread = omp_get_thread_num();
-		setCurrentGlobal(work_dim-1, i, thread);
-		setCurrentGroup(work_dim-1, i, thread);
-		setCurrentLocal(work_dim-1, _mm_set_epi32(3, 2, 1, 0), thread);
-		// call kernel
-		typedPtr(argument_struct, thread);
-	}
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
-
-	#else // PACKETIZED_OPENCL_USE_OPENMP
-
+	#endif
 	for (unsigned i=0; i<num_iterations; ++i) {
 		// update runtime environment
 		//this is not correct, work_dim is not the current one, but the number of dimensions!
@@ -2248,31 +2359,31 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		//setCurrentLocal(work_dim-1, _mm_set_epi32(0, 1, 2, 3)); // ??
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			std::cout << "\niteration " << i << "\n";
-			std::cout << "  current global: " << i << "\n";
-			std::cout << "  get_global_id: " << get_global_id(0) << "\n";
-			std::cout << "  get_global_id_SIMD: "; printV(get_global_id_SIMD(0)); std::cout << "\n";
+			outs() << "\niteration " << i << "\n";
+			outs() << "  current global: " << i << "\n";
+			outs() << "  get_global_id: " << get_global_id(0) << "\n";
+			outs() << "  get_global_id_SIMD: "; printV(get_global_id_SIMD(0)); outs() << "\n";
 
 			//hardcoded debug output for simpleTest
 			//typedef struct { __m128* input; __m128* output; unsigned count; } tt;
-			//std::cout << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
-			//std::cout << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
+			//outs() << "  input-addr : " << ((tt*)argument_struct)->input << "\n";
+			//outs() << "  output-addr: " << ((tt*)argument_struct)->output << "\n";
 			//const __m128 in = ((tt*)argument_struct)->input[i];
 			//const __m128 out = ((tt*)argument_struct)->output[i];
-			//std::cout << "  input: " << ((float*)&in)[0] << " " << ((float*)&in)[1] << " " << ((float*)&in)[2] << " " << ((float*)&in)[3] << "\n";
+			//outs() << "  input: " << ((float*)&in)[0] << " " << ((float*)&in)[1] << " " << ((float*)&in)[2] << " " << ((float*)&in)[3] << "\n";
 
 			//hardcoded debug output for mandelbrot
 			//typedef struct { __m128i* output; float scale; unsigned maxit; int width; } tt;
-			//std::cout << "  output-addr : " << ((tt*)argument_struct)->output << "\n";
-			//std::cout << "  scale : " << ((tt*)argument_struct)->scale << "\n";
-			//std::cout << "  maxit : " << ((tt*)argument_struct)->maxit << "\n";
-			//std::cout << "  width : " << ((tt*)argument_struct)->width << "\n";
+			//outs() << "  output-addr : " << ((tt*)argument_struct)->output << "\n";
+			//outs() << "  scale : " << ((tt*)argument_struct)->scale << "\n";
+			//outs() << "  maxit : " << ((tt*)argument_struct)->maxit << "\n";
+			//outs() << "  width : " << ((tt*)argument_struct)->width << "\n";
 
 			//hardcoded debug output for fastwalshtransform
-			//jitRT::writeFunctionToFile(jitRT::getFunction(jitRT::getFunctionName(kernel->get_program()->function_wrapper), kernel->get_program()->module), "executed.ll");
+			//PacketizedOpenCLDriver::writeFunctionToFile(kernel->get_program()->function_wrapper, "executed.ll");
 			//typedef struct { __m128* output; int step; } tt;
-			//std::cout << "  array-addr     : " << ((tt*)argument_struct)->output << "\n";
-			//std::cout << "  step : " << ((tt*)argument_struct)->step << "\n";
+			//outs() << "  array-addr     : " << ((tt*)argument_struct)->output << "\n";
+			//outs() << "  step : " << ((tt*)argument_struct)->step << "\n";
 			//const float* arr = (float*)((tt*)argument_struct)->output;
 			//float before[64];
 			//for (unsigned j=0; j<64; ++j) {
@@ -2280,8 +2391,8 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			//}
 
 			_cl_program* program = kernel->get_program();
-			jitRT::verifyModule(program->module);
-			//std::cout << "  verification before execution successful!\n";
+			PacketizedOpenCLDriver::verifyModule(program->module);
+			//outs() << "  verification before execution successful!\n";
 		);
 
 		// call kernel
@@ -2291,28 +2402,26 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			//hardcoded debug output for simpleTest
 			//typedef struct { __m128* input; __m128* output; unsigned count; } tt; // simpleTest
 			//const __m128 res = ((tt*)argument_struct)->output[i];
-			//std::cout << "  result: " << ((float*)&res)[0] << " " << ((float*)&res)[1] << " " << ((float*)&res)[2] << " " << ((float*)&res)[3] << "\n";
+			//outs() << "  result: " << ((float*)&res)[0] << " " << ((float*)&res)[1] << " " << ((float*)&res)[2] << " " << ((float*)&res)[3] << "\n";
 
 			//hardcoded debug output for mandelbrot
 			//typedef struct { __m128i* output; float scale; unsigned maxit; int width; } tt;
 			//const __m128i res = ((tt*)argument_struct)->output[i];
-			//std::cout << "  result: " << ((int*)&res)[0] << " " << ((int*)&res)[1] << " " << ((int*)&res)[2] << " " << ((int*)&res)[3] << "\n";
+			//outs() << "  result: " << ((int*)&res)[0] << " " << ((int*)&res)[1] << " " << ((int*)&res)[2] << " " << ((int*)&res)[3] << "\n";
 
 			//hardcoded debug output for FastWalshTransform
 			//typedef struct { __m128* output; unsigned step; } tt;
 			//const float* arr = (float*)((tt*)argument_struct)->output;
-			std::cout << "  iteration " << i << " finished!\n";
+			outs() << "  iteration " << i << " finished!\n";
 
 			_cl_program* program = kernel->get_program();
-			jitRT::verifyModule(program->module);
-			//std::cout << "  verification after execution successful!\n";
+			PacketizedOpenCLDriver::verifyModule(program->module);
+			//outs() << "  verification after execution successful!\n";
 		);
 
 	}
 
-	PACKETIZED_OPENCL_DRIVER_DEBUG( std::cout << "execution of kernel finished!\n"; );
-
-	#endif // PACKETIZED_OPENCL_USE_OPENMP
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
 
 #endif
 
