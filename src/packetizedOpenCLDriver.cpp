@@ -46,6 +46,7 @@
 #define PACKETIZED_OPENCL_DRIVER_VERSION_STRING "0.1" // <major_number>.<minor_number>
 
 #define PACKETIZED_OPENCL_DRIVER_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
+#define PACKETIZED_OPENCL_DRIVER_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128"
 
 // these are assumed to be set by build script
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
@@ -279,7 +280,6 @@ namespace {
 	void initializeOpenCL(const cl_uint dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
 		// print some information
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nAutomatic Packetization disabled!\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
 
 		if (dims > maxNumDimensions) {
 			errs() << "ERROR: max # dimensions is " << maxNumDimensions << "!\n";
@@ -296,6 +296,7 @@ namespace {
 		localThreads = new size_t[dims]();
 
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
 		currentGlobal = new size_t*[maxNumThreads]();
 		currentLocal = new size_t*[maxNumThreads]();
 		currentGroup = new size_t*[maxNumThreads]();
@@ -312,6 +313,7 @@ namespace {
 			}
 		}
 #else
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP disabled!\n"; );
 		currentGlobal = new size_t[dims]();
 		currentLocal = new size_t[dims]();
 		currentGroup = new size_t[dims]();
@@ -451,7 +453,6 @@ namespace {
 	void initializeOpenCL(const cl_uint dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
 		// print some information
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nAutomatic Packetization enabled!\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
 
 		if (dims > maxNumDimensions) {
 			errs() << "ERROR: max # dimensions is " << maxNumDimensions << "!\n";
@@ -469,6 +470,7 @@ namespace {
 		localThreads = new size_t[dims]();
 
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
 		currentGlobal = new size_t*[maxNumThreads]();
 		currentLocal = new __m128i*[maxNumThreads]();
 		currentGroup = new size_t*[maxNumThreads]();
@@ -490,6 +492,7 @@ namespace {
 			}
 		}
 #else
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP disabled!\n"; );
 		currentGlobal = new size_t[dims]();
 		currentLocal = new __m128i[dims]();
 		currentGroup = new size_t[dims]();
@@ -652,10 +655,7 @@ are used by the OpenCL runtime for managing objects such as command-queues,
 memory, program and kernel objects and for executing kernels on one or more
 devices specified in the context.
 */
-struct _cl_context {
-	llvm::TargetData* targetData;
-	//llvm::ExecutionEngine* engine;
-};
+struct _cl_context {};
 
 /*
 OpenCL objects such as memory, program and kernel objects are created using a
@@ -696,7 +696,10 @@ public:
 	inline void* get_data() const { return data; }
 	inline size_t get_size() const { return size; }
 
-	inline void set_data(void* values) { data = values; }
+#if 0 // unused
+	inline void set_data(void* values, size_t bytes) { data = values; size = bytes; }
+#endif
+	// this function copies data
 	inline void set_data(
 			const void* values,
 			const size_t bytes,
@@ -742,9 +745,7 @@ struct _cl_program {
 	_cl_context* context;
 	const char* fileName;
 	llvm::Module* module;
-	const llvm::Function* function;
-	const llvm::Function* function_SIMD;
-	const llvm::Function* function_wrapper;
+	llvm::TargetData* targetData;
 };
 
 
@@ -843,6 +844,10 @@ public:
 		args(NULL),
 		num_args(0)
 	{}
+
+	const llvm::Function* function;
+	const llvm::Function* function_SIMD;
+	const llvm::Function* function_wrapper;
 
 	inline void set_context(_cl_context* ctx) {
 		assert (ctx);
@@ -1426,7 +1431,7 @@ clCreateBuffer(cl_context   context,
 	if (host_ptr && !(flags & CL_MEM_USE_HOST_PTR) & !(flags & CL_MEM_COPY_HOST_PTR)) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
 
 	_cl_mem* mem = new _cl_mem(context, size, host_ptr ? host_ptr : malloc(size));
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "clCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
 
 	if (errcode_ret) *errcode_ret = CL_SUCCESS;
 	return mem;
@@ -1565,7 +1570,7 @@ clCreateProgramWithSource(cl_context        context,
 	errcode_ret = CL_SUCCESS;
 	_cl_program* p = new _cl_program();
 	p->context = context;
-	p->fileName = strings[0];
+	p->fileName = *strings;
 	return p;
 }
 
@@ -1622,21 +1627,18 @@ clBuildProgram(cl_program           program,
 	if (device_list && num_devices == 0) return CL_INVALID_VALUE;
 	if (user_data && !pfn_notify) return CL_INVALID_VALUE;
 
-	//TODO: read .cl representation, invoke clc, invoke llvm-as
+	// TODO: read .cl representation, invoke clc, invoke llvm-as
 	// alternative: link libClang and use it directly from here :)
-
-	//llvm::Module* mod = PacketizedOpenCLDriver::createModuleFromFile("packetizedOpenCL.tmp.mod.bc");
 
 	//FIXME: hardcoded for testing ;)
 	llvm::Module* mod = PacketizedOpenCLDriver::createModuleFromFile(program->fileName);
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
 
-	// do this here or only after packetization?
-	PacketizedOpenCLDriver::setTargetData(mod,
-		"e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128",
-		""); // have to reset target triple (LLVM does not know amd-opencl)
-	assert (program->context);
-	program->context->targetData = PacketizedOpenCLDriver::getTargetData(mod);
+	// TODO: do this here or only after packetization?
+	mod->setDataLayout(PACKETIZED_OPENCL_DRIVER_LLVM_DATA_LAYOUT_64);
+	// we have to reset the target triple (LLVM does not know amd-opencl)
+	mod->setTargetTriple("");
+	program->targetData = new TargetData(mod);
 
 	program->module = mod;
 	return CL_SUCCESS;
@@ -1682,10 +1684,11 @@ clCreateKernel(cl_program      program,
                cl_int *        errcode_ret) CL_API_SUFFIX__VERSION_1_0
 {
 	if (!program) { *errcode_ret = CL_INVALID_PROGRAM; return NULL; }
+	if (!program->module) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "clCreateKernel(" << program->module->getModuleIdentifier() << ", " << kernel_name << ")\n"; );
 
-	// does this mean we should compile before??
+	// does the returned error code mean we should compile before??
 	llvm::Module* module = program->module;
-	if (!module) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
 
 	if (!kernel_name) { *errcode_ret = CL_INVALID_VALUE; return NULL; }
 
@@ -1698,8 +1701,6 @@ clCreateKernel(cl_program      program,
 
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
 	PacketizedOpenCLDriver::optimizeFunction(f);
-
-	program->function = f;
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
@@ -1729,11 +1730,8 @@ clCreateKernel(cl_program      program,
 	strs2 << kernel_name << "_SIMD";
 	const std::string kernel_simd_name = strs2.str();
 	llvm::Function* f_SIMD = PacketizedOpenCLDriver::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module);
-	program->function_SIMD = f_SIMD;
 
-	//PacketizedOpenCLDriver::printFunction(f);
-
-	PacketizedOpenCLDriver::generateOpenCLFunctions(module);
+	PacketizedOpenCLDriver::generateOpenCLFunctions(module, simdWidth);
 
 	llvm::Function* gid = PacketizedOpenCLDriver::getFunction("get_global_id", module);
 	llvm::Function* gid_split = PacketizedOpenCLDriver::getFunction("get_global_id_split", module);
@@ -1754,7 +1752,7 @@ clCreateKernel(cl_program      program,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "scalar.ll"); );
 	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, false);
 	f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
-	program->function_SIMD = f_SIMD;
+	kernel->function_SIMD = f_SIMD;
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "packetized.ll"); );
 
@@ -1787,8 +1785,7 @@ clCreateKernel(cl_program      program,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(wrapper_fn, "wrapper.ll"); );
 
-	program->function_wrapper = wrapper_fn;
-
+	
 	// compile wrapper function (to be called in clEnqueueNDRangeKernel())
 	void* compiledFnPtr = PacketizedOpenCLDriver::getPointerToFunction(module, wrapper_name);
 	if (!compiledFnPtr) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
@@ -1798,6 +1795,13 @@ clCreateKernel(cl_program      program,
 	kernel->set_context(program->context);
 	kernel->set_program(program);
 	kernel->set_compiled_function(compiledFnPtr);
+
+	kernel->function = f;
+	kernel->function_wrapper = wrapper_fn;
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+	kernel->function_SIMD = f_SIMD;
+#endif
+
 
 	// initialize kernel arguments (empty)
 	const cl_uint num_args = PacketizedOpenCLDriver::getNumArgs(f);
@@ -1837,7 +1841,7 @@ clSetKernelArg(cl_kernel    kernel,
                size_t       arg_size,
                const void * arg_value) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclSetKernelArg(" << arg_index << ", " << arg_size << ")\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclSetKernelArg(" << kernel->function_wrapper->getNameStr() << ", " << arg_index << ", " << arg_size << ")\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (arg_index > kernel->get_num_args()) return CL_INVALID_ARG_INDEX;
 	//const size_t kernel_arg_size = kernel->arg_get_size(arg_index);
@@ -1849,9 +1853,9 @@ clSetKernelArg(cl_kernel    kernel,
 	//       We must not access arg_value as a _cl_mem** if it is e.g. an unsigned int
 	// -> all handled by _cl_kernel_arg
 	_cl_program* program = kernel->get_program();
-	const llvm::Function* f = program->function;
+	const llvm::Function* f = kernel->function;
 	const llvm::Type* argType = PacketizedOpenCLDriver::getArgumentType(f, arg_index);
-	const size_t arg_size_bytes = PacketizedOpenCLDriver::getTypeSizeInBits(program->context->targetData, argType) / 8;
+	const size_t arg_size_bytes = PacketizedOpenCLDriver::getTypeSizeInBits(program->targetData, argType) / 8;
 	const cl_uint address_space = __convertLLVMAddressSpace(PacketizedOpenCLDriver::getAddressSpace(argType));
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "function argument:\n"; );
@@ -1872,7 +1876,7 @@ clSetKernelArg(cl_kernel    kernel,
 	// HACK: if types match, they are considered uniform, varying otherwise
 	//PacketizedOpenCLDriver::writeModuleToFile(program->module, "mod.ll");
 
-	const llvm::Function* f_SIMD = program->function_SIMD;
+	const llvm::Function* f_SIMD = kernel->function_SIMD;
 	const llvm::Type* argType_SIMD = PacketizedOpenCLDriver::getArgumentType(f_SIMD, arg_index);
 	const bool arg_uniform = argType == argType_SIMD;
 
@@ -1887,9 +1891,8 @@ clSetKernelArg(cl_kernel    kernel,
 	}
 #endif
 
-	if (address_space == CL_GLOBAL) kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value, arg_uniform);
+	if (address_space == CL_GLOBAL || address_space == CL_LOCAL) kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value, arg_uniform);
 	else if (address_space == CL_PRIVATE) kernel->set_arg(arg_index, arg_size_bytes, address_space, *(const void**)arg_value, arg_uniform);
-	else if (address_space == CL_LOCAL) kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value, arg_uniform);
 	else assert (false && "support for local and constant memory not implemented here!");
 
 	const bool is_local = kernel->arg_is_local(arg_index);
@@ -2212,7 +2215,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
                        const cl_event * event_wait_list,
                        cl_event *       event) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclEnqueueNDRangeKernel()\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclEnqueueNDRangeKernel(" << kernel->function_wrapper->getNameStr() << ")\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (command_queue->context != kernel->get_context()) return CL_INVALID_CONTEXT;
@@ -2252,10 +2255,10 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "address of argument-struct: " << argument_struct << "\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG(
-		const llvm::Type* argType = PacketizedOpenCLDriver::getArgumentType(kernel->get_program()->function_wrapper, 0);
+		const llvm::Type* argType = PacketizedOpenCLDriver::getArgumentType(kernel->function_wrapper, 0);
 		outs() << "LLVM type: " << *argType << "\n";
 		const llvm::Type* sType = PacketizedOpenCLDriver::getContainedType(argType, 0); // get size of struct, not of pointer to struct
-		outs() << "\nLLVM type size: " << PacketizedOpenCLDriver::getTypeSizeInBits(kernel->get_context()->targetData, sType)/8 << "\n";
+		outs() << "\nLLVM type size: " << PacketizedOpenCLDriver::getTypeSizeInBits(kernel->get_program()->targetData, sType)/8 << "\n";
 	);
 
 	// copy the correct data into the struct
@@ -2314,7 +2317,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			//outs() << "  count : " << ((tt*)argument_struct)->count << "\n";
 
 			//hardcoded debug output for DwtHaar1D
-			PacketizedOpenCLDriver::writeFunctionToFile(kernel->get_program()->function_wrapper, "executed.ll");
+			PacketizedOpenCLDriver::writeFunctionToFile(kernel->function_wrapper, "executed.ll");
 			typedef struct { float* inSignal; float *coefsSignal; float *AverageSignal; float *sharedArray;
 				unsigned tLevels; unsigned signalLength; unsigned levelsDone; unsigned mLevels; } tt;
 			outs() << "  inSignal : " << ((tt*)argument_struct)->inSignal << "\n";
