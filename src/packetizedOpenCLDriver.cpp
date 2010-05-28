@@ -45,6 +45,8 @@
 //----------------------------------------------------------------------------//
 #define PACKETIZED_OPENCL_DRIVER_VERSION_STRING "0.1" // <major_number>.<minor_number>
 
+#define PACKETIZED_OPENCL_DRIVER_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
+
 // these are assumed to be set by build script
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 //#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
@@ -1279,7 +1281,7 @@ clGetDeviceInfo(cl_device_id    device,
 		}
 		case CL_DEVICE_EXTENSIONS: {
 			if (param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
-			if (param_value) *(std::string*)param_value = ""; // no extensions supported yet
+			if (param_value) strcpy((char*)param_value, PACKETIZED_OPENCL_DRIVER_EXTENSIONS);
 			if (param_value_size_ret) *param_value_size_ret = sizeof(char*);
 			break;
 		}
