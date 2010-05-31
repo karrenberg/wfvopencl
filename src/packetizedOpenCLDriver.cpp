@@ -632,7 +632,15 @@ namespace {
 			default : return llvm_address_space;
 		}
 	}
-
+	inline std::string getAddressSpaceString(cl_uint cl_address_space) {
+		switch (cl_address_space) {
+			case CL_GLOBAL: return "CL_GLOBAL";
+			case CL_PRIVATE: return "CL_PRIVATE";
+			case CL_LOCAL: return "CL_LOCAL";
+			case CL_CONSTANT: return "CL_CONSTANT";
+			default: return "";
+		}
+	}
 
 	// TODO: get real info :p
 	unsigned long long getDeviceMaxMemAllocSize() {
@@ -688,13 +696,17 @@ private:
 	_cl_context* context;
 	size_t size; //entire size in bytes
 	void* data;
+	const bool canRead;
+	const bool canWrite;
 public:
-	_cl_mem(_cl_context* ctx, size_t bytes, void* values)
-			: context(ctx), size(bytes), data(values) {}
+	_cl_mem(_cl_context* ctx, size_t bytes, void* values, bool can_read, bool can_write)
+			: context(ctx), size(bytes), data(values), canRead(can_read), canWrite(can_write) {}
 	
 	inline _cl_context* get_context() const { return context; }
 	inline void* get_data() const { return data; }
 	inline size_t get_size() const { return size; }
+	inline bool isReadOnly() const { return canRead && !canWrite; }
+	inline bool isWriteOnly() const { return !canRead && canWrite; }
 
 #if 0 // unused
 	inline void set_data(void* values, size_t bytes) { data = values; size = bytes; }
@@ -1427,14 +1439,55 @@ clCreateBuffer(cl_context   context,
 {
 	if (!context) { if (errcode_ret) *errcode_ret = CL_INVALID_CONTEXT; return NULL; }
 	if (size == 0 || size > getDeviceMaxMemAllocSize()) { if (errcode_ret) *errcode_ret = CL_INVALID_BUFFER_SIZE; return NULL; }
-	if (!host_ptr && ((flags & CL_MEM_USE_HOST_PTR) || (flags & CL_MEM_COPY_HOST_PTR))) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
-	if (host_ptr && !(flags & CL_MEM_USE_HOST_PTR) & !(flags & CL_MEM_COPY_HOST_PTR)) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
+	const bool useHostPtr   = flags & CL_MEM_USE_HOST_PTR;
+	const bool copyHostPtr  = flags & CL_MEM_COPY_HOST_PTR;
+	const bool allocHostPtr = flags & CL_MEM_ALLOC_HOST_PTR;
+	if (!host_ptr && (useHostPtr || copyHostPtr)) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
+	if (host_ptr && !useHostPtr && !copyHostPtr) { if (errcode_ret) *errcode_ret = CL_INVALID_HOST_PTR; return NULL; }
+	if (useHostPtr && allocHostPtr) { if (errcode_ret) *errcode_ret = CL_INVALID_VALUE; return NULL; } // custom
+	if (useHostPtr && copyHostPtr) { if (errcode_ret) *errcode_ret = CL_INVALID_VALUE; return NULL; } // custom
 
-	_cl_mem* mem = new _cl_mem(context, size, host_ptr ? host_ptr : malloc(size));
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "clCreateBuffer(" << size << " bytes, " << mem->get_data() << ") -> " << mem << "\n"; );
+	const bool canRead     = (flags & CL_MEM_READ_ONLY) || (flags & CL_MEM_READ_WRITE);
+	const bool canWrite    = (flags & CL_MEM_WRITE_ONLY) || (flags & CL_MEM_READ_WRITE);
+
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "clCreateBuffer(" << size << " bytes, " << host_ptr << ")\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  canRead     : " << (canRead ? "true" : "false") << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  canWrite    : " << (canWrite ? "true" : "false") << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  useHostPtr  : " << (useHostPtr ? "true" : "false") << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  copyHostPtr : " << (copyHostPtr ? "true" : "false") << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  allocHostPtr: " << (allocHostPtr ? "true" : "false") << "\n"; );
+
+	void* new_host_ptr = NULL;
+
+	if (useHostPtr) {
+		assert (host_ptr);
+		new_host_ptr = host_ptr;
+	}
+
+	if (allocHostPtr) {
+		new_host_ptr = malloc(size);
+		if (!new_host_ptr) { if (errcode_ret) *errcode_ret = CL_MEM_OBJECT_ALLOCATION_FAILURE; return NULL; }
+	}
+
+	if (copyHostPtr) {
+		// CL_MEM_COPY_HOST_PTR can be used with
+		// CL_MEM_ALLOC_HOST_PTR to initialize the contents of
+		// the cl_mem object allocated using host-accessible (e.g.
+		// PCIe) memory.
+		assert (host_ptr);
+		if (!allocHostPtr) {
+			new_host_ptr = malloc(size);
+			if (!new_host_ptr) { if (errcode_ret) *errcode_ret = CL_MEM_OBJECT_ALLOCATION_FAILURE; return NULL; }
+		}
+		// copy data into new_host_ptr
+		memcpy(new_host_ptr, host_ptr, size);
+	}
+
+	assert (new_host_ptr);
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  data: " << new_host_ptr << "\n"; );
 
 	if (errcode_ret) *errcode_ret = CL_SUCCESS;
-	return mem;
+	return new _cl_mem(context, size, new_host_ptr, canRead, canWrite);
 }
 
 CL_API_ENTRY cl_mem CL_API_CALL
@@ -1844,6 +1897,9 @@ clSetKernelArg(cl_kernel    kernel,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclSetKernelArg(" << kernel->function_wrapper->getNameStr() << ", " << arg_index << ", " << arg_size << ")\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (arg_index > kernel->get_num_args()) return CL_INVALID_ARG_INDEX;
+	const bool is_local = address_space == CL_LOCAL;
+	if ((!arg_value && !is_local) || (arg_value && is_local)) return CL_INVALID_ARG_VALUE;
+
 	//const size_t kernel_arg_size = kernel->arg_get_size(arg_index);
 	//if (arg_size != kernel_arg_size) return CL_INVALID_ARG_SIZE; //more checks required
 
@@ -1871,7 +1927,7 @@ clSetKernelArg(cl_kernel    kernel,
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	const bool arg_uniform = true; // no packetization = no need for uniform/varying
 #else
-	// save info if argument is uniform or varying
+	// save info if argument is uniform or varyinyet
 	// TODO: implement in packetizer directly
 	// HACK: if types match, they are considered uniform, varying otherwise
 	//PacketizedOpenCLDriver::writeModuleToFile(program->module, "mod.ll");
@@ -1893,10 +1949,7 @@ clSetKernelArg(cl_kernel    kernel,
 
 	if (address_space == CL_GLOBAL || address_space == CL_LOCAL) kernel->set_arg(arg_index, arg_size_bytes, address_space, arg_value, arg_uniform);
 	else if (address_space == CL_PRIVATE) kernel->set_arg(arg_index, arg_size_bytes, address_space, *(const void**)arg_value, arg_uniform);
-	else assert (false && "support for local and constant memory not implemented here!");
-
-	const bool is_local = kernel->arg_is_local(arg_index);
-	if ((!arg_value && !is_local) || (arg_value && is_local)) return CL_INVALID_ARG_VALUE;
+	else assert (false && "support for constant memory not implemented yet!");
 
 	return CL_SUCCESS;
 }
@@ -2237,12 +2290,14 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	//size_t lThreads[1] = { 4 };
 	size_t gThreads[1] = { *global_work_size };
 	size_t lThreads[1] = { 4 }; //*local_work_size }; //TODO: remove hardcoded local stuff :p
+	//assert (*local_work_size  == 4);
 	initializeOpenCL(1, 1, gThreads, lThreads);
 
 	//
 	// set up argument struct
 	//
 	// calculate struct size
+	// TODO: move into clSetKernelArg (do incrementally)
 	const cl_uint num_args = kernel->get_num_args();
 	size_t arg_str_size = 0;
 	for (unsigned i=0; i<num_args; ++i) {
@@ -2251,6 +2306,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 
 	// allocate memory for the struct
 	// TODO: do we have to care about type padding?
+	// TODO: move into clSetKernelArg (do incrementally)
 	void* argument_struct = malloc(arg_str_size);
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "address of argument-struct: " << argument_struct << "\n"; );
@@ -2262,6 +2318,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	);
 
 	// copy the correct data into the struct
+	// TODO: move into clSetKernelArg (do incrementally)
 	size_t current_size = 0;
 	for (unsigned i=0; i<num_args; ++i) {
 		char* cur_pos = ((char*)argument_struct)+current_size;
@@ -2273,9 +2330,10 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    size: " << data_size << " bytes\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    data: " << data << "\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    pos : " << (void*)cur_pos << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    addrspace: " << getAddressSpaceString(kernel->arg_get_address_space(i)) << "\n"; );
 		memcpy(cur_pos, &data, data_size);
 		current_size += data_size;
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    new size : " << current_size << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    new struct size: " << current_size << "\n"; );
 
 	}
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "copying of arguments finished.\n"; );
