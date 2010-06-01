@@ -832,38 +832,23 @@ struct _cl_kernel {
 private:
 	_cl_context* context;
 	_cl_program* program;
-	void* compiled_function;
+	const void* compiled_function;
 	std::vector<_cl_kernel_arg> args;
-	cl_uint num_args;
+	const cl_uint num_args;
 
 public:
-	_cl_kernel() : context(NULL), program(NULL), compiled_function(NULL), num_args(0) {}
-
 	_cl_kernel(_cl_context* ctx, _cl_program* prog, void* fnPtr, cl_uint argNum)
 		: context(ctx), program(prog), compiled_function(fnPtr), num_args(argNum)
-	{}
+	{
+		assert (ctx && prog && fnPtr);
+		assert (argNum > 0); // TODO: don't we allow kernels without arguments? do they make sense?
+		args.reserve(argNum);
+	}
 
 	const llvm::Function* function;
 	const llvm::Function* function_SIMD;
 	const llvm::Function* function_wrapper;
 
-	inline void set_context(_cl_context* ctx) {
-		assert (ctx);
-		context = ctx;
-	}
-	inline void set_program(_cl_program* p) {
-		assert (p);
-		program = p;
-	}
-	inline void set_compiled_function(void* f) {
-		assert (f);
-		compiled_function = f;
-	}
-	inline void set_num_args(const cl_uint num) {
-		assert (num > 0); // TODO: don't we allow kernels without arguments? do they make sense?
-		num_args = num;
-		args.reserve(num);// = new _cl_kernel_arg[num]();
-	}
 	inline void set_arg(
 			const cl_uint arg_index,
 			const size_t size,
@@ -878,7 +863,7 @@ public:
 
 	inline _cl_context* get_context() const { return context; }
 	inline _cl_program* get_program() const { return program; }
-	inline void* get_compiled_function() const { return compiled_function; }
+	inline const void* get_compiled_function() const { return compiled_function; }
 	inline cl_uint get_num_args() const { return num_args; }
 
 	inline size_t arg_get_element_size(const cl_uint arg_index) const {
@@ -1839,22 +1824,16 @@ clCreateKernel(cl_program      program,
 	void* compiledFnPtr = PacketizedOpenCLDriver::getPointerToFunction(module, wrapper_name);
 	if (!compiledFnPtr) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
 
+	const cl_uint num_args = PacketizedOpenCLDriver::getNumArgs(f);
+
 	// create kernel object
-	_cl_kernel* kernel = new _cl_kernel();
-	kernel->set_context(program->context);
-	kernel->set_program(program);
-	kernel->set_compiled_function(compiledFnPtr);
+	_cl_kernel* kernel = new _cl_kernel(program->context, program, compiledFnPtr, num_args);
 
 	kernel->function = f;
 	kernel->function_wrapper = wrapper_fn;
 #ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	kernel->function_SIMD = f_SIMD;
 #endif
-
-
-	// initialize kernel arguments (empty)
-	const cl_uint num_args = PacketizedOpenCLDriver::getNumArgs(f);
-	kernel->set_num_args(num_args);
 
 	*errcode_ret = CL_SUCCESS;
 	return kernel;
