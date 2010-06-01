@@ -282,7 +282,7 @@ namespace PacketizedOpenCLDriver {
 		return wrapper;
 	}
 
-	void generateOpenCLFunctions(Module* mod) {
+	void generateOpenCLFunctions(Module* mod, const unsigned simdWidth) {
 		assert (mod);
 		LLVMContext& context = mod->getContext();
 
@@ -294,11 +294,11 @@ namespace PacketizedOpenCLDriver {
 		Function::Create(fType1, Function::ExternalLinkage, "get_global_id_split", mod);
 
 		// generate '__m128i get_global_id_SIMD(unsigned)'
-		const FunctionType* fType2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), 4), params, false);
+		const FunctionType* fType2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
 		Function::Create(fType2, Function::ExternalLinkage, "get_global_id_SIMD", mod);
 
 		// generate '__m128i get_local_id_SIMD(unsigned)'
-		const FunctionType* fType3 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), 4), params, false);
+		const FunctionType* fType3 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
 		Function::Create(fType3, Function::ExternalLinkage, "get_local_id_SIMD", mod);
 
 		// generate 'void barrier(unsigned, unsigned)'
@@ -366,7 +366,7 @@ namespace PacketizedOpenCLDriver {
 		return Function::Create(fType, Function::ExternalLinkage, name, mod);
 	}
 
-	Function* generatePacketPrototypeFromOpenCLKernel(const Function* kernel, const std::string& packetKernelName, Module* mod) {
+	Function* generatePacketPrototypeFromOpenCLKernel(const Function* kernel, const std::string& packetKernelName, Module* mod, const unsigned simdWidth) {
 		assert (kernel && mod);
 		assert (kernel->getParent() == mod);
 		LLVMContext& context = mod->getContext();
@@ -403,8 +403,8 @@ namespace PacketizedOpenCLDriver {
 							return NULL;
 						}
 						const VectorType* vType = contType->isIntegerTy()
-							? VectorType::get(Type::getInt32Ty(context), 4) //make i32 out of any integer type
-							: VectorType::get(contType, 4);
+							? VectorType::get(Type::getInt32Ty(context), simdWidth) //make i32 out of any integer type
+							: VectorType::get(contType, simdWidth);
 						params.push_back(PointerType::get(vType, pType->getAddressSpace()));
 
 						delete td;
