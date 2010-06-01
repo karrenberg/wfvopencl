@@ -280,6 +280,7 @@ namespace {
 			localThreads[i] = lThreads[i];
 		}
 	}
+	// simdDim is ignored here
 	void initializeOpenCL(const cl_uint num_dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
 		// print some information
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nAutomatic Packetization disabled!\n"; );
@@ -438,21 +439,23 @@ namespace {
 
 		if (error) exit(-1);
 	}
+	// simdDim ranges from 0 to num_dims-1 !
 	void initializeOpenCL(const cl_uint num_dims, const cl_uint simdDim, size_t* gThreads, size_t* lThreads) {
 		// print some information
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nAutomatic Packetization enabled!\n"; );
 
 		if (num_dims > maxNumDimensions) {
-			errs() << "ERROR: max # dimensions is " << maxNumDimensions << "!\n";
+			errs() << "ERROR: max # dimensions is " << maxNumDimensions << "("
+					<< num_dims << " supplied)!\n";
 			exit(-1);
 		}
-		if (simdDim > num_dims) {
+		if (simdDim >= num_dims) {
 			errs() << "ERROR: chosen SIMD dimension out of bounds ("
-					<< simdWidth << " > " << num_dims << ")!\n";
+					<< simdDim << " >= " << num_dims-1 << ")!\n";
 			exit(-1);
 		}
 		dimensions = num_dims;
-		simdDimension = simdDim-1; //-1 for array access
+		simdDimension = simdDim;
 
 		globalThreads = new size_t[num_dims]();
 		localThreads = new size_t[num_dims]();
@@ -697,10 +700,9 @@ public:
 	inline bool isWriteOnly() const { return !canRead && canWrite; }
 
 #if 0 // unused
-	inline void set_data(void* values, size_t bytes) { data = values; size = bytes; }
+	inline void copy_data(void* values, size_t bytes) { data = values; size = bytes; }
 #endif
-	// this function copies data
-	inline void set_data(
+	inline void copy_data(
 			const void* values,
 			const size_t bytes,
 			const size_t offset=0)
@@ -757,8 +759,6 @@ private:
 	bool uniform;
 
 public:
-	_cl_kernel_arg()
-		: element_size(0), address_space(0), data(NULL), uniform(false) {}
 	_cl_kernel_arg(
 			const size_t _size,
 			const cl_uint _address_space,
@@ -772,8 +772,8 @@ public:
 
 	inline size_t get_element_size() const { return element_size; }
 	inline cl_uint get_address_space() const { return address_space; }
-	inline const void* get_data() { return data; } // must not assert (data) -> can be 0 if non-pointer type (e.g. float)
-	inline const void* get_data_raw() {
+	inline const void* get_data() const { return data; } // must not assert (data) -> can be 0 if non-pointer type (e.g. float)
+	inline const void* get_data_raw() const {
 		assert(data);
 		switch (address_space) {
 			case CL_PRIVATE: {
@@ -833,16 +833,14 @@ private:
 	_cl_context* context;
 	_cl_program* program;
 	void* compiled_function;
-	_cl_kernel_arg* args;
+	std::vector<_cl_kernel_arg> args;
 	cl_uint num_args;
 
 public:
-	_cl_kernel()
-		: context(NULL),
-		program(NULL),
-		compiled_function(NULL),
-		args(NULL),
-		num_args(0)
+	_cl_kernel() : context(NULL), program(NULL), compiled_function(NULL), num_args(0) {}
+
+	_cl_kernel(_cl_context* ctx, _cl_program* prog, void* fnPtr, cl_uint argNum)
+		: context(ctx), program(prog), compiled_function(fnPtr), num_args(argNum)
 	{}
 
 	const llvm::Function* function;
@@ -862,9 +860,9 @@ public:
 		compiled_function = f;
 	}
 	inline void set_num_args(const cl_uint num) {
-		assert (num > 0);
+		assert (num > 0); // TODO: don't we allow kernels without arguments? do they make sense?
 		num_args = num;
-		args = new _cl_kernel_arg[num]();
+		args.reserve(num);// = new _cl_kernel_arg[num]();
 	}
 	inline void set_arg(
 			const cl_uint arg_index,
@@ -873,7 +871,8 @@ public:
 			const void* data,
 			const bool uniform)
 	{
-		assert (args && "set_num_args() has to be called before set_arg()!");
+		assert (num_args > 0 && "set_num_args() has to be called before set_arg()!");
+		assert (arg_index < num_args);
 		args[arg_index] = _cl_kernel_arg(size, address_space, data, uniform);
 	}
 
@@ -1450,10 +1449,12 @@ clCreateBuffer(cl_context   context,
 	if (useHostPtr) {
 		assert (host_ptr);
 		new_host_ptr = host_ptr;
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    using supplied host ptr: " << new_host_ptr << "\n"; );
 	}
 
 	if (allocHostPtr) {
 		new_host_ptr = malloc(size);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    new host ptr allocated: " << new_host_ptr << "\n"; );
 		if (!new_host_ptr) { if (errcode_ret) *errcode_ret = CL_MEM_OBJECT_ALLOCATION_FAILURE; return NULL; }
 	}
 
@@ -1465,20 +1466,22 @@ clCreateBuffer(cl_context   context,
 		assert (host_ptr);
 		if (!allocHostPtr) {
 			new_host_ptr = malloc(size);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    new host ptr allocated for copying: " << new_host_ptr << "\n"; );
 			if (!new_host_ptr) { if (errcode_ret) *errcode_ret = CL_MEM_OBJECT_ALLOCATION_FAILURE; return NULL; }
 		}
 		// copy data into new_host_ptr
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    copying data of supplied host ptr to new host ptr... "; );
 		memcpy(new_host_ptr, host_ptr, size);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 	}
 
 	// if no flag was supplied, allocate memory (host_ptr must be NULL by specification)
 	if (!new_host_ptr) {
 		assert (!host_ptr);
 		new_host_ptr = malloc(size);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    new host ptr allocated (no flag specified): " << new_host_ptr << "\n"; );
 		if (!new_host_ptr) { if (errcode_ret) *errcode_ret = CL_MEM_OBJECT_ALLOCATION_FAILURE; return NULL; }
 	}
-
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  data: " << new_host_ptr << "\n"; );
 
 	if (errcode_ret) *errcode_ret = CL_SUCCESS;
 	return new _cl_mem(context, size, new_host_ptr, canRead, canWrite);
@@ -2136,7 +2139,7 @@ clEnqueueWriteBuffer(cl_command_queue   command_queue,
 	// Thus, just copy over each byte.
 	// TODO: specification seems to require something different?
 	//       storing access patterns to command_queue or sth like that?
-	buffer->set_data(ptr, cb, offset); //cb is size in bytes
+	buffer->copy_data(ptr, cb, offset); //cb is size in bytes
 	
 	return CL_SUCCESS;
 }
@@ -2326,14 +2329,18 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		errs() << "ERROR: global work size must not be less than 4!\n";
 		return CL_INVALID_GLOBAL_WORK_SIZE;
 	}
+	if (lws > 4) errs() << "WARNING: local work size (" << lws << ") is larger than 4!\n";
+#endif
 	if (lws < 4) {
+		// TODO: only do this in packet mode
 		errs() << "WARNING: local work size enlarged from " << lws << " to 4!\n";
 		lws = 4;
 	}
-#endif
 	size_t gThreads[1] = { gws };
 	size_t lThreads[1] = { lws };
-	initializeOpenCL(1, 1, gThreads, lThreads);
+	const unsigned num_dimensions = 1;
+	const unsigned simd_dim = 0; // ignored if packetization is disabled
+	initializeOpenCL(num_dimensions, simd_dim, gThreads, lThreads);
 
 	//
 	// set up argument struct
@@ -2463,31 +2470,31 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			//}
 
 			//hardcoded debug output for Histogram
-			typedef struct { unsigned* data; unsigned* sharedArray; unsigned* binResult; } tt;
-			outs() << "  data: " << ((tt*)argument_struct)->data << "\n";
-			outs() << "  sharedArray: " << ((tt*)argument_struct)->sharedArray << "\n";
-			outs() << "  binResult: " << ((tt*)argument_struct)->binResult << "\n";
-			const unsigned* arr = (unsigned*)((tt*)argument_struct)->data;
-			outs() << "  data:\n-------\n";
-			for (unsigned j=0; j<8; ++j) {
-				outs() << "    " << arr[j] << "\n";
-			}
-			outs() << "-------\n";
-			const unsigned* arr2 = (unsigned*)((tt*)argument_struct)->sharedArray;
-			outs() << "  sharedArray:\n-------\n";
-			for (unsigned j=0; j<8; ++j) {
-				outs() << "    " << arr2[j] << "\n";
-			}
-			outs() << "-------\n";
-			const unsigned* arr3 = (unsigned*)((tt*)argument_struct)->binResult;
-			outs() << "  binResult:\n-------\n";
-			for (unsigned j=0; j<8; ++j) {
-				outs() << "    " << arr3[j] << "\n";
-			}
-			outs() << "-------\n";
+			//typedef struct { unsigned* data; unsigned* sharedArray; unsigned* binResult; } tt;
+			//outs() << "  data: " << ((tt*)argument_struct)->data << "\n";
+			//outs() << "  sharedArray: " << ((tt*)argument_struct)->sharedArray << "\n";
+			//outs() << "  binResult: " << ((tt*)argument_struct)->binResult << "\n";
+			//const unsigned* arr = (unsigned*)((tt*)argument_struct)->data;
+			//outs() << "  data:\n-------\n";
+			//for (unsigned j=0; j<8; ++j) {
+				//outs() << "    " << arr[j] << "\n";
+			//}
+			//outs() << "-------\n";
+			//const unsigned* arr2 = (unsigned*)((tt*)argument_struct)->sharedArray;
+			//outs() << "  sharedArray:\n-------\n";
+			//for (unsigned j=0; j<8; ++j) {
+				//outs() << "    " << arr2[j] << "\n";
+			//}
+			//outs() << "-------\n";
+			//const unsigned* arr3 = (unsigned*)((tt*)argument_struct)->binResult;
+			//outs() << "  binResult:\n-------\n";
+			//for (unsigned j=0; j<8; ++j) {
+				//outs() << "    " << arr3[j] << "\n";
+			//}
+			//outs() << "-------\n";
 
 			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
-			outs() << "  verification before execution successful!\n";
+			//outs() << "  verification before execution successful!\n";
 		);
 
 		// call kernel
@@ -2499,29 +2506,29 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 			//outs() << "  result: " << ((tt*)argument_struct)->output[i] << "\n";
 
 			//hardcoded debug output for Histogram
-			typedef struct { unsigned* data; unsigned* sharedArray; unsigned* binResult; } tt;
-			const unsigned* arr = (unsigned*)((tt*)argument_struct)->data;
-			outs() << "  data:\n-------\n";
-			for (unsigned j=0; j<8; ++j) {
-				outs() << "    " << arr[j] << "\n";
-			}
-			outs() << "-------\n";
-			const unsigned* arr2 = (unsigned*)((tt*)argument_struct)->sharedArray;
-			outs() << "  sharedArray:\n-------\n";
-			for (unsigned j=0; j<8; ++j) {
-				outs() << "    " << arr2[j] << "\n";
-			}
-			outs() << "-------\n";
-			const unsigned* arr3 = (unsigned*)((tt*)argument_struct)->binResult;
-			outs() << "  binResult:\n-------\n";
-			for (unsigned j=0; j<8; ++j) {
-				outs() << "    " << arr3[j] << "\n";
-			}
-			outs() << "-------\n";
+			//typedef struct { unsigned* data; unsigned* sharedArray; unsigned* binResult; } tt;
+			//const unsigned* arr = (unsigned*)((tt*)argument_struct)->data;
+			//outs() << "  data:\n-------\n";
+			//for (unsigned j=0; j<8; ++j) {
+				//outs() << "    " << arr[j] << "\n";
+			//}
+			//outs() << "-------\n";
+			//const unsigned* arr2 = (unsigned*)((tt*)argument_struct)->sharedArray;
+			//outs() << "  sharedArray:\n-------\n";
+			//for (unsigned j=0; j<8; ++j) {
+				//outs() << "    " << arr2[j] << "\n";
+			//}
+			//outs() << "-------\n";
+			//const unsigned* arr3 = (unsigned*)((tt*)argument_struct)->binResult;
+			//outs() << "  binResult:\n-------\n";
+			//for (unsigned j=0; j<8; ++j) {
+				//outs() << "    " << arr3[j] << "\n";
+			//}
+			//outs() << "-------\n";
 
-			outs() << "  iteration " << i << " finished!\n";
+			//outs() << "  iteration " << i << " finished!\n";
 			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
-			outs() << "  verification after execution successful!\n";
+			//outs() << "  verification after execution successful!\n";
 		);
 
 	}
