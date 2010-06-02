@@ -700,9 +700,6 @@ public:
 	inline bool isReadOnly() const { return canRead && !canWrite; }
 	inline bool isWriteOnly() const { return !canRead && canWrite; }
 
-#if 0 // unused
-	inline void copy_data(void* values, size_t bytes) { data = values; size = bytes; }
-#endif
 	inline void copy_data(
 			const void* values,
 			const size_t bytes,
@@ -973,56 +970,6 @@ public:
 
 		return CL_SUCCESS;
 	}
-#if 0
-	inline cl_uint set_arg(
-			const cl_uint arg_index,
-			const size_t arg_size,
-			const size_t element_size_bytes,
-			const cl_uint address_space,
-			const void* data,
-			const bool uniform)
-	{
-		assert (arg_index < num_args);
-
-		// TODO: unsure if we should really allocate memory *here*
-		void* new_data = malloc(arg_size);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  internal memory address: " << new_data << "\n"; );
-		if (!new_data) return CL_MEM_OBJECT_ALLOCATION_FAILURE;
-
-		// copy values from 'data' into 'new_data'
-		switch (address_space) {
-			case CL_GLOBAL: {
-				assert (data);
-				memcpy(new_data, data, arg_size);
-				break;
-			}
-			case CL_PRIVATE: {
-				assert (data);
-				memcpy(new_data, data, arg_size);
-				break;
-			}
-			case CL_LOCAL: {
-				assert (!data); // no copying here
-				break;
-			}
-			case CL_CONSTANT: {
-				errs() << "ERROR: support for constant memory not implemented yet!\n";
-				assert (false && "support for constant memory not implemented yet!");
-				return CL_FALSE;
-			}
-			default: {
-				errs() << "ERROR: unknown address space found: " << address_space << "\n";
-				assert (false && "unknown address space found!");
-				return CL_FALSE;
-			}
-		}
-
-		assert (new_data);
-
-		args[arg_index] = _cl_kernel_arg(arg_size, element_size_bytes, address_space, new_data, uniform);
-		return CL_SUCCESS;
-	}
-#endif
 
 	inline _cl_context* get_context() const { return context; }
 	inline _cl_program* get_program() const { return program; }
@@ -2043,68 +1990,6 @@ clSetKernelArg(cl_kernel    kernel,
 
 	kernel->set_arg_data(arg_index, arg_value, arg_size);
 	return CL_SUCCESS;
-
-#if 0
-	// NOTE: This function can be called with arg_size = sizeof(_cl_mem), which means
-	//       that this is not the actual size of the argument data type.
-	// NOTE: We have to check what kind of argument this index is.
-	//       We must not access arg_value as a _cl_mem** if it is e.g. an unsigned int
-	// -> all handled by _cl_kernel_arg
-	_cl_program* program = kernel->get_program();
-	const llvm::Function* f = kernel->function;
-	const llvm::Type* argType = PacketizedOpenCLDriver::getArgumentType(f, arg_index);
-	const size_t arg_element_size_bytes = PacketizedOpenCLDriver::getTypeSizeInBits(program->targetData, argType) / 8;
-	assert (arg_size % arg_element_size_bytes == 0);
-	const cl_uint address_space = convertLLVMAddressSpace(PacketizedOpenCLDriver::getAddressSpace(argType));
-
-	// make sure there is no pointer supplied for local memory
-	const bool is_local = address_space == CL_LOCAL;
-	if ((!arg_value && !is_local) || (arg_value && is_local)) return CL_INVALID_ARG_VALUE;
-
-	// check for correct argument type size
-	// TODO: implement all checks!
-	//if (arg_size != arg_size_bytes) return CL_INVALID_ARG_SIZE;
-	if (arg_size == 0 && is_local) return CL_INVALID_ARG_SIZE;
-
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "function argument:\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "argument " << arg_index << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  argument size: " << arg_size << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  size per element: " << arg_element_size_bytes << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  memory address: " << arg_value << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  addrspace: "; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_PRIVATE) outs() << "CL_PRIVATE\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_GLOBAL) outs() << "CL_GLOBAL\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_LOCAL) outs() << "CL_LOCAL\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( if (address_space == CL_CONSTANT) outs() << "CL_CONSTANT\n"; );
-
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-	const bool arg_uniform = true; // no packetization = no need for uniform/varying
-#else
-	// save info if argument is uniform or varyinyet
-	// TODO: implement in packetizer directly
-	// HACK: if types match, they are considered uniform, varying otherwise
-	//PacketizedOpenCLDriver::writeModuleToFile(program->module, "mod.ll");
-
-	const llvm::Function* f_SIMD = kernel->function_SIMD;
-	const llvm::Type* argType_SIMD = PacketizedOpenCLDriver::getArgumentType(f_SIMD, arg_index);
-	const bool arg_uniform = argType == argType_SIMD;
-
-	// check for sanity
-	if (!arg_uniform && (address_space != CL_GLOBAL)) {
-		// NOTE: This can not really exist, as the input data for such a value
-		//       is always a scalar (the user's host program is not changed)!
-		// NOTE: This case would mean there are values that change for each thread in a group
-		//       but that is the same for the ith thread of any group.
-		errs() << "ERROR: packet function must not use varying, non-pointer agument!\n";
-		return CL_INVALID_ARG_SIZE;
-	}
-#endif
-	
-
-	kernel->set_arg(arg_index, arg_size, arg_element_size_bytes, address_space, arg_value, arg_uniform);
-
-	return CL_SUCCESS;
-#endif
 }
 
 CL_API_ENTRY cl_int CL_API_CALL
@@ -2468,81 +2353,6 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	
 	const unsigned simd_dim = 0; // ignored if packetization is disabled
 	initializeOpenCL(num_dimensions, simd_dim, global_work_size, local_work_size);
-
-#if 0
-	//
-	// set up argument struct
-	//
-	// calculate struct size
-	// TODO: move into clSetKernelArg (do incrementally)
-	const cl_uint num_args = kernel->get_num_args();
-	size_t arg_str_size = 0;
-	for (unsigned i=0; i<num_args; ++i) {
-		arg_str_size += kernel->arg_get_element_size(i);
-	}
-
-	// allocate memory for the struct
-	// TODO: do we have to care about type padding?
-	// TODO: move into clSetKernelArg (do incrementally)
-	void* argument_struct = malloc(arg_str_size);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nsize of argument-struct: " << arg_str_size << " bytes\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "address of argument-struct: " << argument_struct << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG(
-		const llvm::Type* argType = PacketizedOpenCLDriver::getArgumentType(kernel->function_wrapper, 0);
-		outs() << "LLVM type: " << *argType << "\n";
-		const llvm::Type* sType = PacketizedOpenCLDriver::getContainedType(argType, 0); // get size of struct, not of pointer to struct
-		outs() << "\nLLVM type size: " << PacketizedOpenCLDriver::getTypeSizeInBits(kernel->get_program()->targetData, sType)/8 << "\n";
-	);
-
-	// copy the correct data into the struct
-	// TODO: move into clSetKernelArg (do incrementally)
-	size_t current_size = 0;
-	for (unsigned i=0; i<num_args; ++i) {
-
-		char* cur_pos = ((char*)argument_struct)+current_size;
-		const size_t data_size = kernel->arg_get_element_size(i);
-
-		// NOTE: for pointers, we supply &data because we really want to copy the pointer!
-		switch (kernel->arg_get_address_space(i)) {
-			case CL_GLOBAL: {
-				const void* data = (*(const _cl_mem**)kernel->arg_get_data(i))->get_data();
-				memcpy(cur_pos, &data, data_size);
-				break;
-			}
-			case CL_PRIVATE: {
-				const void* data = *(const void**)kernel->arg_get_data(i);
-				memcpy(cur_pos, &data, data_size);
-				break;
-			}
-			case CL_LOCAL: {
-				const void* data = kernel->arg_get_data(i);
-				memcpy(cur_pos, &data, data_size);
-				//for (unsigned i=0; i<data_size; ++i) {
-					//(*((unsigned**)cur_pos))[i] = 3;
-				//}
-				break;
-			}
-			case CL_CONSTANT: {
-				assert (false && "");
-				return CL_INVALID_VALUE; // sth like that :p
-			}
-			default: {
-				assert (false && "");
-				return CL_INVALID_VALUE; // sth like that :p
-			}
-		}
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  argument " << i << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    size: " << data_size << " bytes\n"; );
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    data: " << data << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    pos : " << (void*)cur_pos << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    addrspace: " << getAddressSpaceString(kernel->arg_get_address_space(i)) << "\n"; );
-
-		current_size += data_size;
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    new struct size: " << current_size << "\n"; );
-	}
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "copying of arguments finished.\n"; );
-#endif
 
 	typedef void (*kernelFnPtr)(const void*);
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
