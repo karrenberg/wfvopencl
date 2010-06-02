@@ -17,6 +17,8 @@ __kernel void simpleConvolution(__global  uint  * output,
                                 const     uint2  maskDimensions)
 {
     uint tid   = get_global_id(0);
+	//output[tid] = (input[0] * mask[0]);
+	//return;
     
     uint width  = inputDimensions.x;
     uint height = inputDimensions.y;

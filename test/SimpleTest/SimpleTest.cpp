@@ -252,7 +252,7 @@ int main(int argc, char** argv)
 			//printf("results[%d]: %f (correct)\n", i, results[i]);
             correct++;
 		} else {
-			//printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], data[i] * data[i]);
+			//printf("results[%d]: %f (wrong, expected: %f * %f = %f)\n", i, results[i], data[i], data[i], data[i] * data[i]);
 		}
     }
 

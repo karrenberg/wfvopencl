@@ -928,7 +928,7 @@ namespace PacketizedOpenCLDriver {
 
 
 	void inlineFunctionCalls(Function* f) {
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  inlining function calls... "; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  inlining function calls... "; );
 		bool functionChanged = true;
 		while (functionChanged) {
 			functionChanged = false;
@@ -943,7 +943,7 @@ namespace PacketizedOpenCLDriver {
 						continue;
 					}
 					if (callee->getAttributes().hasAttrSomewhere(Attribute::NoInline)) {
-						PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    function '" << callee->getNameStr() << "' has attribute 'no inline', ignored call!\n"; );
+						//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    function '" << callee->getNameStr() << "' has attribute 'no inline', ignored call!\n"; );
 						continue;
 					}
 
@@ -952,15 +952,15 @@ namespace PacketizedOpenCLDriver {
 
 					InlineFunctionInfo IFI(NULL, NULL); //new TargetData(mod));
 					blockChanged = InlineFunction(call, IFI);
-					PACKETIZED_OPENCL_DRIVER_DEBUG(
-							if (blockChanged) outs() << "  inlined call to function '" << calleeName << "'\n";
-							else errs() << "  inlining of call to function '" << calleeName << "' FAILED!\n";
-							);
+					//PACKETIZED_OPENCL_DRIVER_DEBUG(
+						//if (blockChanged) outs() << "  inlined call to function '" << calleeName << "'\n";
+						//else errs() << "  inlining of call to function '" << calleeName << "' FAILED!\n";
+					//);
 					functionChanged |= blockChanged;
 				}
 			}
 		}
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 	}
 
 #ifdef DO_NOT_OPTIMIZE
@@ -1076,11 +1076,11 @@ namespace PacketizedOpenCLDriver {
 		assert (f->getParent());
 		Module* mod = f->getParent();
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
 
 		inlineFunctionCalls(f);
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
 
 #ifdef DEBUG_LLVM_PASSES
 		DebugFlag = true;
@@ -1131,9 +1131,9 @@ namespace PacketizedOpenCLDriver {
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG( Passes.add(createVerifierPass()); );
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
-		PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
-		PACKETIZED_OPENCL_DRIVER_DEBUG( t.startTimer(); );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
+		//PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( t.startTimer(); );
 
 		Passes.doInitialization();
 		Passes.run(*f);
@@ -1143,9 +1143,9 @@ namespace PacketizedOpenCLDriver {
 		DebugFlag = false;
 #endif
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( t.stopTimer(); );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\ndone.\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( tg.print(outs()); );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( t.stopTimer(); );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\ndone.\n"; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( tg.print(outs()); );
 	}
 #else
 	/// adopted from: llvm-2.7/tools/opt
@@ -1155,11 +1155,11 @@ namespace PacketizedOpenCLDriver {
 		assert (f->getParent());
 		Module* mod = f->getParent();
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
 
 		inlineFunctionCalls(f);
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
 
 #ifdef DEBUG_LLVM_PASSES
 		DebugFlag = true;
@@ -1286,11 +1286,11 @@ namespace PacketizedOpenCLDriver {
 		assert (f->getParent());
 		Module* mod = f->getParent();
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
 
 		inlineFunctionCalls(f);
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
 
 		FunctionPassManager Passes(mod);
 		Passes.add(new TargetData(mod));
@@ -1303,17 +1303,17 @@ namespace PacketizedOpenCLDriver {
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG( Passes.add(createVerifierPass()); );
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
-		PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
-		PACKETIZED_OPENCL_DRIVER_DEBUG( t.startTimer(); );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
+		//PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( t.startTimer(); );
 
 		Passes.doInitialization();
 		Passes.run(*f);
 		Passes.doFinalization();
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( t.stopTimer(); );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\ndone.\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( tg.print(outs()); );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( t.stopTimer(); );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\ndone.\n"; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( tg.print(outs()); );
 
 		//std::string* errInfo = NULL;
 		//mp.releaseModule(errInfo);
