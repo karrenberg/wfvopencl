@@ -181,8 +181,7 @@ namespace PacketizedOpenCLDriver {
 		return wrapper;
 	}
 
-	// @deprecated
-	Function* generateFunctionWrapperOMP(const std::string& wrapper_name, Function* f, Module* mod) {
+	Function* generateFunctionWrapperWithParams(const std::string& wrapper_name, Function* f, Module* mod, std::vector<const Type*>& additionalParams) {
 		assert (f && mod);
 		assert (f->getParent());
 
@@ -231,7 +230,11 @@ namespace PacketizedOpenCLDriver {
 		//const FunctionType* fType = TypeBuilder<void(void*), true>::get(context);
 		std::vector<const Type*> params;
 		params.push_back(PointerType::getUnqual(argStructType));
-		params.push_back(Type::getInt32Ty(context));
+
+		for (std::vector<const Type*>::const_iterator it=additionalParams.begin(), E=additionalParams.end(); it!=E; ++it) {
+			params.push_back(*it);
+		}
+
 		const FunctionType* fType = FunctionType::get(Type::getVoidTy(context), params, false);
 		Function* wrapper = Function::Create(fType, Function::ExternalLinkage, wrapper_name, mod);
 
