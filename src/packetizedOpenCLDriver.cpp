@@ -748,8 +748,8 @@ namespace PacketizedOpenCLDriver {
 
 			if (funDecl) PacketizedOpenCLDriver::replaceAllUsesWith(funDecl, PacketizedOpenCLDriver::createFunctionPointer(funDecl, funImpl));
 		}
-
-
+	}
+	void fixFunctionNames(Module* mod) {
 		// fix __sqrt_f32
 		if (PacketizedOpenCLDriver::getFunction("__sqrt_f32", mod)) {
 
@@ -2073,6 +2073,7 @@ clCreateKernel(cl_program      program,
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
 	// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
 	PacketizedOpenCLDriver::resolveRuntimeCalls(module);
+	PacketizedOpenCLDriver::fixFunctionNames(module);
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 #endif
 
@@ -2104,8 +2105,7 @@ clCreateKernel(cl_program      program,
 	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(++arg),   f_wrapper);
 	#endif
 
-	// __sqrt_f32 ...
-	PacketizedOpenCLDriver::resolveRuntimeCalls(module);
+	PacketizedOpenCLDriver::fixFunctionNames(module);
 #endif
 
 	// optimize wrapper with inlined kernel
@@ -2530,9 +2530,16 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 		const cl_uint argument_get_group_id    = i / local_work_size;
 		const cl_uint argument_get_local_id    = i % local_work_size;
 
+		PACKETIZED_OPENCL_DRIVER_DEBUG(
+			outs() << "  global id: " << argument_get_global_id << "\n";
+			outs() << "  local id: " << argument_get_local_id << "\n";
+			outs() << "  group id: " << argument_get_group_id << "\n";
+			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
+		);
+
 		typedPtr(
 			argument_struct,
-			1U,
+			1U, // get_work_dim
 			&argument_get_global_size,
 			&argument_get_global_id,
 			&argument_get_local_size,
@@ -2543,7 +2550,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 #endif
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			outs() << "  iteration " << i << " finished!\n";
+			outs() << "iteration " << i << " finished!\n";
 			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
 		);
 	}
