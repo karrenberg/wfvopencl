@@ -241,8 +241,6 @@ namespace PacketizedOpenCLDriver {
 		// set name of argument
 		Argument* arg_str = wrapper->arg_begin();
 		arg_str->setName("arg_struct");
-		Argument* arg_tid = ++(wrapper->arg_begin());
-		arg_tid->setName("thread_num");
 
 		// create entry block
 		BasicBlock* entryBB = BasicBlock::Create(context, "entry", wrapper);
@@ -291,6 +289,12 @@ namespace PacketizedOpenCLDriver {
 
 		std::vector<const Type*> params;
 		params.push_back(Type::getInt32Ty(context));
+
+		// generate 'unsigned get_global_id(unsigned)' if not already there
+		if (!mod->getFunction("get_global_id")) {
+			const FunctionType* fType0 = FunctionType::get(Type::getInt32Ty(context), params, false);
+			Function::Create(fType0, Function::ExternalLinkage, "get_global_id", mod);
+		}
 
 		// generate 'unsigned get_global_id_split(unsigned)'
 		const FunctionType* fType1 = FunctionType::get(Type::getInt32Ty(context), params, false);
@@ -611,11 +615,11 @@ namespace PacketizedOpenCLDriver {
 			// get first index
 			Value* idx = *gep->idx_begin();
 			// get instance index (= constant)
-			Value* instance = *(gep->idx_begin()+1);
+			//Value* instance = *(gep->idx_begin()+1);
 
-			assert (isa<Constant>(instance));
+			assert (isa<Constant>(*(gep->idx_begin()+1)));
 			assert (idx->getType()->isIntegerTy());
-			assert (instance->getType()->isIntegerTy());
+			assert ((*(gep->idx_begin()+1))->getType()->isIntegerTy());
 
 			Constant* simdWidthC = ConstantInt::get(idx->getType(), simdWidth, false);
 

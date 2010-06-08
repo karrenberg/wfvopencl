@@ -6,6 +6,8 @@ import os
 debug = ARGUMENTS.get('debug', 0)
 use_openmp = ARGUMENTS.get('openmp', 0)
 packetize = ARGUMENTS.get('packetize', 0)
+use_callbacks = ARGUMENTS.get('callback', 0)
+force_nd_iteration = ARGUMENTS.get('force_nd', 0)
 
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
@@ -35,6 +37,12 @@ if int(use_openmp):
 
 if not int(packetize):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION")
+
+if int(use_callbacks):
+	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_CALLBACKS")
+
+if int(force_nd_iteration):
+	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME")
 
 env.Append(CXXFLAGS = cxxflags)
 
@@ -95,7 +103,7 @@ for a in testApps:
 # NOTE: using --march automatically generates a stub-function
 # NOTE: using --march also inserts calls to builtin functions instead of e.g. printf
 # NOTE: --march=x86-64 generates bad code for packetization :(
-#       --march-x86 (or left out) generates 32bit data structures etc., making wrapper unusable
+#       --march=x86 (or left out) generates 32bit data structures etc., making wrapper unusable
 
 #env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
 #env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86 --msse2 $SOURCE")

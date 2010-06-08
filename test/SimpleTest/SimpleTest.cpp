@@ -148,7 +148,7 @@ int main(int argc, char** argv)
     // Create the compute program from the source buffer
     //
     //program = clCreateProgramWithSource(context, 1, (const char **) & KernelSource, NULL, &err);
-    const char * source = "simpleTest_Kernels.bc";
+    const char * source = "SimpleTest_Kernels.bc";
     program = clCreateProgramWithSource(context, 1, &source, NULL, &err);
     if (!program)
     {
