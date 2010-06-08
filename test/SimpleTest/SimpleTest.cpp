@@ -88,6 +88,12 @@ const char *KernelSource = "\n" \
 
 ////////////////////////////////////////////////////////////////////////////////
 
+inline bool verifyResults(float* results, float* data, const unsigned index) {
+	bool correct = false;
+	correct = results[index] == data[index] * data[index];
+	return correct;
+}
+
 int main(int argc, char** argv)
 {
     int err;                            // error code returned from api calls
@@ -246,9 +252,9 @@ int main(int argc, char** argv)
     // Validate our results
     //
     correct = 0;
-    for(i = 0; i < count; i++)
+	for(i = 0; i < count; i++)
     {
-        if(results[i] == data[i] * data[i]) {
+        if(verifyResults(results, data, i)) {
 			//printf("results[%d]: %f (correct)\n", i, results[i]);
             correct++;
 		} else {

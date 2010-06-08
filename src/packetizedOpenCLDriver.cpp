@@ -2113,6 +2113,7 @@ clCreateKernel(cl_program      program,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "wrapper.ll"); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "mod.ll"); );
 
 
 	// create kernel object
@@ -2526,6 +2527,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 
 		typedPtr(argument_struct);
 #else
+		// TODO: optimize for constant case where group or local ids do not change?
 		const cl_uint argument_get_global_id   = i;
 		const cl_uint argument_get_group_id    = i / local_work_size;
 		const cl_uint argument_get_local_id    = i % local_work_size;
