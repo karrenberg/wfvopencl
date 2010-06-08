@@ -39,6 +39,7 @@
 #include "Packetizer/api.h" // packetizer
 #include "llvmTools.hpp" // all LLVM functionality
 
+#include "llvm/Analysis/LiveValues.h"
 
 //----------------------------------------------------------------------------//
 // Configuration
@@ -47,6 +48,7 @@
 
 #define PACKETIZED_OPENCL_DRIVER_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
 #define PACKETIZED_OPENCL_DRIVER_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128"
+#define PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER "barrier"
 #define PACKETIZED_OPENCL_DRIVER_MAX_WORK_GROUP_SIZE 8192
 
 
@@ -593,6 +595,9 @@ namespace {
 // common functionality, with or without packetization/openmp
 namespace PacketizedOpenCLDriver {
 
+	//------------------------------------------------------------------------//
+	// LLVM tools
+	//------------------------------------------------------------------------//
 	void replaceCallbacksByArgAccess(Function* f, Value* arg, Function* source) {
 		if (!f) return;
 		assert (arg && source);
@@ -723,7 +728,7 @@ namespace PacketizedOpenCLDriver {
 #endif
 	}
 
-	void resolveRuntimeCalls(llvm::Module* mod) {
+	inline void resolveRuntimeCalls(llvm::Module* mod) {
 		std::vector< std::pair<llvm::Function*, void*> > funs;
 		using std::make_pair;
 		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_work_dim",    mod), void_cast(get_work_dim)));
@@ -749,7 +754,7 @@ namespace PacketizedOpenCLDriver {
 			if (funDecl) PacketizedOpenCLDriver::replaceAllUsesWith(funDecl, PacketizedOpenCLDriver::createFunctionPointer(funDecl, funImpl));
 		}
 	}
-	void fixFunctionNames(Module* mod) {
+	inline void fixFunctionNames(Module* mod) {
 		// fix __sqrt_f32
 		if (PacketizedOpenCLDriver::getFunction("__sqrt_f32", mod)) {
 
@@ -781,6 +786,175 @@ namespace PacketizedOpenCLDriver {
 			default: return "";
 		}
 	}
+
+	// returns the new function that is called at the point of the barrier
+	Function* eliminateBarrier(CallInst* barrier, const FunctionType* fTypeNew) {
+		assert (barrier);
+		BasicBlock* parentBlock = barrier->getParent();
+		assert (parentBlock);
+		Function* f = parentBlock->getParent();
+		assert (f);
+		Module* mod = f->getParent();
+		assert (mod);
+
+		//--------------------------------------------------------------------//
+		// split block at the position of the barrier
+		//--------------------------------------------------------------------//
+		BasicBlock* newBlock = parentBlock->splitBasicBlock(barrier, parentBlock->getNameStr()+".barrier");
+
+		//--------------------------------------------------------------------//
+		// do live value analysis
+		//--------------------------------------------------------------------//
+		//FunctionPassManager Passes(mod);
+		//LiveValues* lvPass = createLiveValuesPass();
+
+		//Passes.add(new TargetData(mod));
+		//Passes.add(lvPass);
+
+		//funPassManager->doInitialization();
+		//funPassManager->run(f);
+		//funPassManager->doFinalization();
+
+		//lvPass->isKilledInBlock(val, block);
+		//lvPass->isLiveThroughBlock(val, block);
+		//lvPass->isUsedInBlock(val, block);
+
+		//--------------------------------------------------------------------//
+		// create struct with live-in values of newBlock
+		//--------------------------------------------------------------------//
+
+		//--------------------------------------------------------------------//
+		// create new function that takes struct as argument and returns barrier id
+		//--------------------------------------------------------------------//
+		Function* continuation = Function::Create(fTypeNew, Function::ExternalLinkage, f->getNameStr()+"_cont", mod); // TODO: check linkage type
+
+		//--------------------------------------------------------------------//
+		// copy all blocks 'below' parentBlock inside the new function (DFS)
+		//--------------------------------------------------------------------//
+
+		//--------------------------------------------------------------------//
+		// delete the edge from parentBlock to newBlock (there is none as long
+		// as we did not generate a branch ourselves)
+		//--------------------------------------------------------------------//
+
+		//--------------------------------------------------------------------//
+		// (dead code elimination should remove newBlock and all blocks below
+		// that are dead.)
+		//--------------------------------------------------------------------//
+
+		//--------------------------------------------------------------------//
+		// create call to new function
+		//--------------------------------------------------------------------//
+
+		//--------------------------------------------------------------------//
+		// create return that returns the result of the call
+		//--------------------------------------------------------------------//
+
+		return continuation;
+	}
+
+	Function* eliminateBarriers(Function* f) {
+		assert (f);
+		assert (f->getReturnType()->isVoidTy());
+		Module* mod = f->getParent();
+		assert (mod);
+		LLVMContext& context = mod->getContext();
+
+		//--------------------------------------------------------------------//
+		// check how many barriers the function has
+		//--------------------------------------------------------------------//
+		unsigned numBarriers = 0;
+		for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
+			for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+				if (!isa<CallInst>(I)) continue;
+				CallInst* call = cast<CallInst>(I);
+
+				const Function* callee = call->getCalledFunction();
+				if (callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) ++numBarriers;
+			}
+		}
+
+		if (numBarriers == 0) return f;
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\neliminateBarriers(" << f->getNameStr() << ")\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  number of barriers in function: " << numBarriers << "\n"; );
+
+		//--------------------------------------------------------------------//
+		// change return value of f to return unsigned (barrier id)
+		// = create new function with new signature and clone all blocks
+		//--------------------------------------------------------------------//
+		const FunctionType* fTypeOld = f->getFunctionType();
+		std::vector<const Type*> params;
+		for (FunctionType::param_iterator it=fTypeOld->param_begin(), E=fTypeOld->param_end(); it!=E; ++it) {
+			params.push_back(*it);
+		}
+		const FunctionType* fTypeNew = FunctionType::get(Type::getInt32Ty(context), params, false);
+		Function* newF = Function::Create(fTypeNew, Function::ExternalLinkage, f->getNameStr()+"_begin", mod); // TODO: check linkage type
+
+		// specify mapping of parameters
+		DenseMap<const Value*, Value*> valueMap;
+		Function::arg_iterator A2 = newF->arg_begin();
+		for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A, ++A2) {
+			valueMap.insert(std::make_pair(A, A2));
+		}
+		SmallVector<ReturnInst*, 2> returns;
+
+		CloneAndPruneFunctionInto(newF, f, valueMap, returns);
+
+		//--------------------------------------------------------------------//
+		// call eliminateBarrier() for each barrier in newFunction
+		//--------------------------------------------------------------------//
+		std::vector<Function*> continuations;
+		bool functionChanged = true;
+		while (functionChanged) {
+			functionChanged = false;
+			for (Function::iterator BB=newF->begin(), BBE=newF->end(); BB!=BBE; ++BB) {
+				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+					if (!isa<CallInst>(I)) continue;
+					CallInst* call = cast<CallInst>(I);
+
+					const Function* callee = call->getCalledFunction();
+					if (!callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) continue;
+
+					continuations.push_back(eliminateBarrier(call, fTypeNew));
+					functionChanged = true;
+					break;
+				}
+				if (functionChanged) break;
+			}
+		}
+
+		//--------------------------------------------------------------------//
+		// create wrapper function which contains a switch over the barrier id
+		// inside a while loop.
+		// the wrapper calls the function that corresponds to the barrier id.
+		// If the id is the special 'begin' id, it calls the first function
+		// (= the remainder of the original kernel).
+		// The while loop iterates until the barrier id is set to a special
+		// 'end' id.
+		//--------------------------------------------------------------------//
+		// Example:
+		/*
+		while (true) {
+			switch (current_barrier_id) {
+				case BARRIER_BEGIN: current_barrier_id = runOrigFunc(...); break;
+				case BARRIER_END: return;
+				case B0: current_barrier_id = runFunc0(...); break;
+				case B1: current_barrier_id = runFunc1(...); break;
+				...
+				case BN: current_barrier_id = runFuncN(...); break;
+				default: error; break;
+			}
+		}
+		*/
+		Function* wrapper = Function::Create(fTypeOld, Function::ExternalLinkage, f->getNameStr()+"_barrierswitch", mod); // TODO: check linkage type
+
+		return wrapper;
+	}
+	
+	//------------------------------------------------------------------------//
+	// host information
+	//------------------------------------------------------------------------//
 
 	// TODO: get real info :p
 	inline unsigned long long getDeviceMaxMemAllocSize() {
