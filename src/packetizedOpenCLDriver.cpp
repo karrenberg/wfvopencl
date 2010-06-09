@@ -25,6 +25,7 @@
 #include <assert.h>
 #include <sstream>  // std::stringstream
 #include <string.h> // memcpy
+#include <sstream> // stringstream
 
 #include <xmmintrin.h> // test output etc.
 
@@ -49,6 +50,8 @@
 #define PACKETIZED_OPENCL_DRIVER_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
 #define PACKETIZED_OPENCL_DRIVER_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128"
 #define PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER "barrier"
+#define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID -1
+#define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_START_ID 0
 #define PACKETIZED_OPENCL_DRIVER_MAX_WORK_GROUP_SIZE 8192
 
 
@@ -788,7 +791,7 @@ namespace PacketizedOpenCLDriver {
 	}
 
 	// returns the new function that is called at the point of the barrier
-	Function* eliminateBarrier(CallInst* barrier, const FunctionType* fTypeNew) {
+	Function* eliminateBarrier(CallInst* barrier, const FunctionType* fTypeNew, const std::string& newFunName) {
 		assert (barrier);
 		BasicBlock* parentBlock = barrier->getParent();
 		assert (parentBlock);
@@ -797,10 +800,12 @@ namespace PacketizedOpenCLDriver {
 		Module* mod = f->getParent();
 		assert (mod);
 
+		LLVMContext& context = mod->getContext();
+
 		//--------------------------------------------------------------------//
 		// split block at the position of the barrier
 		//--------------------------------------------------------------------//
-		BasicBlock* newBlock = parentBlock->splitBasicBlock(barrier, parentBlock->getNameStr()+".barrier");
+		//BasicBlock* newBlock = parentBlock->splitBasicBlock(barrier, parentBlock->getNameStr()+".barrier");
 
 		//--------------------------------------------------------------------//
 		// do live value analysis
@@ -826,7 +831,9 @@ namespace PacketizedOpenCLDriver {
 		//--------------------------------------------------------------------//
 		// create new function that takes struct as argument and returns barrier id
 		//--------------------------------------------------------------------//
-		Function* continuation = Function::Create(fTypeNew, Function::ExternalLinkage, f->getNameStr()+"_cont", mod); // TODO: check linkage type
+
+		Function* continuation = Function::Create(fTypeNew, Function::ExternalLinkage, newFunName, mod); // TODO: check linkage type
+
 
 		//--------------------------------------------------------------------//
 		// copy all blocks 'below' parentBlock inside the new function (DFS)
@@ -849,6 +856,15 @@ namespace PacketizedOpenCLDriver {
 		//--------------------------------------------------------------------//
 		// create return that returns the result of the call
 		//--------------------------------------------------------------------//
+
+
+		// temporary: just delete it to be able to test ^^ and generate dummy return
+		if (!barrier->use_empty()) barrier->replaceAllUsesWith(Constant::getNullValue(barrier->getType()));
+		barrier->eraseFromParent();
+		IRBuilder<> builder(context);
+		BasicBlock* entryBB = BasicBlock::Create(context, "entry", continuation);
+		builder.SetInsertPoint(entryBB);
+		builder.CreateRet(ConstantInt::get(fTypeNew->getReturnType(), 1, true));
 
 		return continuation;
 	}
@@ -882,6 +898,7 @@ namespace PacketizedOpenCLDriver {
 		//--------------------------------------------------------------------//
 		// change return value of f to return unsigned (barrier id)
 		// = create new function with new signature and clone all blocks
+		// The former return statements now all return -1 (special end id)
 		//--------------------------------------------------------------------//
 		const FunctionType* fTypeOld = f->getFunctionType();
 		std::vector<const Type*> params;
@@ -901,28 +918,48 @@ namespace PacketizedOpenCLDriver {
 
 		CloneAndPruneFunctionInto(newF, f, valueMap, returns);
 
+		for (unsigned i=0; i<returns.size(); ++i) {
+			BasicBlock* retBlock = returns[i]->getParent();
+			returns[i]->eraseFromParent();
+			ReturnInst::Create(context, ConstantInt::get(fTypeNew->getReturnType(), PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID, true), retBlock);
+		}
+
 		//--------------------------------------------------------------------//
 		// call eliminateBarrier() for each barrier in newFunction
 		//--------------------------------------------------------------------//
+		const unsigned numContinuationFunctions = numBarriers+1;
 		std::vector<Function*> continuations;
+		//continuations.reserve(numContinuationFunctions);
+		continuations.push_back(newF);
+		unsigned barrierIndex = 0; // only used for naming scheme
 		bool functionChanged = true;
 		while (functionChanged) {
 			functionChanged = false;
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "eliminating barriers...\n"; );
 			for (Function::iterator BB=newF->begin(), BBE=newF->end(); BB!=BBE; ++BB) {
 				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
 					if (!isa<CallInst>(I)) continue;
 					CallInst* call = cast<CallInst>(I);
+					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  found call: " << *call << "\n"; );
 
 					const Function* callee = call->getCalledFunction();
 					if (!callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) continue;
 
-					continuations.push_back(eliminateBarrier(call, fTypeNew));
+					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    is barrier!\n"; );
+
+					std::stringstream sstr;
+					sstr << f->getNameStr() << "_cont_" << ++barrierIndex;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
+					Function* continuationFun = eliminateBarrier(call, fTypeNew, sstr.str());
+					assert (continuationFun);
+					continuations.push_back(continuationFun);
 					functionChanged = true;
 					break;
 				}
 				if (functionChanged) break;
 			}
 		}
+
+		assert (continuations.size() == numContinuationFunctions);
 
 		//--------------------------------------------------------------------//
 		// create wrapper function which contains a switch over the barrier id
@@ -948,6 +985,106 @@ namespace PacketizedOpenCLDriver {
 		}
 		*/
 		Function* wrapper = Function::Create(fTypeOld, Function::ExternalLinkage, f->getNameStr()+"_barrierswitch", mod); // TODO: check linkage type
+
+		IRBuilder<> builder(context);
+
+		// create entry block
+		BasicBlock* entryBB = BasicBlock::Create(context, "entry", wrapper);
+
+		// create blocks for while loop
+		BasicBlock* headerBB = BasicBlock::Create(context, "while.header", wrapper);
+		//BasicBlock* bodyBB = BasicBlock::Create(context, "while.body", wrapper);
+		BasicBlock* latchBB = BasicBlock::Create(context, "while.latch", wrapper);
+
+		// create call blocks (switch targets)
+		BasicBlock** callBBs = new BasicBlock*[numContinuationFunctions]();
+		for (unsigned i=0; i<numContinuationFunctions; ++i) {
+			std::stringstream sstr;
+			sstr << "switch." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
+			callBBs[i] = BasicBlock::Create(context, sstr.str(), wrapper);
+		}
+
+		// create exit block
+		BasicBlock* exitBB = BasicBlock::Create(context, "exit", wrapper);
+
+
+
+		// fill entry block (empty, directly branch to header)
+		builder.SetInsertPoint(entryBB);
+		builder.CreateBr(headerBB);
+
+		// fill header
+		builder.SetInsertPoint(headerBB);
+		PHINode* current_barrier_id_phi = builder.CreatePHI(Type::getInt32Ty(context), "current_barrier_id");
+		current_barrier_id_phi->addIncoming(ConstantInt::getNullValue(Type::getInt32Ty(context)), entryBB);
+
+		SwitchInst* switchI = builder.CreateSwitch(current_barrier_id_phi, exitBB, numContinuationFunctions);
+		for (unsigned i=0; i<numContinuationFunctions; ++i) {
+			// add case for each continuation
+			switchI->addCase(ConstantInt::get(context, APInt(32, i)), callBBs[i]);
+		}
+
+
+		// fill call blocks
+		CallInst** calls = new CallInst*[numContinuationFunctions]();
+		for (unsigned i=0; i<numContinuationFunctions; ++i) {
+			BasicBlock* block = callBBs[i];
+			builder.SetInsertPoint(block);
+			// create the call to f
+			SmallVector<Value*, 8> args;
+			for (Function::arg_iterator A=wrapper->arg_begin(), AE=wrapper->arg_end(); A!=AE; ++A) {
+				assert (isa<Value>(A));
+				args.push_back(cast<Value>(A));
+			}
+			//CallInst* call = builder.CreateCall(continuations[i], wrapper->arg_begin(), wrapper->arg_end(), "continuation"+i); // doesn't work! ARGH!!!
+			outs() << "creating call for continuation: " << continuations[i]->getNameStr() << "\n";
+			std::stringstream sstr;
+			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
+			calls[i] = builder.CreateCall(continuations[i], args.begin(), args.end(), sstr.str());
+			//calls[i]->addAttribute(1, Attribute::NoCapture);
+			//calls[i]->addAttribute(1, Attribute::NoAlias);
+
+			builder.CreateBr(latchBB);
+		}
+
+		// fill latch
+		builder.SetInsertPoint(latchBB);
+
+		// create phi for next barrier id coming from each call inside the switch
+		PHINode* next_barrier_id_phi = builder.CreatePHI(Type::getInt32Ty(context), "next_barrier_id");
+		for (unsigned i=0; i<numContinuationFunctions; ++i) {
+			next_barrier_id_phi->addIncoming(calls[i], callBBs[i]);
+		}
+
+		// add the phi as incoming value to the phi in the loop header
+		current_barrier_id_phi->addIncoming(next_barrier_id_phi, latchBB);
+
+		// create check whether id is the special end id ( = is negative)
+		// if yes, exit the loop, otherwise go on iterating
+		Value* cond = builder.CreateICmpSLT(next_barrier_id_phi, ConstantInt::getNullValue(Type::getInt32Ty(context)), "exitcond");
+		builder.CreateCondBr(cond, exitBB, headerBB);
+
+		
+		// fill exit
+		builder.SetInsertPoint(exitBB);
+		builder.CreateRetVoid();
+
+
+		delete [] calls;
+		delete [] callBBs;
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(mod); );
+
+		//--------------------------------------------------------------------//
+		// inline continuation functions & optimize wrapper
+		//--------------------------------------------------------------------//
+		PacketizedOpenCLDriver::inlineFunctionCalls(wrapper, new TargetData(mod));
+		PacketizedOpenCLDriver::optimizeFunction(wrapper);
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(mod); );
+
+		//outs() << *mod << "\n";
+		//outs() << *wrapper << "\n";
 
 		return wrapper;
 	}
@@ -2169,9 +2306,12 @@ clCreateKernel(cl_program      program,
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
 
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
+	PacketizedOpenCLDriver::inlineFunctionCalls(f, program->targetData);
 	PacketizedOpenCLDriver::optimizeFunction(f);
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "scalar.ll"); );
+
+	f = PacketizedOpenCLDriver::eliminateBarriers(f);
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
@@ -2283,6 +2423,7 @@ clCreateKernel(cl_program      program,
 #endif
 
 	// optimize wrapper with inlined kernel
+	PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, program->targetData);
 	PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );

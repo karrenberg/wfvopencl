@@ -934,7 +934,7 @@ namespace PacketizedOpenCLDriver {
 
 
 
-	void inlineFunctionCalls(Function* f) {
+	void inlineFunctionCalls(Function* f, TargetData* targetData=NULL) {
 		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  inlining function calls... "; );
 		bool functionChanged = true;
 		while (functionChanged) {
@@ -954,10 +954,9 @@ namespace PacketizedOpenCLDriver {
 						continue;
 					}
 
-
 					const std::string calleeName = callee->getNameStr(); //possibly deleted by InlineFunction()
 
-					InlineFunctionInfo IFI(NULL, NULL); //new TargetData(mod));
+					InlineFunctionInfo IFI(NULL, targetData);
 					blockChanged = InlineFunction(call, IFI);
 					//PACKETIZED_OPENCL_DRIVER_DEBUG(
 						//if (blockChanged) outs() << "  inlined call to function '" << calleeName << "'\n";
@@ -1082,12 +1081,9 @@ namespace PacketizedOpenCLDriver {
 		assert (f);
 		assert (f->getParent());
 		Module* mod = f->getParent();
+		TargetData* targetData = new TargetData(mod);
 
 		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
-
-		inlineFunctionCalls(f);
-
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
 
 #ifdef DEBUG_LLVM_PASSES
 		DebugFlag = true;
@@ -1095,7 +1091,7 @@ namespace PacketizedOpenCLDriver {
 
 		//PassManager Passes;
 		FunctionPassManager Passes(mod);
-		Passes.add(new TargetData(mod));
+		Passes.add(targetData);
 		Passes.add(createScalarReplAggregatesPass(2048)); // Break up allocas, override default threshold of maximum struct size of 128 bytes
 		Passes.add(createInstructionCombiningPass());
 		Passes.add(createJumpThreadingPass());        // Thread jumps.
@@ -1161,12 +1157,9 @@ namespace PacketizedOpenCLDriver {
 		assert (f);
 		assert (f->getParent());
 		Module* mod = f->getParent();
+		TargetData* targetData = new TargetData(mod);
 
 		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
-
-		inlineFunctionCalls(f);
-
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
 
 #ifdef DEBUG_LLVM_PASSES
 		DebugFlag = true;
@@ -1182,7 +1175,7 @@ namespace PacketizedOpenCLDriver {
 
 		//PassManager Passes;
 		FunctionPassManager Passes(mod);
-		Passes.add(new TargetData(mod));
+		Passes.add(targetData);
 
 		//
 		// custom
@@ -1292,15 +1285,12 @@ namespace PacketizedOpenCLDriver {
 		assert (f);
 		assert (f->getParent());
 		Module* mod = f->getParent();
+		TargetData* targetData = new TargetData(mod);
 
 		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
 
-		inlineFunctionCalls(f);
-
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  running optimization passes... "; );
-
 		FunctionPassManager Passes(mod);
-		Passes.add(new TargetData(mod));
+		Passes.add(targetData);
 
 		Passes.add(createInstructionCombiningPass());
 		Passes.add(createReassociatePass());
