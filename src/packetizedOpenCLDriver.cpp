@@ -805,7 +805,7 @@ namespace PacketizedOpenCLDriver {
 		//--------------------------------------------------------------------//
 		// split block at the position of the barrier
 		//--------------------------------------------------------------------//
-		//BasicBlock* newBlock = parentBlock->splitBasicBlock(barrier, parentBlock->getNameStr()+".barrier");
+		BasicBlock* newBlock = parentBlock->splitBasicBlock(barrier, parentBlock->getNameStr()+".barrier");
 
 		//--------------------------------------------------------------------//
 		// do live value analysis
@@ -823,6 +823,23 @@ namespace PacketizedOpenCLDriver {
 		//lvPass->isKilledInBlock(val, block);
 		//lvPass->isLiveThroughBlock(val, block);
 		//lvPass->isUsedInBlock(val, block);
+
+		// hand-coded analysis
+		std::set<Value*> liveInValues;
+		std::set<Value*> liveOutValues;
+		std::set<BasicBlock*> visitedBlocks;
+		PacketizedOpenCLDriver::getBlockLiveValues(newBlock, liveInValues, liveOutValues, visitedBlocks);
+
+		outs() << "\n\nLive-In values of block '" << newBlock->getNameStr() << "':\n";
+		for (std::set<Value*>::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
+			outs() << " * " << **it << "\n";
+		}
+		outs() << "\nLive-Out values of block '" << newBlock->getNameStr() << "':\n";
+		for (std::set<Value*>::iterator it=liveOutValues.begin(), E=liveOutValues.end(); it!=E; ++it) {
+			outs() << " * " << **it << "\n";
+		}
+		outs() << "\n";
+		PacketizedOpenCLDriver::writeFunctionToFile(f, "asdf.ll");
 
 		//--------------------------------------------------------------------//
 		// create struct with live-in values of newBlock
@@ -2310,6 +2327,34 @@ clCreateKernel(cl_program      program,
 	PacketizedOpenCLDriver::optimizeFunction(f);
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "scalar.ll"); );
+
+
+#define TMPTMPTMP
+#ifdef TMPTMPTMP
+	std::set<Value*> liveInValues;
+	std::set<Value*> liveOutValues;
+	std::set<BasicBlock*> visitedBlocks;
+	BasicBlock* bb = NULL;
+	bb = &f->getEntryBlock(); // first block
+	//bb = cast<BranchInst>(f->getEntryBlock().getTerminator())->getSuccessor(0); // pred of last block
+	//for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
+	//	if (isa<ReturnInst>(BB->getTerminator())) bb = *pred_begin(BB); // last block
+	//}
+	PacketizedOpenCLDriver::getBlockLiveValues(bb, liveInValues, liveOutValues, visitedBlocks);
+
+	outs() << "\n\nLIVE VALUE ANALYSIS DONE!\n";
+	outs() << "Live-In values of block '" << bb->getNameStr() << "':\n";
+	for (std::set<Value*>::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
+		outs() << " * " << **it << "\n";
+	}
+	outs() << "\nLive-Out values of block '" << bb->getNameStr() << "':\n";
+	for (std::set<Value*>::iterator it=liveOutValues.begin(), E=liveOutValues.end(); it!=E; ++it) {
+		outs() << " * " << **it << "\n";
+	}
+	outs() << "\n";
+	PacketizedOpenCLDriver::writeFunctionToFile(f, "asdf.ll");
+	exit(0);
+#endif
 
 	f = PacketizedOpenCLDriver::eliminateBarriers(f);
 

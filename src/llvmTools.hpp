@@ -650,6 +650,61 @@ namespace PacketizedOpenCLDriver {
 	}
 
 
+	// dataflow analysis for liveness information
+	// dataflow equations:
+	// 1) LiveIn(block) = gen(block) u (LiveOut(block) - kill(block))
+	// 2) LiveOut(final) = {}
+	// 3) LiveOut(block) = u LiveIn(all successors)
+	void getBlockLiveValues(BasicBlock* block, std::set<Value*>& liveInValues, std::set<Value*>& liveOutValues, std::set<BasicBlock*>& visitedBlocks) {
+		if (visitedBlocks.find(block) != visitedBlocks.end()) return; // block already seen
+		visitedBlocks.insert(block);
+		outs() << "getBlockLiveValues(" << block->getNameStr() << ")\n";
+
+		// post-order DFS
+		for (succ_iterator S = succ_begin(block), SE = succ_end(block); S!=SE; ++S) {
+			std::set<Value*> succLiveInValues;
+			std::set<Value*> succLiveOutValues; // ignored
+			getBlockLiveValues(*S, succLiveInValues, succLiveOutValues, visitedBlocks);
+
+			// liveOut-set is the union of all liveIn-sets of successors [dataflow-equation 3]
+			liveOutValues.insert(succLiveInValues.begin(), succLiveInValues.end());
+
+			// liveIn-set is equal to liveOut-set (before applying kill/gen sets)
+			liveInValues.insert(succLiveInValues.begin(), succLiveInValues.end());
+		}
+		
+
+		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+			// remove defined values from liveIn-set [kill]
+			if (!liveInValues.empty()) liveInValues.erase(cast<Value>(I));
+
+			// add used values to liveIn-set [gen]
+			for (Instruction::op_iterator OP=I->op_begin(), OPE=I->op_end(); OP!=OPE; ++OP) {
+				if (!isa<Value>(OP)) continue; // ignore all operands that are no instructions
+				
+				if (Instruction* opI = dyn_cast<Instruction>(OP)) {
+					// ignore operands that are defined in same block
+					if (opI->getParent() != block) liveInValues.insert(opI);
+				} else if (Argument* argI = dyn_cast<Argument>(OP)) {
+					liveInValues.insert(cast<Value>(argI));
+				}
+
+				// ignore all values that are neither an instruction nor an argument
+			}
+		}
+		
+		outs() << "\nLive-In set of block'" << block->getNameStr() << "':\n";
+		for (std::set<Value*>::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
+			outs() << " - " << **it << "\n";
+		}
+		outs() << "\nLive-Out set of block '" << block->getNameStr() << "':\n";
+		for (std::set<Value*>::iterator it=liveOutValues.begin(), E=liveOutValues.end(); it!=E; ++it) {
+			outs() << " - " << **it << "\n";
+		}
+		outs() << "\n";
+	}
+
+
 }
 
 
