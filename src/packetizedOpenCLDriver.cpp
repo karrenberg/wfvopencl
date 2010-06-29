@@ -40,7 +40,7 @@
 #include "Packetizer/api.h" // packetizer
 #include "llvmTools.hpp" // all LLVM functionality
 
-#include "llvm/Analysis/LiveValues.h"
+#include "livenessAnalyzer.h"
 
 //----------------------------------------------------------------------------//
 // Configuration
@@ -791,7 +791,7 @@ namespace PacketizedOpenCLDriver {
 	}
 
 	// returns the new function that is called at the point of the barrier
-	Function* eliminateBarrier(CallInst* barrier, const FunctionType* fTypeNew, const std::string& newFunName) {
+	Function* eliminateBarrier(CallInst* barrier, const FunctionType* fTypeNew, const std::string& newFunName, LoopInfo* loopInfo) {
 		assert (barrier);
 		BasicBlock* parentBlock = barrier->getParent();
 		assert (parentBlock);
@@ -828,7 +828,7 @@ namespace PacketizedOpenCLDriver {
 		std::set<Value*> liveInValues;
 		std::set<Value*> liveOutValues;
 		std::set<BasicBlock*> visitedBlocks;
-		PacketizedOpenCLDriver::getBlockLiveValues(newBlock, liveInValues, liveOutValues, visitedBlocks);
+		//PacketizedOpenCLDriver::getBlockLiveValues(newBlock, loopInfo, liveInValues, liveOutValues, visitedBlocks);
 
 		outs() << "\n\nLive-In values of block '" << newBlock->getNameStr() << "':\n";
 		for (std::set<Value*>::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
@@ -912,6 +912,15 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\neliminateBarriers(" << f->getNameStr() << ")\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  number of barriers in function: " << numBarriers << "\n"; );
 
+		// get loop info
+		//FunctionPassManager Passes(mod);
+		LoopInfo* loopInfo = new LoopInfo;
+		loopInfo->runOnFunction(*f);
+
+		//LoopInfo& LI = getAnalysis<LoopInfo>();
+		//loopInfo = &LI;
+
+
 		//--------------------------------------------------------------------//
 		// change return value of f to return unsigned (barrier id)
 		// = create new function with new signature and clone all blocks
@@ -966,7 +975,7 @@ namespace PacketizedOpenCLDriver {
 
 					std::stringstream sstr;
 					sstr << f->getNameStr() << "_cont_" << ++barrierIndex;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
-					Function* continuationFun = eliminateBarrier(call, fTypeNew, sstr.str());
+					Function* continuationFun = eliminateBarrier(call, fTypeNew, sstr.str(), loopInfo);
 					assert (continuationFun);
 					continuations.push_back(continuationFun);
 					functionChanged = true;
@@ -2331,28 +2340,37 @@ clCreateKernel(cl_program      program,
 
 #define TMPTMPTMP
 #ifdef TMPTMPTMP
-	std::set<Value*> liveInValues;
-	std::set<Value*> liveOutValues;
-	std::set<BasicBlock*> visitedBlocks;
+	FunctionPassManager FPM(module);
+	LivenessAnalyzer* LA = new LivenessAnalyzer(true);
+	FPM.add(LA);
+	FPM.run(*f);
+	LA->print(outs(), module);
+
+	
 	BasicBlock* bb = NULL;
 	bb = &f->getEntryBlock(); // first block
 	//bb = cast<BranchInst>(f->getEntryBlock().getTerminator())->getSuccessor(0); // pred of last block
 	//for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
 	//	if (isa<ReturnInst>(BB->getTerminator())) bb = *pred_begin(BB); // last block
 	//}
-	PacketizedOpenCLDriver::getBlockLiveValues(bb, liveInValues, liveOutValues, visitedBlocks);
+
+	LivenessAnalyzer::LiveInSetType* liveInValues = LA->getBlockLiveInValues(bb);
+	LivenessAnalyzer::LiveOutSetType* liveOutValues = LA->getBlockLiveOutValues(bb);
+	assert (liveInValues);
+	assert (liveOutValues);
 
 	outs() << "\n\nLIVE VALUE ANALYSIS DONE!\n";
 	outs() << "Live-In values of block '" << bb->getNameStr() << "':\n";
-	for (std::set<Value*>::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
+	for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
 		outs() << " * " << **it << "\n";
 	}
 	outs() << "\nLive-Out values of block '" << bb->getNameStr() << "':\n";
-	for (std::set<Value*>::iterator it=liveOutValues.begin(), E=liveOutValues.end(); it!=E; ++it) {
+	for (LivenessAnalyzer::LiveOutSetType::iterator it=liveOutValues->begin(), E=liveOutValues->end(); it!=E; ++it) {
 		outs() << " * " << **it << "\n";
 	}
 	outs() << "\n";
 	PacketizedOpenCLDriver::writeFunctionToFile(f, "asdf.ll");
+	f->viewCFG();
 	exit(0);
 #endif
 
