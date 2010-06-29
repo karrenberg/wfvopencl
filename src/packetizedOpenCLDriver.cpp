@@ -791,7 +791,7 @@ namespace PacketizedOpenCLDriver {
 	}
 
 	// returns the new function that is called at the point of the barrier
-	Function* eliminateBarrier(CallInst* barrier, const FunctionType* fTypeNew, const std::string& newFunName, LoopInfo* loopInfo) {
+	Function* eliminateBarrier(CallInst* barrier, const FunctionType* fTypeNew, const std::string& newFunName) {
 		assert (barrier);
 		BasicBlock* parentBlock = barrier->getParent();
 		assert (parentBlock);
@@ -825,17 +825,22 @@ namespace PacketizedOpenCLDriver {
 		//lvPass->isUsedInBlock(val, block);
 
 		// hand-coded analysis
-		std::set<Value*> liveInValues;
-		std::set<Value*> liveOutValues;
-		std::set<BasicBlock*> visitedBlocks;
-		//PacketizedOpenCLDriver::getBlockLiveValues(newBlock, loopInfo, liveInValues, liveOutValues, visitedBlocks);
+		FunctionPassManager FPM(mod);
+		LivenessAnalyzer* LA = new LivenessAnalyzer();
+		FPM.add(LA);
+		FPM.run(*f);
+
+		LivenessAnalyzer::LiveInSetType* liveInValues = LA->getBlockLiveInValues(newBlock);
+		LivenessAnalyzer::LiveOutSetType* liveOutValues = LA->getBlockLiveOutValues(newBlock);
+		assert (liveInValues);
+		assert (liveOutValues);
 
 		outs() << "\n\nLive-In values of block '" << newBlock->getNameStr() << "':\n";
-		for (std::set<Value*>::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
+		for (std::set<Value*>::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
 			outs() << " * " << **it << "\n";
 		}
 		outs() << "\nLive-Out values of block '" << newBlock->getNameStr() << "':\n";
-		for (std::set<Value*>::iterator it=liveOutValues.begin(), E=liveOutValues.end(); it!=E; ++it) {
+		for (std::set<Value*>::iterator it=liveOutValues->begin(), E=liveOutValues->end(); it!=E; ++it) {
 			outs() << " * " << **it << "\n";
 		}
 		outs() << "\n";
@@ -912,15 +917,6 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\neliminateBarriers(" << f->getNameStr() << ")\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  number of barriers in function: " << numBarriers << "\n"; );
 
-		// get loop info
-		//FunctionPassManager Passes(mod);
-		LoopInfo* loopInfo = new LoopInfo;
-		loopInfo->runOnFunction(*f);
-
-		//LoopInfo& LI = getAnalysis<LoopInfo>();
-		//loopInfo = &LI;
-
-
 		//--------------------------------------------------------------------//
 		// change return value of f to return unsigned (barrier id)
 		// = create new function with new signature and clone all blocks
@@ -975,7 +971,7 @@ namespace PacketizedOpenCLDriver {
 
 					std::stringstream sstr;
 					sstr << f->getNameStr() << "_cont_" << ++barrierIndex;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
-					Function* continuationFun = eliminateBarrier(call, fTypeNew, sstr.str(), loopInfo);
+					Function* continuationFun = eliminateBarrier(call, fTypeNew, sstr.str());
 					assert (continuationFun);
 					continuations.push_back(continuationFun);
 					functionChanged = true;
@@ -2338,13 +2334,12 @@ clCreateKernel(cl_program      program,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "scalar.ll"); );
 
 
-#define TMPTMPTMP
+//#define TMPTMPTMP
 #ifdef TMPTMPTMP
 	FunctionPassManager FPM(module);
 	LivenessAnalyzer* LA = new LivenessAnalyzer(true);
 	FPM.add(LA);
 	FPM.run(*f);
-	LA->print(outs(), module);
 
 	
 	BasicBlock* bb = NULL;
@@ -2371,6 +2366,7 @@ clCreateKernel(cl_program      program,
 	outs() << "\n";
 	PacketizedOpenCLDriver::writeFunctionToFile(f, "asdf.ll");
 	f->viewCFG();
+	delete LA;
 	exit(0);
 #endif
 

@@ -44,10 +44,10 @@
 using namespace llvm;
 
 namespace {
-    class VISIBILITY_HIDDEN LivenessAnalyzer : public FunctionPass {
+	class VISIBILITY_HIDDEN LivenessAnalyzer : public FunctionPass {
     public:
-        static char ID; // Pass identification, replacement for typeid
-        LivenessAnalyzer(const bool verbose_flag = false) : FunctionPass(&ID), verbose(verbose_flag) {}
+		static char ID; // Pass identification, replacement for typeid
+		LivenessAnalyzer(const bool verbose_flag = false) : FunctionPass(&ID), verbose(verbose_flag) {}
 		~LivenessAnalyzer() { releaseMemory(); }
 
         virtual bool runOnFunction(Function &f) {
@@ -84,11 +84,11 @@ namespace {
 			AU.setPreservesAll();
         }
 		void releaseMemory() {
-			delete loopInfo;
-			for (LiveValueMapType::iterator it=liveValueMap.begin(), E=liveValueMap.end(); it!=E; ++it) {
-				delete it->second.first;
-				delete it->second.second;
-			}
+//			delete loopInfo;
+//			for (LiveValueMapType::iterator it=liveValueMap.begin(), E=liveValueMap.end(); it!=E; ++it) {
+//				delete it->second.first;
+//				delete it->second.second;
+//			}
 		}
 
 		typedef std::set<Value*> LiveInSetType;
@@ -126,41 +126,48 @@ namespace {
 		// 1) LiveIn(block) = gen(block) u (LiveOut(block) - kill(block))
 		// 2) LiveOut(final) = {}
 		// 3) LiveOut(block) = u LiveIn(all successors)
+		//
+		// TODO: what is with the case of a loop latch with only a branch
+		//       back to the header? does it have live-values from blocks which
+		//       dominate the header?
 		void computeBlockLiveValues(BasicBlock* block, std::set<BasicBlock*>& visitedBlocks) {
 			assert (block && loopInfo);
 			DEBUG_PKT( outs() << "getBlockLiveValues(" << block->getNameStr() << ")\n"; );
-			// get sets for this block
-			assert (liveValueMap.find(block) != liveValueMap.end());
-			LiveValueSetType liveValueSet = liveValueMap.find(block)->second;
-			LiveInSetType* liveInSet = liveValueSet.first;
-			LiveOutSetType* liveOutSet = liveValueSet.second;
-
-			// handle loops separately:
-			// if block is a loop header, directly recurse into the exiting blocks
-			// of the loop before computing live-values inside the loop
-			if (loopInfo->isLoopHeader(block)) {
-				Loop* loop = loopInfo->getLoopFor(block);
-				DEBUG_PKT( outs() << "  block is header of loop: "; loop->dump(); outs() << "\n"; );
-
-				SmallVector<BasicBlock*, 2> exitBlocks;
-				loop->getUniqueExitBlocks(exitBlocks);
-
-				for (SmallVector<BasicBlock*, 2>::iterator it=exitBlocks.begin(), E=exitBlocks.end(); it!=E; ++it) {
-					BasicBlock* succBB = *it;
-					computeBlockLiveValues(succBB, visitedBlocks);
-				}
-			}
-
-
 			if (visitedBlocks.find(block) != visitedBlocks.end()) {
 				DEBUG_PKT( outs() << "  block already seen, skipped!\n"; );
 				return; // block already seen
 			}
 			visitedBlocks.insert(block);
 
+			// get sets for this block
+			assert (liveValueMap.find(block) != liveValueMap.end());
+			LiveValueSetType liveValueSet = liveValueMap.find(block)->second;
+			LiveInSetType* liveInSet = liveValueSet.first;
+			LiveOutSetType* liveOutSet = liveValueSet.second;
+
+			Loop* loop = loopInfo->getLoopFor(block);
+			if (loop && loop->getLoopLatch() == block) {
+				BasicBlock* header = loop->getHeader();
+				DEBUG_PKT( outs() << "  block is loop latch of loop: "; loop->dump(); );
+				for (BasicBlock::iterator I=header->begin(), IE=header->getFirstNonPHI(); I!=IE; ++I) {
+					assert (isa<PHINode>(I));
+					PHINode* phi = cast<PHINode>(I);
+					Value* val = phi->getIncomingValueForBlock(block);
+					assert (val);
+
+					// ignore all values that are neither an instruction nor an argument
+					if (!isa<Instruction>(val) && !isa<Argument>(val)) continue;
+
+					liveOutSet->insert(val);
+					DEBUG_PKT( outs() << "  added value to liveOut-set: " << *val << "\n"; );
+				}
+			}
+
 			// post-order DFS
+			// NOTE: if the successor is the loop header, we can skip the iteration
 			for (succ_iterator S = succ_begin(block), SE = succ_end(block); S!=SE; ++S) {
 				BasicBlock* succBB = *S;
+				if (loop && loop->getHeader() == succBB) continue;
 				
 				// First, check if we have already processed this successor
 				// and recurse if necessary.
@@ -175,15 +182,39 @@ namespace {
 
 				// liveOut-set is the union of all liveIn-sets of successors [dataflow-equation 3]
 				liveOutSet->insert(succLiveInSet->begin(), succLiveInSet->end());
+				for (LiveInSetType::iterator it=succLiveInSet->begin(), E=succLiveInSet->end(); it!=E; ++it) {
+					DEBUG_PKT( outs() << "  added value to liveOut-set: " << **it << "\n"; );
+				}
+
+				// remove values from liveOut-set that flow into successor-phi
+				// from other directions than current block
+				for (BasicBlock::iterator I=succBB->begin(), IE=succBB->getFirstNonPHI(); I!=IE; ++I) {
+					assert (isa<PHINode>(I));
+					PHINode* phi = cast<PHINode>(I);
+					//Value* val = phi->getIncomingValueForBlock(block);
+
+					for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
+						if (phi->getIncomingBlock(i) == block) continue;
+
+						liveOutSet->erase(phi->getIncomingValue(i));
+						DEBUG_PKT( outs() << "  removed value from liveOut-set: " << *phi->getIncomingValue(i) << "\n"; );
+					}
+				}
 
 				// liveIn-set is equal to liveOut-set (before applying kill/gen sets)
-				liveInSet->insert(succLiveInSet->begin(), succLiveInSet->end());
+				liveInSet->insert(liveOutSet->begin(), liveOutSet->end());
+				for (LiveOutSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
+					DEBUG_PKT( outs() << "  added value to liveIn-set: " << **it << "\n"; );
+				}
 			}
 
 
 			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
 				// remove defined values from liveIn-set [kill]
-				if (!liveInSet->empty()) liveInSet->erase(cast<Value>(I));
+				if (!liveInSet->empty()) {
+					liveInSet->erase(cast<Value>(I));
+					DEBUG_PKT( outs() << "  removed value from liveIn-set: " << *I << "\n"; );
+				}
 
 				// add used values to liveIn-set [gen]
 				for (Instruction::op_iterator OP=I->op_begin(), OPE=I->op_end(); OP!=OPE; ++OP) {
@@ -192,12 +223,19 @@ namespace {
 					// ignore all values that are neither an instruction nor an argument
 					if (Instruction* opI = dyn_cast<Instruction>(OP)) {
 						// ignore operands that are defined in same block
-						if (opI->getParent() != block) liveInSet->insert(opI);
+						if (opI->getParent() != block) {
+							liveInSet->insert(opI);
+							DEBUG_PKT( outs() << "  added value to liveIn-set: " << *opI << "\n"; );
+						}
 					} else if (Argument* argI = dyn_cast<Argument>(OP)) {
 						liveInSet->insert(cast<Value>(argI));
+						DEBUG_PKT( outs() << "  added value to liveIn-set: " << *argI << "\n"; );
 					}
 				}
 			}
+
+
+
 
 			DEBUG_PKT(
 				outs() << "\nLive-In set of block'" << block->getNameStr() << "':\n";
