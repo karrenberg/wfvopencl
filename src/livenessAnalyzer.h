@@ -38,8 +38,8 @@
 
 #include <llvm/Analysis/LoopInfo.h>
 
-#define DEBUG_PKT(x) do { x } while (false)
-//#define DEBUG_PKT(x) ((void)0)
+//#define DEBUG_PKT(x) do { x } while (false)
+#define DEBUG_PKT(x) ((void)0)
 
 using namespace llvm;
 
@@ -146,28 +146,27 @@ namespace {
 			LiveOutSetType* liveOutSet = liveValueSet.second;
 
 			Loop* loop = loopInfo->getLoopFor(block);
-			if (loop && loop->getLoopLatch() == block) {
-				BasicBlock* header = loop->getHeader();
-				DEBUG_PKT( outs() << "  block is loop latch of loop: "; loop->dump(); );
-				for (BasicBlock::iterator I=header->begin(), IE=header->getFirstNonPHI(); I!=IE; ++I) {
-					assert (isa<PHINode>(I));
-					PHINode* phi = cast<PHINode>(I);
-					Value* val = phi->getIncomingValueForBlock(block);
-					assert (val);
-
-					// ignore all values that are neither an instruction nor an argument
-					if (!isa<Instruction>(val) && !isa<Argument>(val)) continue;
-
-					liveOutSet->insert(val);
-					DEBUG_PKT( outs() << "  added value to liveOut-set: " << *val << "\n"; );
-				}
-			}
 
 			// post-order DFS
-			// NOTE: if the successor is the loop header, we can skip the iteration
 			for (succ_iterator S = succ_begin(block), SE = succ_end(block); S!=SE; ++S) {
 				BasicBlock* succBB = *S;
-				if (loop && loop->getHeader() == succBB) continue;
+				// if successor is loop header, process it differently (no further recursion)
+				if (loop && loop->getHeader() == succBB) {
+					DEBUG_PKT( outs() << "  block is loop latch of loop: "; loop->dump(); );
+					for (BasicBlock::iterator I=succBB->begin(), IE=succBB->getFirstNonPHI(); I!=IE; ++I) {
+						assert (isa<PHINode>(I));
+						PHINode* phi = cast<PHINode>(I);
+						Value* val = phi->getIncomingValueForBlock(block);
+						assert (val);
+
+						// ignore all values that are neither an instruction nor an argument
+						if (!isa<Instruction>(val) && !isa<Argument>(val)) continue;
+
+						liveOutSet->insert(val);
+						DEBUG_PKT( outs() << "  added value to liveOut-set: " << *val << "\n"; );
+					}
+					continue;
+				}
 				
 				// First, check if we have already processed this successor
 				// and recurse if necessary.

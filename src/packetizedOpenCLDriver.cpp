@@ -790,9 +790,21 @@ namespace PacketizedOpenCLDriver {
 		}
 	}
 
+
+	void findBlocksForCopyingDFS(const BasicBlock* block, std::vector<const BasicBlock*>& copyBlocks, std::set<const BasicBlock*>& visitedBlocks) {
+		if (visitedBlocks.find(block) != visitedBlocks.end()) return;
+		visitedBlocks.insert(block);
+
+		copyBlocks.push_back(block);
+		
+		for (succ_const_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
+			const BasicBlock* succBB = *S;
+			findBlocksForCopyingDFS(succBB, copyBlocks, visitedBlocks);
+		}
+	}
+
 	// returns the new function that is called at the point of the barrier
-	// TODO: remove values that are used in same block but only before barrier
-	Function* eliminateBarrier(CallInst* barrier, const std::string& newFunName) {
+	Function* eliminateBarrier(CallInst* barrier, const std::string& newFunName, const unsigned barrierIndex) {
 		assert (barrier);
 		BasicBlock* parentBlock = barrier->getParent();
 		assert (parentBlock);
@@ -847,65 +859,153 @@ namespace PacketizedOpenCLDriver {
 		);
 
 		//--------------------------------------------------------------------//
+		// create call to free for old parameter struct ( = last parameter)
+		// except for original function (ptr has not been initialized yet)
+		//--------------------------------------------------------------------//
+		Argument* oldDataPtr = --(f->arg_end());
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "old data ptr: " << *oldDataPtr << "\n"; );
+		if (barrierIndex != PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_START_ID) {
+			CallInst::CreateFree(oldDataPtr, barrier);
+		}
+
+		//--------------------------------------------------------------------//
 		// create struct with live-in values of newBlock
 		//--------------------------------------------------------------------//
 		std::vector<const Type*> params;
-		for (std::set<Value*>::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
+		for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
 			params.push_back((*it)->getType());
 		}
 		StructType* sType = StructType::get(context, params, false);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "new struct type: " << *sType << "\n"; );
-		AllocaInst* alloca = new AllocaInst(sType, "", barrier); //TODO: use malloc instead?
+		//AllocaInst* alloca = new AllocaInst(sType, "", barrier); //TODO: use malloc instead?
+
+
+		TargetData* targetData = new TargetData(mod);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "type size in bits : " << targetData->getTypeSizeInBits(sType) << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "alloc size in bits: " << targetData->getTypeAllocSizeInBits(sType) << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "alloc size        : " << targetData->getTypeAllocSize(sType) << "\n"; );
+		Value* allocSize = ConstantInt::get(context, APInt(64, targetData->getTypeAllocSize(sType)));
+#if 1
+		Value* newDataPtr = CallInst::CreateMalloc(barrier, targetData->getIntPtrType(context), sType, allocSize);
+#else
+		// Get malloc and free prototypes
+		Function* mallocFunc = mod->getFunction("malloc");
+
+		// if they don't exist, declare them
+		if (!mallocFunc) {
+			const FunctionType *mallocType =
+				FunctionType::get(PointerType::get(Type::SByteTy),
+				std::vector<const Type*>(1, Type::ULongTy), false);
+			mallocFunc = Function::Create(mallocType, Function::ExternalLinkage, "malloc", mod);
+		}
+
+		CallInst* mallocCall = CallInst::Create(mallocFunc, allocSize, "", barrier);
+		BitCastInst* newDataPtr = new BitCastInst(dataPtr, PointerType::getUnqual(sType), "", barrier);
+#endif
+		PACKETIZED_OPENCL_DRIVER_DEBUG( if (isa<Instruction>(newDataPtr)) outs() << "new malloc: " << *(cast<Instruction>(newDataPtr)->getOperand(0)) << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "new bc: " << *newDataPtr << "\n"; );
+		
 
 		// store values
 		unsigned i=0;
-		for (std::set<Value*>::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++i) {
-			GetElementPtrInst* gep = GetElementPtrInst::Create(alloca, ConstantInt::get(context, APInt(32, i)), "", barrier);
+		for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++i) {
+			std::vector<Value*> indices;
+			indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
+			indices.push_back(ConstantInt::get(context, APInt(32, i)));
+			GetElementPtrInst* gep = GetElementPtrInst::Create(newDataPtr, indices.begin(), indices.end(), "", barrier);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "store gep(" << i << "): " << *gep << "\n"; );
 			const unsigned align = 16;
 			new StoreInst(*it, gep, false, align);
 		}
 
 		//--------------------------------------------------------------------//
-		// create new function that takes struct as argument and returns barrier id
+		// store new struct to data pointer ( = last parameter)
 		//--------------------------------------------------------------------//
-		params.clear();
-		params.push_back(PointerType::getUnqual(sType));
-		FunctionType* fType = FunctionType::get(Type::getInt32Ty(context), params, false);
-
-		Function* continuation = Function::Create(fType, Function::ExternalLinkage, newFunName, mod); // TODO: check linkage type
-
-
-		//--------------------------------------------------------------------//
-		// copy all blocks 'below' parentBlock inside the new function (DFS)
-		//--------------------------------------------------------------------//
-		
+		Value* voidptr = cast<BitCastInst>(newDataPtr)->getOperand(0);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "new: " << *voidptr << "\n"; );
+		new StoreInst(voidptr, oldDataPtr, false, 16);
 
 		//--------------------------------------------------------------------//
 		// delete the edge from parentBlock to newBlock (there is none as long
 		// as we did not generate a branch ourselves)
 		//--------------------------------------------------------------------//
+		// nothing to do here
+
+		//--------------------------------------------------------------------//
+		// create return that returns the id for the next call
+		//--------------------------------------------------------------------//
+		const Type* returnType = Type::getInt32Ty(context);
+		ReturnInst::Create(context, ConstantInt::get(returnType, barrierIndex, true), barrier);
 
 		//--------------------------------------------------------------------//
 		// (dead code elimination should remove newBlock and all blocks below
 		// that are dead.)
 		//--------------------------------------------------------------------//
+		// nothing to do here
 
 		//--------------------------------------------------------------------//
-		// create call to new function
+		// erase barrier
 		//--------------------------------------------------------------------//
-
-		//--------------------------------------------------------------------//
-		// create return that returns the result of the call
-		//--------------------------------------------------------------------//
-
-
-		// temporary: just delete it to be able to test ^^ and generate dummy return
-		if (!barrier->use_empty()) barrier->replaceAllUsesWith(Constant::getNullValue(barrier->getType()));
+		//if (!barrier->use_empty()) barrier->replaceAllUsesWith(Constant::getNullValue(barrier->getType()));
+		assert (barrier->use_empty());
 		barrier->eraseFromParent();
-		IRBuilder<> builder(context);
+
+
+
+		//--------------------------------------------------------------------//
+		// create new function that takes live value struct via void* as
+		// argument and returns barrier id
+		//--------------------------------------------------------------------//
+		params.clear();
+		params.push_back(PointerType::getUnqual(Type::getInt8PtrTy(context)));
+		FunctionType* fType = FunctionType::get(returnType, params, false);
+
+		Function* continuation = Function::Create(fType, Function::ExternalLinkage, newFunName, mod); // TODO: check linkage type
+
+		//--------------------------------------------------------------------//
+		// create new entry block for function
+		//--------------------------------------------------------------------//
 		BasicBlock* entryBB = BasicBlock::Create(context, "entry", continuation);
+
+		//--------------------------------------------------------------------//
+		// cast data-ptr to structtype, extract values from data struct, and
+		// create mappings for copy operation
+		//--------------------------------------------------------------------//
+		IRBuilder<> builder(context);
 		builder.SetInsertPoint(entryBB);
-		builder.CreateRet(ConstantInt::get(fType->getReturnType(), 1, true));
+
+		Argument* dataPtr = continuation->arg_begin();
+		Value* bc = builder.CreateBitCast(dataPtr, PointerType::getUnqual(sType));
+		
+		DenseMap<const Value*, Value*> valueMap;
+		unsigned j=0;
+		for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++j) {
+			Value* liveVal = *it;
+			const std::string& name = liveVal->hasName() ? liveVal->getNameStr() : "";
+			std::vector<Value*> indices;
+			indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
+			indices.push_back(ConstantInt::get(context, APInt(32, j)));
+			Value* gep = builder.CreateGEP(bc, indices.begin(), indices.end(), name);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "load gep(" << j << "): " << *gep << "\n"; );
+			LoadInst* load = builder.CreateLoad(gep, false, "");
+			valueMap[liveVal] = load;
+		}
+
+		//--------------------------------------------------------------------//
+		// copy all blocks 'below' parentBlock inside the new function (DFS)
+		//--------------------------------------------------------------------//
+		std::vector<const BasicBlock*> copyBlocks;
+		std::set<const BasicBlock*> visitedBlocks;
+		findBlocksForCopyingDFS(newBlock, copyBlocks, visitedBlocks);
+
+		for (std::vector<const BasicBlock*>::iterator it=copyBlocks.begin(), E=copyBlocks.end(); it!=E; ++it) {
+			const BasicBlock* block = *it;
+			DenseMap<const Value*, Value*> valueMap;
+			CloneBasicBlock(block, valueMap, "", continuation);
+		}
+		
+
+		
 
 		return continuation;
 	}
@@ -938,6 +1038,7 @@ namespace PacketizedOpenCLDriver {
 
 		//--------------------------------------------------------------------//
 		// change return value of f to return unsigned (barrier id)
+		// and add another parameter to the end of the argument list (void* data)
 		// = create new function with new signature and clone all blocks
 		// The former return statements now all return -1 (special end id)
 		//--------------------------------------------------------------------//
@@ -946,14 +1047,17 @@ namespace PacketizedOpenCLDriver {
 		for (FunctionType::param_iterator it=fTypeOld->param_begin(), E=fTypeOld->param_end(); it!=E; ++it) {
 			params.push_back(*it);
 		}
+		params.push_back(PointerType::getUnqual(Type::getInt8PtrTy(context))); // add void*-argument (= live value struct return param)
 		const FunctionType* fTypeNew = FunctionType::get(Type::getInt32Ty(context), params, false);
 		Function* newF = Function::Create(fTypeNew, Function::ExternalLinkage, f->getNameStr()+"_begin", mod); // TODO: check linkage type
+		(--newF->arg_end())->setName("dataptr");
 
 		// specify mapping of parameters
 		DenseMap<const Value*, Value*> valueMap;
 		Function::arg_iterator A2 = newF->arg_begin();
 		for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A, ++A2) {
-			valueMap.insert(std::make_pair(A, A2));
+			valueMap[A] = A2; //valueMap.insert(std::make_pair(A, A2));
+			A2->takeName(A);
 		}
 		SmallVector<ReturnInst*, 2> returns;
 
@@ -972,7 +1076,7 @@ namespace PacketizedOpenCLDriver {
 		std::vector<Function*> continuations;
 		//continuations.reserve(numContinuationFunctions);
 		continuations.push_back(newF);
-		unsigned barrierIndex = 0; // only used for naming scheme
+		unsigned barrierIndex = 0;
 		bool functionChanged = true;
 		while (functionChanged) {
 			functionChanged = false;
@@ -990,7 +1094,7 @@ namespace PacketizedOpenCLDriver {
 
 					std::stringstream sstr;
 					sstr << f->getNameStr() << "_cont_" << ++barrierIndex;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
-					Function* continuationFun = eliminateBarrier(call, sstr.str());
+					Function* continuationFun = eliminateBarrier(call, sstr.str(), barrierIndex);
 					assert (continuationFun);
 					continuations.push_back(continuationFun);
 					functionChanged = true;
@@ -1010,17 +1114,30 @@ namespace PacketizedOpenCLDriver {
 		// (= the remainder of the original kernel).
 		// The while loop iterates until the barrier id is set to a special
 		// 'end' id.
+		// Each function has the same signature receiving only a void*.
+		// In case of a continuation, this is a struct which holds the live
+		// values that were live at the splitting point.
+		// Before returning to the switch, the struct is deleted and the live
+		// values for the next call are written into a newly allocated struct
+		// (which the void* then points to).
 		//--------------------------------------------------------------------//
 		// Example:
 		/*
+		void* data = NULL;
 		while (true) {
 			switch (current_barrier_id) {
-				case BARRIER_BEGIN: current_barrier_id = runOrigFunc(...); break;
+				case BARRIER_BEGIN: current_barrier_id = runOrigFunc(..., &data); break;
 				case BARRIER_END: return;
-				case B0: current_barrier_id = runFunc0(...); break;
-				case B1: current_barrier_id = runFunc1(...); break;
+				case B0: {
+					current_barrier_id = runFunc0(&data); break;
+				}
+				case B1: {
+					current_barrier_id = runFunc1(&data); break;
+				}
 				...
-				case BN: current_barrier_id = runFuncN(...); break;
+				case BN: {
+					current_barrier_id = runFuncN(&data); break;
+				}
 				default: error; break;
 			}
 		}
@@ -1034,7 +1151,6 @@ namespace PacketizedOpenCLDriver {
 
 		// create blocks for while loop
 		BasicBlock* headerBB = BasicBlock::Create(context, "while.header", wrapper);
-		//BasicBlock* bodyBB = BasicBlock::Create(context, "while.body", wrapper);
 		BasicBlock* latchBB = BasicBlock::Create(context, "while.latch", wrapper);
 
 		// create call blocks (switch targets)
@@ -1050,8 +1166,10 @@ namespace PacketizedOpenCLDriver {
 
 
 
-		// fill entry block (empty, directly branch to header)
+		// fill entry block (empty except for alloc/store of data pointer and branch to header)
 		builder.SetInsertPoint(entryBB);
+		Value* dataPtr = builder.CreateAlloca(Type::getInt8PtrTy(context));
+		//builder.CreateStore(ConstantInt::getNullValue(Type::getInt8PtrTy(context)), dataPtr, false); //not necessary
 		builder.CreateBr(headerBB);
 
 		// fill header
@@ -1071,19 +1189,26 @@ namespace PacketizedOpenCLDriver {
 		for (unsigned i=0; i<numContinuationFunctions; ++i) {
 			BasicBlock* block = callBBs[i];
 			builder.SetInsertPoint(block);
+
 			// create the call to f
-			SmallVector<Value*, 8> args;
-			for (Function::arg_iterator A=wrapper->arg_begin(), AE=wrapper->arg_end(); A!=AE; ++A) {
-				assert (isa<Value>(A));
-				args.push_back(cast<Value>(A));
+			// the first block holds the call to the (remainder of the) original function,
+			// which receives the original arguments plus the data pointer.
+			// All other blocks only receive the data pointer.
+			SmallVector<Value*, 2> args;
+			if (i == 0) {
+				for (Function::arg_iterator A=wrapper->arg_begin(), AE=wrapper->arg_end(); A!=AE; ++A) {
+					assert (isa<Value>(A));
+					args.push_back(cast<Value>(A));
+				}
 			}
-			//CallInst* call = builder.CreateCall(continuations[i], wrapper->arg_begin(), wrapper->arg_end(), "continuation"+i); // doesn't work! ARGH!!!
-			outs() << "creating call for continuation: " << continuations[i]->getNameStr() << "\n";
+			args.push_back(dataPtr);
+			
 			std::stringstream sstr;
-			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
+			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
 			calls[i] = builder.CreateCall(continuations[i], args.begin(), args.end(), sstr.str());
 			//calls[i]->addAttribute(1, Attribute::NoCapture);
 			//calls[i]->addAttribute(1, Attribute::NoAlias);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "created call for continuation '" << continuations[i]->getNameStr() << "':" << *calls[i] << "\n"; );
 
 			builder.CreateBr(latchBB);
 		}
@@ -1107,6 +1232,7 @@ namespace PacketizedOpenCLDriver {
 
 		
 		// fill exit
+		CallInst::CreateFree(dataPtr, exitBB); //not possible with builder
 		builder.SetInsertPoint(exitBB);
 		builder.CreateRetVoid();
 
