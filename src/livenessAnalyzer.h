@@ -97,18 +97,21 @@ namespace {
 		typedef std::map< BasicBlock*, LiveValueSetType > LiveValueMapType;
 
 		LiveValueSetType* getBlockLiveValues(BasicBlock* block) {
+			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
 			return &(it->second);
 		}
 		LiveInSetType* getBlockLiveInValues(BasicBlock* block) {
+			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
 			return it->second.first;
 		}
 		LiveOutSetType* getBlockLiveOutValues(BasicBlock* block) {
+			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
