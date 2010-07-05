@@ -89,7 +89,8 @@ PrefixSum
 RadixSort
 ScanLargeArrays
 SimpleConvolution
-SimpleTest
+TestSimple
+TestBarrier
 """)
 
 for a in testApps:

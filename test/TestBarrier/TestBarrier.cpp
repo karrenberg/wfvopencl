@@ -154,7 +154,7 @@ int main(int argc, char** argv)
     // Create the compute program from the source buffer
     //
     //program = clCreateProgramWithSource(context, 1, (const char **) & KernelSource, NULL, &err);
-    const char * source = "SimpleTest_Kernels.bc";
+    const char * source = "TestBarrier_Kernels.bc";
     program = clCreateProgramWithSource(context, 1, &source, NULL, &err);
     if (!program)
     {
@@ -229,6 +229,7 @@ int main(int argc, char** argv)
     // using the maximum number of work group items for this device
     //
     global = count;
+	if (local > global) local = global;
     err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
     if (err)
     {
