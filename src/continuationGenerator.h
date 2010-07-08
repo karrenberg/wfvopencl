@@ -114,6 +114,7 @@ private:
 
 	// returns the new function that is called at the point of the barrier
 	Function* createContinuation(CallInst* barrier, BasicBlock* parentBlock, const std::string& newFunName, const unsigned barrierIndex, TargetData* targetData, StructType* continuationLiveValueStructType) {
+		DEBUG_PKT( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
 		assert (barrier && parentBlock);
 		assert (barrier->getParent());
 		Function* f = barrier->getParent()->getParent();
@@ -125,8 +126,16 @@ private:
 
 		//--------------------------------------------------------------------//
 		// split block at the position of the barrier
+		// (barrier has to be in "upper block")
 		//--------------------------------------------------------------------//
-		BasicBlock* newBlock = parentBlock->splitBasicBlock(barrier, parentBlock->getNameStr()+".barrier");
+		// find instruction that precedes barrier (= split point)
+		Instruction* splitInst = NULL;
+		BasicBlock::iterator I = --(parentBlock->end());
+		while (barrier != I) {
+			splitInst = I--;
+		}
+		// 'newBlock' is the first of the new continuation, 'parentBlock' the one with the barrier
+		BasicBlock* newBlock = parentBlock->splitBasicBlock(splitInst, parentBlock->getNameStr()+".postbarrier");
 
 		//--------------------------------------------------------------------//
 		// get live values for this block
@@ -188,10 +197,10 @@ private:
 
 
 		//--------------------------------------------------------------------//
-		// delete the edge from parentBlock to newBlock (there is none as long
-		// as we did not generate a branch ourselves)
+		// delete the edge from parentBlock to newBlock
 		//--------------------------------------------------------------------//
-		// nothing to do here
+		assert (parentBlock->getTerminator()->use_empty());
+		parentBlock->getTerminator()->eraseFromParent();
 
 		//--------------------------------------------------------------------//
 		// create return that returns the id for the next call
@@ -230,16 +239,21 @@ private:
 		FunctionType* fType = FunctionType::get(returnType, params, false);
 
 		Function* continuation = Function::Create(fType, Function::ExternalLinkage, newFunName, mod); // TODO: check linkage type
+		DEBUG_PKT( outs() << "\nnew continuation declaration: " << *continuation << "\n"; );
 
 		// create mappings of live-in values to arguments for copying of blocks
+		DEBUG_PKT( outs() << "\nlive value mappings:\n"; );
 		DenseMap<const Value*, Value*> valueMap;
 		Function::arg_iterator A = continuation->arg_begin();
 		for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A) {
 			Value* liveVal = *it;
 			valueMap[liveVal] = A;
+			DEBUG_PKT( outs() << " * " << *liveVal << " -> " << *A << "\n"; );
 		}
 
-		DEBUG_PKT( outs() << "\nnew continuation function: " << *continuation << "\n"; );
+		// create mapping for data pointer (last argument to last argument
+		valueMap[(--(f->arg_end()))] = --(continuation->arg_end());
+
 
 		//--------------------------------------------------------------------//
 		// copy all blocks 'below' parentBlock inside the new function (DFS)
@@ -262,14 +276,14 @@ private:
 		//       via includes (as of llvm-2.8svn ~May/June 2010 :p).
 
 		// Therefore, we need to have dummy-mappings for all arguments of the
-		// old function.
-		std::vector<Value*> dummyArgs;
+		// old function that do not yet have a mapping (= that are not part of
+		// the live values).
 		for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A) {
+			if (valueMap.find(A) != valueMap.end()) continue;
 			Value* dummy = UndefValue::get(A->getType());
-			//Value* dummy = Constant::getNullValue(A->getType());
-			dummyArgs.push_back(dummy);
 			valueMap[A] = dummy;
 		}
+
 
 		SmallVector<ReturnInst*, 2> returns;
 		CloneFunctionInto(continuation, f, valueMap, returns, ".");
@@ -299,6 +313,17 @@ private:
 		dummyBB->eraseFromParent();
 
 		// TODO: erase dummy values from value map?
+
+		DEBUG_PKT( outs() << *f << "\n"; );
+		DEBUG_PKT( outs() << *continuation << "\n"; );
+		DEBUG_PKT( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
+
+		DEBUG_PKT(
+			outs() << "verifying functions... ";
+			verifyFunction(*f);
+			verifyFunction(*continuation);
+			outs() << "done.\n";
+		);
 
 		continuationLiveValueStructType = sType;
 		return continuation;
