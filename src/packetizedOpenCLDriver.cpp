@@ -2029,18 +2029,18 @@ clCreateKernel(cl_program      program,
 	//	if (isa<ReturnInst>(BB->getTerminator())) bb = *pred_begin(BB); // last block
 	//}
 
-	LivenessAnalyzer::LiveInSetType* liveInValues = LA->getBlockLiveInValues(bb);
-	LivenessAnalyzer::LiveOutSetType* liveOutValues = LA->getBlockLiveOutValues(bb);
+	LivenessAnalyzer::LiveSetType* liveInValues = LA->getBlockLiveInValues(bb);
+	LivenessAnalyzer::LiveSetType* liveOutValues = LA->getBlockLiveOutValues(bb);
 	assert (liveInValues);
 	assert (liveOutValues);
 
 	outs() << "\n\nLIVE VALUE ANALYSIS DONE!\n";
 	outs() << "Live-In values of block '" << bb->getNameStr() << "':\n";
-	for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
+	for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
 		outs() << " * " << **it << "\n";
 	}
 	outs() << "\nLive-Out values of block '" << bb->getNameStr() << "':\n";
-	for (LivenessAnalyzer::LiveOutSetType::iterator it=liveOutValues->begin(), E=liveOutValues->end(); it!=E; ++it) {
+	for (LivenessAnalyzer::LiveSetType::iterator it=liveOutValues->begin(), E=liveOutValues->end(); it!=E; ++it) {
 		outs() << " * " << **it << "\n";
 	}
 	outs() << "\n";

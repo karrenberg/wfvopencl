@@ -37,6 +37,7 @@
 #include <llvm/Module.h>
 
 #include "livenessAnalyzer.h"
+#include "llvmTools.hpp"
 #include <llvm/Analysis/Dominators.h>
 
 #define DEBUG_PKT(x) do { x } while (false)
@@ -76,8 +77,6 @@ public:
 		DEBUG_PKT( outs() << "generation of continuations finished!\n"; );
 		DEBUG_PKT( print(outs(), NULL); );
 		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
-
-		outs() << f;
 
 		exit(0);
 		return newFunction != NULL; // if newFunction does not exist, nothing has changed
@@ -181,6 +180,10 @@ private:
 
 		DEBUG_PKT( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
 
+		// before splitting, get block-internal live values
+		// (values that are defined inside block and live over the barrier)
+		LivenessAnalyzer::LiveSetType internalLiveValues;
+		livenessAnalyzer->getBlockInternalLiveValues(barrier, internalLiveValues);
 
 		//--------------------------------------------------------------------//
 		// split block at the position of the barrier
@@ -202,22 +205,21 @@ private:
 		//       entire function.
 		// TODO: Refine by removing defined values in same block above barrier.
 		//--------------------------------------------------------------------//
-		LivenessAnalyzer::LiveInSetType* liveInValues = livenessAnalyzer->getBlockLiveInValues(parentBlock);
-		LivenessAnalyzer::LiveOutSetType* liveOutValues = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
+		LivenessAnalyzer::LiveSetType* liveInValues = livenessAnalyzer->getBlockLiveInValues(parentBlock);
+		LivenessAnalyzer::LiveSetType* liveOutValues = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
 		assert (liveInValues);
 		assert (liveOutValues);
+		
+		// merge block-internal live values with liveInValues
+		liveInValues->insert(internalLiveValues.begin(), internalLiveValues.end());
+
 
 		DEBUG_PKT(
 			outs() << "\n\nLive-In values of block '" << parentBlock->getNameStr() << "':\n";
 			for (std::set<Value*>::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
 				outs() << " * " << **it << "\n";
 			}
-			outs() << "\nLive-Out values of block '" << parentBlock->getNameStr() << "':\n";
-			for (std::set<Value*>::iterator it=liveOutValues->begin(), E=liveOutValues->end(); it!=E; ++it) {
-				outs() << " * " << **it << "\n";
-			}
 			outs() << "\n";
-			PacketizedOpenCLDriver::writeFunctionToFile(f, "asdf.ll");
 		);
 
 
@@ -225,7 +227,7 @@ private:
 		// create struct with live-in values of newBlock
 		//--------------------------------------------------------------------//
 		std::vector<const Type*> params;
-		for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
+		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
 			params.push_back((*it)->getType());
 		}
 		StructType* sType = StructType::get(context, params, false);
@@ -243,7 +245,7 @@ private:
 
 		// store values
 		unsigned i=0;
-		for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
+		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
 			std::vector<Value*> indices;
 			indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
 			indices.push_back(ConstantInt::get(context, APInt(32, i++)));
@@ -299,11 +301,14 @@ private:
 		Function* continuation = Function::Create(fType, Function::ExternalLinkage, newFunName, mod); // TODO: check linkage type
 		DEBUG_PKT( outs() << "\nnew continuation declaration: " << *continuation << "\n"; );
 
+		//--------------------------------------------------------------------//
+		// create mappings of values
+		//--------------------------------------------------------------------//
 		// create mappings of live-in values to arguments for copying of blocks
 		DEBUG_PKT( outs() << "\nlive value mappings:\n"; );
 		DenseMap<const Value*, Value*> valueMap;
 		Function::arg_iterator A = continuation->arg_begin();
-		for (LivenessAnalyzer::LiveInSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A) {
+		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A) {
 			Value* liveVal = *it;
 			valueMap[liveVal] = A;
 			DEBUG_PKT( outs() << " * " << *liveVal << " -> " << *A << "\n"; );
@@ -329,9 +334,9 @@ private:
 		);
 
 		// HACK: Copy over entire function and remove all unnecessary blocks.
-		//       This is required because RemapInstructions has to be called by
-		//       hand if we only use CloneBasicBlock and it is not available
-		//       via includes (as of llvm-2.8svn ~May/June 2010 :p).
+		//       This is required because CloneBasicBlock does not perform any
+		//       remapping. RemapInstructions thus has to be called by hand and
+		//       is not available via includes (as of llvm-2.8svn ~May/June 2010 :p).
 
 		// Therefore, we need to have dummy-mappings for all arguments of the
 		// old function that do not yet have a mapping (= that are not part of
@@ -342,10 +347,27 @@ private:
 			valueMap[A] = dummy;
 		}
 
-
 		SmallVector<ReturnInst*, 2> returns;
 		CloneFunctionInto(continuation, f, valueMap, returns, ".");
 
+		// remap values that were no arguments
+		// NOTE: apparently, CloneFunctionInto does not look into the valueMap
+		//       if it directly finds all references. Due to the fact that we
+		//       copy the entire function, live values that are no arguments
+		//       are still resolved by their former definitions which only get
+		//       erased in the next step.
+		// TODO: Are we sure that the ordering is always correct with LiveSetType
+		//       being a set? :p
+		Function::arg_iterator A2 = continuation->arg_begin();
+		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A2) {
+			Value* liveVal = *it;
+			if (isa<Argument>(liveVal)) continue;
+
+			Value* newVal = valueMap[liveVal];
+			newVal->replaceAllUsesWith(A2);
+		}
+
+		// erase all blocks that do not belong to this continuation
 		BasicBlock* dummyBB = BasicBlock::Create(context, "dummy", continuation);
 		// iterate over blocks of original fun, but work on blocks of continuation fun
 		// -> can't find out block in old fun for given block in new fun via map ;)
@@ -372,8 +394,8 @@ private:
 
 		// TODO: erase dummy values from value map?
 
-		DEBUG_PKT( outs() << *f << "\n"; );
 		DEBUG_PKT( outs() << *continuation << "\n"; );
+		DEBUG_PKT( outs() << *f << "\n"; );
 		DEBUG_PKT( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
 
 		DEBUG_PKT(
@@ -740,12 +762,14 @@ private:
 		// inline continuation functions & optimize wrapper
 		//--------------------------------------------------------------------//
 		PacketizedOpenCLDriver::inlineFunctionCalls(wrapper, targetData);
+		outs() << *wrapper << "\n";
 		PacketizedOpenCLDriver::optimizeFunction(wrapper);
 
 		DEBUG_PKT( PacketizedOpenCLDriver::verifyModule(mod); );
 
 		//outs() << *mod << "\n";
 		outs() << *wrapper << "\n";
+		DEBUG_PKT( PacketizedOpenCLDriver::writeModuleToFile(mod, "barrierwrapper.mod.ll"); );
 
 		return wrapper;
 	}

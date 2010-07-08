@@ -62,8 +62,8 @@ namespace {
 
 			// initialize map
 			for (Function::iterator BB=f.begin(), BBE=f.end(); BB!=BBE; ++BB) {
-				LiveInSetType* liveInSet = new LiveInSetType();
-				LiveOutSetType* liveOutSet = new LiveOutSetType();
+				LiveSetType* liveInSet = new LiveSetType();
+				LiveSetType* liveOutSet = new LiveSetType();
 				liveValueMap.insert(std::make_pair(BB, std::make_pair(liveInSet, liveOutSet)));
 			}
 
@@ -91,9 +91,8 @@ namespace {
 //			}
 		}
 
-		typedef std::set<Value*> LiveInSetType;
-		typedef std::set<Value*> LiveOutSetType;
-		typedef std::pair< LiveInSetType*, LiveOutSetType* > LiveValueSetType;
+		typedef std::set<Value*> LiveSetType;
+		typedef std::pair< LiveSetType*, LiveSetType* > LiveValueSetType;
 		typedef std::map< BasicBlock*, LiveValueSetType > LiveValueMapType;
 
 		inline LiveValueSetType* getBlockLiveValues(BasicBlock* block) {
@@ -103,19 +102,55 @@ namespace {
 
 			return &(it->second);
 		}
-		inline LiveInSetType* getBlockLiveInValues(BasicBlock* block) {
+		inline LiveSetType* getBlockLiveInValues(BasicBlock* block) {
 			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
 			return it->second.first;
 		}
-		inline LiveOutSetType* getBlockLiveOutValues(BasicBlock* block) {
+		inline LiveSetType* getBlockLiveOutValues(BasicBlock* block) {
 			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
 			return it->second.second;
+		}
+
+		void getBlockInternalLiveValues(Instruction* inst, LiveSetType& liveVals) {
+			assert (inst && inst->getParent());
+			BasicBlock* block = inst->getParent();
+			DEBUG_PKT( outs() << "\ngetBlockInternalLiveValues(" << block->getNameStr() << ")\n"; );
+
+			// create map which holds order of instructions
+			unsigned frontierId = 0;
+			std::map<Instruction*, unsigned> instMap;
+			unsigned i=0;
+			DEBUG_PKT( outs() << "instructions:\n"; );
+			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
+				if (inst == I) frontierId = i;
+				instMap[I] = i++;
+				DEBUG_PKT( outs() << " (" << i-1 << ")" << (inst == I ? "*" : " ") << *I << "\n"; );
+			}
+			DEBUG_PKT( outs() << "\n"; );
+
+			// check each use of each instruction if it lies "behind" inst
+			// if so, it is live after inst
+			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
+				const unsigned instId = instMap[I];
+				if (instId > frontierId) break;
+				DEBUG_PKT( outs() << "checking uses of instruction " << instId << "\n"; );
+				for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
+					assert (isa<Instruction>(U));
+					Instruction* useI = cast<Instruction>(U);
+					const unsigned useId = instMap[useI];
+					const bool isLive = useId > frontierId;
+					if (isLive) {
+						liveVals.insert(I);
+					}
+					DEBUG_PKT( outs() << "  use: (" << useId << ") - is " << (isLive ? "" : "not ") << "live!\n"; );
+				}
+			}
 		}
 
 		// this is so ugly... =)
@@ -126,13 +161,13 @@ namespace {
 
 			for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
 				DEBUG_PKT( outs() << "mapping live values of basic block '" << BB->getNameStr() << "'...\n"; );
-				LiveInSetType* liveInSet = getBlockLiveInValues(BB);
-				LiveOutSetType* liveOutSet = getBlockLiveOutValues(BB);
+				LiveSetType* liveInSet = getBlockLiveInValues(BB);
+				LiveSetType* liveOutSet = getBlockLiveOutValues(BB);
 
 				if (liveInSet) {
 					Value** tmpVals = new Value*[liveInSet->size()]();
 					int i=0;
-					for (LiveInSetType::iterator it=liveInSet->begin(), E=liveInSet->end(); it!=E; ++it) {
+					for (LiveSetType::iterator it=liveInSet->begin(), E=liveInSet->end(); it!=E; ++it) {
 						tmpVals[i++] = *it;
 					}
 					liveInSet->clear();
@@ -154,7 +189,7 @@ namespace {
 				if (liveOutSet) {
 					Value** tmpVals = new Value*[liveOutSet->size()]();
 					int i=0;
-					for (LiveOutSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
+					for (LiveSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
 						tmpVals[i++] = *it;
 					}
 					liveOutSet->clear();
@@ -215,8 +250,8 @@ namespace {
 			// get sets for this block
 			assert (liveValueMap.find(block) != liveValueMap.end());
 			LiveValueSetType liveValueSet = liveValueMap.find(block)->second;
-			LiveInSetType* liveInSet = liveValueSet.first;
-			LiveOutSetType* liveOutSet = liveValueSet.second;
+			LiveSetType* liveInSet = liveValueSet.first;
+			LiveSetType* liveOutSet = liveValueSet.second;
 
 			Loop* loop = loopInfo->getLoopFor(block);
 
@@ -249,12 +284,12 @@ namespace {
 
 				assert (liveValueMap.find(succBB) != liveValueMap.end());
 				LiveValueSetType succLiveValueSet = liveValueMap.find(succBB)->second;
-				LiveInSetType* succLiveInSet = succLiveValueSet.first;
+				LiveSetType* succLiveInSet = succLiveValueSet.first;
 
 
 				// liveOut-set is the union of all liveIn-sets of successors [dataflow-equation 3]
 				liveOutSet->insert(succLiveInSet->begin(), succLiveInSet->end());
-				for (LiveInSetType::iterator it=succLiveInSet->begin(), E=succLiveInSet->end(); it!=E; ++it) {
+				for (LiveSetType::iterator it=succLiveInSet->begin(), E=succLiveInSet->end(); it!=E; ++it) {
 					DEBUG_PKT( outs() << "  added value to liveOut-set: " << **it << "\n"; );
 				}
 
@@ -275,7 +310,7 @@ namespace {
 
 				// liveIn-set is equal to liveOut-set (before applying kill/gen sets)
 				liveInSet->insert(liveOutSet->begin(), liveOutSet->end());
-				for (LiveOutSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
+				for (LiveSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
 					DEBUG_PKT( outs() << "  added value to liveIn-set: " << **it << "\n"; );
 				}
 			}
