@@ -97,8 +97,59 @@ private:
 	//DominatorTree* domTree;
 	LivenessAnalyzer* livenessAnalyzer;
 
+	struct BarrierInfo {
+		BarrierInfo(CallInst* call, BasicBlock* parentBB, unsigned d)
+			: id(0), barrier(call), parentBlock(parentBB), depth(d), continuation(NULL), liveValueStructType(NULL) {}
+		unsigned id;
+		CallInst* barrier;
+		BasicBlock* parentBlock; // parent block of original function (might have been split due to other barriers)
+		unsigned depth;
+		Function* continuation;
+		StructType* liveValueStructType;
+	};
+	typedef DenseMap<unsigned, SmallVector<BarrierInfo*, 4>* > BarrierMapType;
 
 
+	unsigned findBarriersDFS(BasicBlock* block, unsigned depth, BarrierMapType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
+		assert (block);
+		if (visitedBlocks.find(block) != visitedBlocks.end()) return 0;
+		visitedBlocks.insert(block);
+
+		unsigned numBarriers = 0;
+
+		SmallVector<BarrierInfo*, 4>* depthVector = NULL;
+		if (barriers.find(depth) == barriers.end()) {
+			// no bucket for this depth exists yet -> generate and store
+			depthVector = new SmallVector<BarrierInfo*, 4>();
+			barriers[depth] = depthVector;
+		} else {
+			// fetch bucket for this depth
+			depthVector = barriers[depth];
+		}
+
+		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+			if (!isa<CallInst>(I)) continue;
+			CallInst* call = cast<CallInst>(I);
+
+			const Function* callee = call->getCalledFunction();
+			if (!callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) continue;
+
+			++numBarriers;
+
+			BarrierInfo* bi = new BarrierInfo(call, block, depth);
+			depthVector->push_back(bi); // append barrier to bucket of current depth
+
+			if (depth > maxBarrierDepth) maxBarrierDepth = depth;
+		}
+
+		for (succ_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
+			BasicBlock* succBB = *S;
+
+			numBarriers += findBarriersDFS(succBB, depth+1, barriers, maxBarrierDepth, visitedBlocks);
+		}
+
+		return numBarriers;
+	}
 	void findContinuationBlocksDFS(const BasicBlock* block, std::set<const BasicBlock*>& copyBlocks, std::set<const BasicBlock*>& visitedBlocks) {
 		assert (block);
 		if (visitedBlocks.find(block) != visitedBlocks.end()) return;
@@ -112,17 +163,24 @@ private:
 		}
 	}
 
-	// returns the new function that is called at the point of the barrier
-	Function* createContinuation(CallInst* barrier, BasicBlock* parentBlock, const std::string& newFunName, const unsigned barrierIndex, TargetData* targetData, StructType* continuationLiveValueStructType) {
-		DEBUG_PKT( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
+	// generates a continuation function that is called at the point of the barrier
+	void createContinuation(BarrierInfo* barrierInfo, const std::string& newFunName, TargetData* targetData) {
+		assert (barrierInfo && targetData);
+		const unsigned barrierIndex = barrierInfo->id;
+		CallInst* barrier = barrierInfo->barrier;
+		BasicBlock* parentBlock = barrierInfo->parentBlock;
 		assert (barrier && parentBlock);
 		assert (barrier->getParent());
 		Function* f = barrier->getParent()->getParent();
 		assert (f);
 		Module* mod = f->getParent();
 		assert (mod);
+		assert (barrier->getParent() == parentBlock);
 
 		LLVMContext& context = mod->getContext();
+
+		DEBUG_PKT( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
+
 
 		//--------------------------------------------------------------------//
 		// split block at the position of the barrier
@@ -325,62 +383,8 @@ private:
 			outs() << "done.\n";
 		);
 
-		continuationLiveValueStructType = sType;
-		return continuation;
-	}
-
-
-	struct BarrierInfo {
-		BarrierInfo(CallInst* call, BasicBlock* parentBB, unsigned d)
-			: id(0), barrier(call), parentBlock(parentBB), depth(d), continuation(NULL), liveValueStructType(NULL) {}
-		unsigned id;
-		CallInst* barrier;
-		BasicBlock* parentBlock; // parent block of original function (might have been split due to other barriers)
-		unsigned depth;
-		Function* continuation;
-		StructType* liveValueStructType;
-	};
-	typedef DenseMap<unsigned, SmallVector<BarrierInfo*, 4>* > BarrierMapType;
-
-	unsigned findBarriersDFS(BasicBlock* block, unsigned depth, BarrierMapType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
-		assert (block);
-		if (visitedBlocks.find(block) != visitedBlocks.end()) return 0;
-		visitedBlocks.insert(block);
-
-		unsigned numBarriers = 0;
-
-		SmallVector<BarrierInfo*, 4>* depthVector = NULL;
-		if (barriers.find(depth) == barriers.end()) {
-			// no bucket for this depth exists yet -> generate and store
-			depthVector = new SmallVector<BarrierInfo*, 4>();
-			barriers[depth] = depthVector;
-		} else {
-			// fetch bucket for this depth
-			depthVector = barriers[depth];
-		}
-
-		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-			if (!isa<CallInst>(I)) continue;
-			CallInst* call = cast<CallInst>(I);
-
-			const Function* callee = call->getCalledFunction();
-			if (!callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) continue;
-
-			++numBarriers;
-
-			BarrierInfo* bi = new BarrierInfo(call, block, depth);
-			depthVector->push_back(bi); // append barrier to bucket of current depth
-
-			if (depth > maxBarrierDepth) maxBarrierDepth = depth;
-		}
-
-		for (succ_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
-			BasicBlock* succBB = *S;
-
-			numBarriers += findBarriersDFS(succBB, depth+1, barriers, maxBarrierDepth, visitedBlocks);
-		}
-
-		return numBarriers;
+		barrierInfo->continuation = continuation;
+		barrierInfo->liveValueStructType = sType;
 	}
 
 	Function* eliminateBarriers(Function* f, TargetData* targetData) {
@@ -476,11 +480,11 @@ private:
 			// if we add barriers in reversed order, barriers that live in the
 			// same block are inserted in correct order
 			for (int i=depthVector.size()-1; i >= 0; --i) {
-				BarrierInfo* bit = depthVector[i];
-				orderedBarriers.push_back(bit);
-				bit->id = barrierIndex; // set id
-				barrierIndices[bit->barrier] = barrierIndex--; // save barrier -> id mapping
-				outs() << "  added barrier " << i << " with id " << barrierIndex+1 << ": " << *bit->barrier << "\n";
+				BarrierInfo* binfo = depthVector[i];
+				orderedBarriers.push_back(binfo);
+				binfo->id = barrierIndex; // set id
+				barrierIndices[binfo->barrier] = barrierIndex--; // save barrier -> id mapping
+				outs() << "  added barrier " << i << " with id " << barrierIndex+1 << ": " << *binfo->barrier << "\n";
 			}
 		}
 
@@ -492,28 +496,25 @@ private:
 		DenseMap<unsigned, BarrierInfo*> continuations;
 		continuations[0] = new BarrierInfo(NULL, NULL, 0);
 		continuations[0]->continuation = newF;
+		continuations[0]->liveValueStructType = StructType::get(context, false);
 
 		// Loop over barriers and generate a continuation for each one.
 		// NOTE: newF is modified each time
 		//       (blocks split, loading/storing of live value structs, ...)
 		for (SmallVector<BarrierInfo*, 4>::iterator it=orderedBarriers.begin(), E=orderedBarriers.end(); it!=E; ++it) {
-			BarrierInfo* bit = *it;
-			const unsigned barrierIndex = bit->id;
+			BarrierInfo* barrierInfo = *it;
+			const unsigned barrierIndex = barrierInfo->id;
 			assert (barrierIndex != 0 && "index 0 is reserved for original function, must not appear here!");
-
-			CallInst* call = bit->barrier;
-			BasicBlock* parentBlock = bit->parentBlock;
-			assert (call->getParent() == parentBlock);
-			assert (parentBlock->getParent() == newF);
+			assert (barrierInfo->parentBlock->getParent() == newF);
 
 			std::stringstream sstr;
-			sstr << functionName << "_cont_" << barrierIndex;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
-			StructType* continuationLiveValueStructType = NULL;
-			bit->continuation = createContinuation(call, parentBlock, sstr.str(), barrierIndex, targetData, continuationLiveValueStructType);
-			assert (bit->continuation);
-			continuations[barrierIndex] = bit;
-			bit->id = barrierIndex;
-			bit->liveValueStructType = continuationLiveValueStructType;
+			sstr << functionName << "_cont_" << barrierIndex;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
+			
+			createContinuation(barrierInfo, sstr.str(), targetData);
+
+			assert (barrierInfo->continuation);
+			assert (barrierInfo->liveValueStructType);
+			continuations[barrierIndex] = barrierInfo;
 		}
 
 		assert (continuations.size() == numContinuationFunctions);
@@ -524,8 +525,10 @@ private:
 		//--------------------------------------------------------------------//
 		DEBUG_PKT(
 			for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
-				BarrierInfo* bit = it->second;
-				Function* continuation = bit->continuation;
+				BarrierInfo* binfo = it->second;
+				Function* continuation = binfo->continuation;
+				assert (continuation);
+				assert (binfo->liveValueStructType);
 
 				for (Function::iterator BB=continuation->begin(), BBE=continuation->end(); BB!=BBE; ++BB) {
 					for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
@@ -534,7 +537,7 @@ private:
 
 						const Function* callee = call->getCalledFunction();
 						if (callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) {
-						errs() << "ERROR: barrier not eliminated in continuation '" << continuation->getNameStr() << "': " << *call << "\n";
+							errs() << "ERROR: barrier not eliminated in continuation '" << continuation->getNameStr() << "': " << *call << "\n";
 						}
 					}
 				}
@@ -617,6 +620,7 @@ private:
 		for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
 			BarrierInfo* bit = it->second;
 			StructType* liveValueStructType = bit->liveValueStructType;
+			assert (liveValueStructType);
 			const unsigned typeSize = targetData->getTypeAllocSize(liveValueStructType);
 			if (unionSize < typeSize) unionSize = typeSize;
 		}
@@ -741,7 +745,7 @@ private:
 		DEBUG_PKT( PacketizedOpenCLDriver::verifyModule(mod); );
 
 		//outs() << *mod << "\n";
-		//outs() << *wrapper << "\n";
+		outs() << *wrapper << "\n";
 
 		return wrapper;
 	}
