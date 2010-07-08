@@ -24,7 +24,7 @@ env['CXX'] = 'g++'
 llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
 
 # set up CXXFLAGS
-cxxflags = env.Split("-Wall -pedantic -msse3")+llvm_vars.get('CCFLAGS')
+cxxflags = env.Split("-Wall -pedantic -Wno-long-long -msse3")+llvm_vars.get('CCFLAGS')
 
 if int(debug):
 	cxxflags=cxxflags+env.Split("-O0 -g -DDEBUG")

@@ -38,8 +38,8 @@
 
 #include <llvm/Analysis/LoopInfo.h>
 
-//#define DEBUG_PKT(x) do { x } while (false)
-#define DEBUG_PKT(x) ((void)0)
+#define DEBUG_PKT(x) do { x } while (false)
+//#define DEBUG_PKT(x) ((void)0)
 
 using namespace llvm;
 
@@ -57,7 +57,7 @@ namespace {
 			DEBUG_PKT( print(outs(), f.getParent()); );
 			
             DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
-            DEBUG_PKT( outs() << "analyzing liveness...\n"; );
+            DEBUG_PKT( outs() << "analyzing liveness of blocks in function '" << f.getNameStr() << "'...\n"; );
             DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 
 			// initialize map
@@ -71,7 +71,7 @@ namespace {
 			computeBlockLiveValues(&f.getEntryBlock(), visitedBlocks);
 
 			DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
-			DEBUG_PKT( outs() << "liveness analysis finished!\n"; );
+			DEBUG_PKT( outs() << "liveness analysis of function '" << f.getNameStr() << "' finished!\n"; );
 			DEBUG_PKT( print(outs(), NULL); );
 			DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
@@ -96,26 +96,96 @@ namespace {
 		typedef std::pair< LiveInSetType*, LiveOutSetType* > LiveValueSetType;
 		typedef std::map< BasicBlock*, LiveValueSetType > LiveValueMapType;
 
-		LiveValueSetType* getBlockLiveValues(BasicBlock* block) {
+		inline LiveValueSetType* getBlockLiveValues(BasicBlock* block) {
 			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
 			return &(it->second);
 		}
-		LiveInSetType* getBlockLiveInValues(BasicBlock* block) {
+		inline LiveInSetType* getBlockLiveInValues(BasicBlock* block) {
 			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
 			return it->second.first;
 		}
-		LiveOutSetType* getBlockLiveOutValues(BasicBlock* block) {
+		inline LiveOutSetType* getBlockLiveOutValues(BasicBlock* block) {
 			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
 			return it->second.second;
+		}
+
+		// this is so ugly... =)
+		void mapLiveValues(Function* f, Function* newF, DenseMap<const Value*, Value*>& valueMap) {
+			assert (f && newF);
+			assert (!valueMap.empty());
+			DEBUG_PKT( outs() << "\nmapping live values from function '" << f->getNameStr() << "' to new function '" << newF->getNameStr() << "'...\n"; );
+
+			for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
+				DEBUG_PKT( outs() << "mapping live values of basic block '" << BB->getNameStr() << "'...\n"; );
+				LiveInSetType* liveInSet = getBlockLiveInValues(BB);
+				LiveOutSetType* liveOutSet = getBlockLiveOutValues(BB);
+
+				if (liveInSet) {
+					Value** tmpVals = new Value*[liveInSet->size()]();
+					int i=0;
+					for (LiveInSetType::iterator it=liveInSet->begin(), E=liveInSet->end(); it!=E; ++it) {
+						tmpVals[i++] = *it;
+					}
+					liveInSet->clear();
+					--i;
+					for ( ; i>=0; --i) {
+						Value* val = tmpVals[i];
+						DEBUG_PKT( if (!isa<BasicBlock>(val)) outs() << "  mapped live-in value: " << *val << " -> " << *(valueMap[val]) << "\n"; );
+						DEBUG_PKT( if (isa<BasicBlock>(val)) outs() << "  mapped live-in value: " << val->getNameStr() << " -> " << (valueMap[val])->getNameStr() << "\n"; );
+						liveInSet->insert(valueMap[val]);
+					}
+					delete [] tmpVals;
+					//for (LiveInSetType::iterator it=liveInSet->begin(), E=liveInSet->end(); it!=E; ) {
+						//Value* val = *it;
+						//liveInSet->insert(valueMap[val]);
+						//liveInSet->erase(it++);
+					//}
+				}
+
+				if (liveOutSet) {
+					Value** tmpVals = new Value*[liveOutSet->size()]();
+					int i=0;
+					for (LiveOutSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
+						tmpVals[i++] = *it;
+					}
+					liveOutSet->clear();
+					--i;
+					for ( ; i>=0; --i) {
+						Value* val = tmpVals[i];
+						//DEBUG_PKT( if (!isa<BasicBlock>(val)) outs() << "mapped live-out value: " << *val << " -> " << *(valueMap[val]) << "\n"; );
+						//DEBUG_PKT( if (isa<BasicBlock>(val)) outs() << "mapped live-out value: " << val->getNameStr() << " -> " << (valueMap[val])->getNameStr() << "\n"; );
+						liveOutSet->insert(valueMap[val]);
+					}
+					delete [] tmpVals;
+				}
+
+			}
+
+			// map basic blocks in map
+			BasicBlock** tmpBlocks = new BasicBlock*[liveValueMap.size()]();
+			LiveValueSetType* tmpSets = new LiveValueSetType[liveValueMap.size()]();
+			int i=0;
+			for (LiveValueMapType::iterator it=liveValueMap.begin(), E=liveValueMap.end(); it!=E; ++it) {
+				tmpBlocks[i] = it->first;
+				tmpSets[i++] = it->second;
+			}
+			liveValueMap.clear();
+			--i;
+			for ( ; i>=0; --i) {
+				BasicBlock* newBlock = cast<BasicBlock>(valueMap[tmpBlocks[i]]);
+				liveValueMap[newBlock] = tmpSets[i];
+			}
+
+			DEBUG_PKT( outs() << "\n"; );
 		}
 
     private:
