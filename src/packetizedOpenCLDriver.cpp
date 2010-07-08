@@ -2086,7 +2086,6 @@ clCreateKernel(cl_program      program,
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "packetized.ll"); );
 
-#if 0
 	// eliminate barriers
 	FunctionPassManager FPM(module);
 	LivenessAnalyzer* LA = new LivenessAnalyzer(true);
@@ -2096,7 +2095,6 @@ clCreateKernel(cl_program      program,
 	FPM.run(*f_SIMD);
 	f_SIMD = CG->getBarrierFreeFunction();
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
-#endif
 
 	strs2 << "_wrapper";
 	const std::string wrapper_name = strs2.str();
