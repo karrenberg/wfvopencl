@@ -72,25 +72,10 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Simple compute kernel which computes the square of an input array
-//
-const char *KernelSource = "\n" \
-"__kernel square(                                                       \n" \
-"   __global float* input,                                              \n" \
-"   __global float* output,                                             \n" \
-"   const unsigned int count)                                           \n" \
-"{                                                                      \n" \
-"   int i = get_global_id(0);                                           \n" \
-"   if(i < count)                                                       \n" \
-"       output[i] = input[i] * input[i];                                \n" \
-"}                                                                      \n" \
-"\n";
+inline bool verifyResults(float* results, float* data, const unsigned count, const unsigned index) {
+	float correctRes = (data[index] * data[index]) - count;
 
-////////////////////////////////////////////////////////////////////////////////
-
-inline bool verifyResults(float* results, float* data, const unsigned index) {
-	bool correct = false;
-	correct = results[index] == data[index] * data[index];
+	const bool correct = results[index] == correctRes;
 	return correct;
 }
 
@@ -255,7 +240,7 @@ int main(int argc, char** argv)
     correct = 0;
 	for(i = 0; i < count; i++)
     {
-        if(verifyResults(results, data, i)) {
+        if(verifyResults(results, data, count, i)) {
 			//printf("results[%d]: %f (correct)\n", i, results[i]);
             correct++;
 		} else {

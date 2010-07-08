@@ -71,15 +71,31 @@ public:
 
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
-		Function* newFunction = eliminateBarriers(&f, targetData);
+
+		barrierFreeFunction = eliminateBarriers(&f, targetData);
+
+		DEBUG_PKT( verifyModule(*f.getParent()); );
+
+		//--------------------------------------------------------------------//
+		// inline continuation functions & optimize wrapper
+		//--------------------------------------------------------------------//
+		PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
+		//DEBUG_PKT( outs() << *barrierFreeFunction << "\n"; );
+		PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
+
+		DEBUG_PKT( verifyFunction(*barrierFreeFunction); );
+		DEBUG_PKT( outs() << *barrierFreeFunction << "\n"; );
+		isa<UndefValue>(&f);
+
+		f.replaceAllUsesWith(barrierFreeFunction);
+		barrierFreeFunction->takeName(&f);
 
 		DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 		DEBUG_PKT( outs() << "generation of continuations finished!\n"; );
 		DEBUG_PKT( print(outs(), NULL); );
 		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
-		exit(0);
-		return newFunction != NULL; // if newFunction does not exist, nothing has changed
+		return barrierFreeFunction != NULL; // if barrierFreeFunction does not exist, nothing has changed
 	}
 
 	void print(raw_ostream& o, const Module *M) const {}
@@ -90,11 +106,13 @@ public:
 	}
 	void releaseMemory() {}
 
+	Function* getBarrierFreeFunction() const { return barrierFreeFunction; }
 
 private:
 	const bool verbose;
 	//DominatorTree* domTree;
 	LivenessAnalyzer* livenessAnalyzer;
+	Function* barrierFreeFunction;
 
 	struct BarrierInfo {
 		BarrierInfo(CallInst* call, BasicBlock* parentBB, unsigned d)
@@ -754,22 +772,6 @@ private:
 		delete [] callBBs;
 
 		DEBUG_PKT( outs() << "replaced all barriers by continuations!\n"; );
-		outs() << *mod;
-
-		DEBUG_PKT( PacketizedOpenCLDriver::verifyModule(mod); );
-
-		//--------------------------------------------------------------------//
-		// inline continuation functions & optimize wrapper
-		//--------------------------------------------------------------------//
-		PacketizedOpenCLDriver::inlineFunctionCalls(wrapper, targetData);
-		outs() << *wrapper << "\n";
-		PacketizedOpenCLDriver::optimizeFunction(wrapper);
-
-		DEBUG_PKT( PacketizedOpenCLDriver::verifyModule(mod); );
-
-		//outs() << *mod << "\n";
-		outs() << *wrapper << "\n";
-		DEBUG_PKT( PacketizedOpenCLDriver::writeModuleToFile(mod, "barrierwrapper.mod.ll"); );
 
 		return wrapper;
 	}

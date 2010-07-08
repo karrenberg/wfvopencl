@@ -748,7 +748,9 @@ namespace PacketizedOpenCLDriver {
 		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_local_id_SIMD",  mod), void_cast(get_local_id_SIMD)));
 #endif
 
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OS_SYNCHRONIZATION
 		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("barrier", mod), void_cast(barrier)));
+#endif
 
 		for (cl_uint i=0, e=funs.size(); i<e; ++i) {
 			llvm::Function* funDecl = funs[i].first;
@@ -975,7 +977,7 @@ public:
 
 		// compile wrapper function (to be called in clEnqueueNDRangeKernel())
 		// NOTE: be sure that f_SIMD or f are inlined and f_wrapper was optimized to the max :p
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    compiling function... "; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    compiling function '" << f_wrapper->getNameStr() << "'... "; );
 		compiled_function = PacketizedOpenCLDriver::getPointerToFunction(prog->module, f_wrapper);
 		if (!compiled_function) {
 			errs() << "\nERROR: JIT compilation of kernel function failed!\n";
@@ -2013,51 +2015,19 @@ clCreateKernel(cl_program      program,
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "scalar.ll"); );
 
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
-//#define TMPTMPTMP
-#ifdef TMPTMPTMP
-	FunctionPassManager FPM(module);
-	LivenessAnalyzer* LA = new LivenessAnalyzer(true);
-	FPM.add(LA);
-	FPM.run(*f);
-
-	
-	BasicBlock* bb = NULL;
-	bb = &f->getEntryBlock(); // first block
-	//bb = cast<BranchInst>(f->getEntryBlock().getTerminator())->getSuccessor(0); // pred of last block
-	//for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
-	//	if (isa<ReturnInst>(BB->getTerminator())) bb = *pred_begin(BB); // last block
-	//}
-
-	LivenessAnalyzer::LiveSetType* liveInValues = LA->getBlockLiveInValues(bb);
-	LivenessAnalyzer::LiveSetType* liveOutValues = LA->getBlockLiveOutValues(bb);
-	assert (liveInValues);
-	assert (liveOutValues);
-
-	outs() << "\n\nLIVE VALUE ANALYSIS DONE!\n";
-	outs() << "Live-In values of block '" << bb->getNameStr() << "':\n";
-	for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
-		outs() << " * " << **it << "\n";
-	}
-	outs() << "\nLive-Out values of block '" << bb->getNameStr() << "':\n";
-	for (LivenessAnalyzer::LiveSetType::iterator it=liveOutValues->begin(), E=liveOutValues->end(); it!=E; ++it) {
-		outs() << " * " << **it << "\n";
-	}
-	outs() << "\n";
-	PacketizedOpenCLDriver::writeFunctionToFile(f, "asdf.ll");
-	f->viewCFG();
-	delete LA;
-	exit(0);
-#endif
-
+	// eliminate barriers
 	FunctionPassManager FPM(module);
 	LivenessAnalyzer* LA = new LivenessAnalyzer(true);
 	ContinuationGenerator* CG = new ContinuationGenerator(true);
-	FPM.add(CG);
 	FPM.add(LA);
+	FPM.add(CG);
 	FPM.run(*f);
 
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+	f = CG->getBarrierFreeFunction();
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
+
 
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
 	// USE CLC-GENERATED WRAPPER
@@ -2115,6 +2085,18 @@ clCreateKernel(cl_program      program,
 	f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "packetized.ll"); );
+
+#if 0
+	// eliminate barriers
+	FunctionPassManager FPM(module);
+	LivenessAnalyzer* LA = new LivenessAnalyzer(true);
+	ContinuationGenerator* CG = new ContinuationGenerator(true);
+	FPM.add(LA);
+	FPM.add(CG);
+	FPM.run(*f_SIMD);
+	f_SIMD = CG->getBarrierFreeFunction();
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
+#endif
 
 	strs2 << "_wrapper";
 	const std::string wrapper_name = strs2.str();
