@@ -62,6 +62,9 @@ public:
 		// get dominator tree
 		//domTree = &getAnalysis<DominatorTree>();
 
+		// get loop info
+		loopInfo = &getAnalysis<LoopInfo>();
+
 		// get liveness information
 		livenessAnalyzer = &getAnalysis<LivenessAnalyzer>();
 
@@ -100,7 +103,8 @@ public:
 
 	void print(raw_ostream& o, const Module *M) const {}
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-		//AU.addRequired<DominatorTree>();
+		AU.addRequired<DominatorTree>();
+		AU.addRequired<LoopInfo>();
 		AU.addRequired<LivenessAnalyzer>();
 		//AU.setPreservesAll();
 	}
@@ -111,6 +115,7 @@ public:
 private:
 	const bool verbose;
 	//DominatorTree* domTree;
+	LoopInfo* loopInfo;
 	LivenessAnalyzer* livenessAnalyzer;
 	Function* barrierFreeFunction;
 
@@ -180,6 +185,42 @@ private:
 			findContinuationBlocksDFS(succBB, copyBlocks, visitedBlocks);
 		}
 	}
+
+	// We need these two functions because requiring domTree is not enoug
+	// -> it only generates dominator information for original function, not for
+	//    new continuations.
+
+	//returns true if blockA 'follows' blockB or blockA == blockB
+	//REQUIRES LoopInfo
+	bool isDominatedBy(BasicBlock* blockA, BasicBlock* blockB) {
+		if (blockA == blockB) return true;
+
+		bool isDominated = false;
+		for (succ_iterator it=succ_begin(blockB); it!=succ_end(blockB); ++it) {
+			if (Loop* L = loopInfo->getLoopFor(*it)) {
+				if (L->getHeader() == *it) continue;
+			}
+			if (blockA == *it) return true;
+			isDominated |= isDominatedBy(blockA, *it);
+		}
+		return isDominated;
+	}
+	//returns true if instA 'follows' instB or instA == instB
+	inline bool isDominatedBy(Instruction* instA, Instruction* instB) {
+		if (instA == instB) return true;
+
+		BasicBlock* blockA = instA->getParent();
+		if (blockA != instB->getParent())
+			return isDominatedBy(blockA, instB->getParent());
+
+		for (BasicBlock::iterator it=blockA->begin(); it!=blockA->end(); ++it) {
+			if (instA == it) return false;
+			if (instB == it) return true;
+		}
+		assert (!"CRITICAL ERROR in 'isDominatedBy()'!");
+		return false;
+	}
+	
 
 	// generates a continuation function that is called at the point of the barrier
 	void createContinuation(BarrierInfo* barrierInfo, const std::string& newFunName, TargetData* targetData) {
@@ -375,6 +416,9 @@ private:
 		//       copy the entire function, live values that are no arguments
 		//       are still resolved by their former definitions which only get
 		//       erased in the next step.
+		// NOTE: actually, this is good behaviour - we must not remap values
+		//       that are defined in a block that also appears in the
+		//       continuation, e.g. in loops.
 		// TODO: Are we sure that the ordering is always correct with LiveSetType
 		//       being a set? :p
 		Function::arg_iterator A2 = continuation->arg_begin();
@@ -383,6 +427,26 @@ private:
 			if (isa<Argument>(liveVal)) continue;
 
 			Value* newVal = valueMap[liveVal];
+
+			// if the value is defined in one of the copied blocks, we must only
+			// replace those uses that are not dominated by their definition anymore
+			if (Instruction* inst = dyn_cast<Instruction>(liveVal)) {
+				if (copyBlocks.find(inst->getParent()) != copyBlocks.end()) {
+					Instruction* newInst = cast<Instruction>(newVal);
+					outs() << "instruction is defined in copied block: " << *newInst << "\n";
+					for (Instruction::use_iterator U=newInst->use_begin(), UE=newInst->use_end(); U!=UE; ++U) {
+						assert (isa<Instruction>(U));
+						Instruction* useI = cast<Instruction>(U);
+						outs() << "  testing use: " << *useI << "\n";
+						//if (domTree->dominates(newInst, useI)) continue;
+						if (isDominatedBy(useI, newInst)) continue;
+						outs() << "    is not dominated, will be replaced by argument!\n";
+						useI->replaceUsesOfWith(newInst, A2);
+					}
+					continue;
+				}
+			}
+
 			newVal->replaceAllUsesWith(A2);
 		}
 

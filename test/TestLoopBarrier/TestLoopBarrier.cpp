@@ -73,7 +73,11 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 inline bool verifyResults(float* results, float* data, const unsigned count, const unsigned index) {
-	float correctRes = (data[index] * data[index]) - count;
+	float correctRes = (data[index] * data[index]);
+
+	for (unsigned j=0; j<10; ++j) {
+		correctRes -= count;
+	}
 
 	const bool correct = results[index] == correctRes;
 	return correct;

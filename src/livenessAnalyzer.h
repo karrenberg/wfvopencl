@@ -69,7 +69,6 @@ namespace {
 
 			std::set<BasicBlock*> visitedBlocks;
 			computeBlockLiveValues(&f.getEntryBlock(), visitedBlocks);
-			f.viewCFG();
 
 			DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 			DEBUG_PKT( outs() << "liveness analysis of function '" << f.getNameStr() << "' finished!\n"; );
