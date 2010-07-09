@@ -134,16 +134,7 @@ private:
 
 		unsigned numBarriers = 0;
 
-		SmallVector<BarrierInfo*, 4>* depthVector = NULL;
-		if (barriers.find(depth) == barriers.end()) {
-			// no bucket for this depth exists yet -> generate and store
-			depthVector = new SmallVector<BarrierInfo*, 4>();
-			barriers[depth] = depthVector;
-		} else {
-			// fetch bucket for this depth
-			depthVector = barriers[depth];
-		}
-
+		
 		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
 			if (!isa<CallInst>(I)) continue;
 			CallInst* call = cast<CallInst>(I);
@@ -154,7 +145,17 @@ private:
 			++numBarriers;
 
 			BarrierInfo* bi = new BarrierInfo(call, block, depth);
-			depthVector->push_back(bi); // append barrier to bucket of current depth
+
+			// we fetch the bucket for this depth at each barrier to prevent
+			// generating a bucket if no barrier exists
+			if (barriers.find(depth) == barriers.end()) {
+				// no bucket for this depth exists yet -> generate and store
+				SmallVector<BarrierInfo*, 4>* depthVector = new SmallVector<BarrierInfo*, 4>();
+				barriers[depth] = depthVector;
+			}
+
+			// fetch bucket for this depth and append barrier info
+			barriers[depth]->push_back(bi);
 
 			if (depth > maxBarrierDepth) maxBarrierDepth = depth;
 		}
@@ -481,7 +482,7 @@ private:
 		// Traverse the function in DFS and collect all barriers in post-reversed order.
 		// Count how many barriers the function has and assign an id to each barrier
 		//--------------------------------------------------------------------//
-		DenseMap<unsigned, SmallVector<BarrierInfo*, 4>* > barriers; // depth -> [ infos ] mapping
+		BarrierMapType barriers; // depth -> [ infos ] mapping
 		std::set<BasicBlock*> visitedBlocks;
 		unsigned maxBarrierDepth = 0;
 		const unsigned numBarriers = findBarriersDFS(&newF->getEntryBlock(), 0, barriers, maxBarrierDepth, visitedBlocks);
@@ -493,8 +494,20 @@ private:
 		}
 
 		DEBUG_PKT( outs() << "  number of barriers in function : " << numBarriers << "\n"; );
-		DEBUG_PKT( outs() << "  maximum block depth of barriers: " << maxBarrierDepth << "\n"; );
+		DEBUG_PKT( outs() << "  maximum block depth of barriers: " << maxBarrierDepth << "\n\n"; );
+
+		//for (BarrierMapType::iterator it=barriers.begin(), E=barriers.end(); it!=E; ++it) {
+			//const unsigned depth = it->first;
+			//SmallVector<BarrierInfo*, 4>* vec = it->second;
+			//outs() << "barriers at depth " << depth << ":\n";
+			//for (SmallVector<BarrierInfo*, 4>::iterator it2=vec->begin(), E2=vec->end(); it2!=E2; ++it2) {
+				//BarrierInfo* binfo = *it2;
+				//outs() << " * " << *binfo->barrier << "\n";
+			//}
+		//}
+
 		DEBUG_PKT( outs() << "\n" << *newF << "\n"; );
+		//newF->viewCFG();
 
 		//--------------------------------------------------------------------//
 		// Generate order in which barriers should be replaced:
