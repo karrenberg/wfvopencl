@@ -403,6 +403,13 @@ private:
 				I->replaceAllUsesWith(UndefValue::get(I->getType()));
 			}
 
+			// remove all incoming values from this block to phis
+			for (BasicBlock::use_iterator U=blockC->use_begin(), UE=blockC->use_end(); U!=UE; ++U) {
+				if (!isa<PHINode>(U)) continue;
+				PHINode* phi = cast<PHINode>(U);
+				phi->removeIncomingValue(blockC, true);
+			}
+
 			blockC->replaceAllUsesWith(dummyBB);
 			blockC->eraseFromParent();
 		}
@@ -421,6 +428,7 @@ private:
 		// TODO: erase dummy values from value map?
 
 		DEBUG_PKT( outs() << *continuation << "\n"; );
+		continuation->viewCFG();
 		//DEBUG_PKT( outs() << *f << "\n"; );
 		DEBUG_PKT( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
 
@@ -514,7 +522,6 @@ private:
 		//}
 
 		DEBUG_PKT( outs() << "\n" << *newF << "\n"; );
-		//newF->viewCFG();
 
 		//--------------------------------------------------------------------//
 		// Generate order in which barriers should be replaced:

@@ -69,6 +69,7 @@ namespace {
 
 			std::set<BasicBlock*> visitedBlocks;
 			computeBlockLiveValues(&f.getEntryBlock(), visitedBlocks);
+			f.viewCFG();
 
 			DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 			DEBUG_PKT( outs() << "liveness analysis of function '" << f.getNameStr() << "' finished!\n"; );
@@ -235,9 +236,10 @@ namespace {
 		// 2) LiveOut(final) = {}
 		// 3) LiveOut(block) = u LiveIn(all successors)
 		//
-		// TODO: what is with the case of a loop latch with only a branch
-		//       back to the header? does it have live-values from blocks which
-		//       dominate the header?
+		// this is SO ugly ^^
+		// TODO: rewrite with simple brute-force iteration using SSA property
+		//       (for each use of each instruction, mark all blocks on all def-
+		//       use paths).
 		void computeBlockLiveValues(BasicBlock* block, std::set<BasicBlock*>& visitedBlocks) {
 			assert (block && loopInfo);
 			DEBUG_PKT( outs() << "getBlockLiveValues(" << block->getNameStr() << ")\n"; );
@@ -255,10 +257,32 @@ namespace {
 
 			Loop* loop = loopInfo->getLoopFor(block);
 
+			// ugly hack
+			bool recomputeLatch = false;
+
+			// if we reached a loop header, make sure all successors of the loop
+			// are traversed first
+			if (loop && loop->getHeader() == block) {
+				DEBUG_PKT( outs() << "  block is loop header of loop: "; loop->dump(); );
+				SmallVector<BasicBlock*, 4> exitBlocks;
+				loop->getExitBlocks(exitBlocks);
+
+				for (SmallVector<BasicBlock*, 4>::iterator BB=exitBlocks.begin(), BBE=exitBlocks.end(); BB!=BBE; ++BB) {
+					BasicBlock* exitBB = *BB;
+					DEBUG_PKT( outs() << "  traversing exit block: " << exitBB->getNameStr() << "\n"; );
+					if (visitedBlocks.find(exitBB) == visitedBlocks.end()) {
+						computeBlockLiveValues(exitBB, visitedBlocks);
+					}
+				}
+				recomputeLatch = true;
+			}
+
+
 			// post-order DFS
 			for (succ_iterator S = succ_begin(block), SE = succ_end(block); S!=SE; ++S) {
 				BasicBlock* succBB = *S;
-				// if successor is loop header, process it differently (no further recursion)
+				// if successor is loop header of the same loop 'block' belongs
+				// to, process it differently (no further recursion)
 				if (loop && loop->getHeader() == succBB) {
 					DEBUG_PKT( outs() << "  block is loop latch of loop: "; loop->dump(); );
 					for (BasicBlock::iterator I=succBB->begin(), IE=succBB->getFirstNonPHI(); I!=IE; ++I) {
@@ -273,7 +297,7 @@ namespace {
 						liveOutSet->insert(val);
 						DEBUG_PKT( outs() << "  added value to liveOut-set: " << *val << "\n"; );
 					}
-					continue;
+					//continue;
 				}
 				
 				// First, check if we have already processed this successor
@@ -313,6 +337,11 @@ namespace {
 				for (LiveSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
 					DEBUG_PKT( outs() << "  added value to liveIn-set: " << **it << "\n"; );
 				}
+			}
+
+			if (recomputeLatch) {
+				visitedBlocks.erase(loop->getLoopLatch());
+				computeBlockLiveValues(loop->getLoopLatch(), visitedBlocks);
 			}
 
 
