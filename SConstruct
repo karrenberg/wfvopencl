@@ -91,6 +91,7 @@ ScanLargeArrays
 SimpleConvolution
 TestSimple
 TestBarrier
+TestLoopBarrier
 """)
 
 for a in testApps:
