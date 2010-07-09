@@ -411,10 +411,17 @@ private:
 		assert (dummyBB->use_empty());
 		dummyBB->eraseFromParent();
 
+		// if necessary, make new block the entry block of the continuation
+		// (= move to front of block list)
+		BasicBlock* entryBlock = cast<BasicBlock>(valueMap[newBlock]);
+		if (entryBlock != &continuation->getEntryBlock()) {
+			entryBlock->moveBefore(&continuation->getEntryBlock());
+		}
+
 		// TODO: erase dummy values from value map?
 
 		DEBUG_PKT( outs() << *continuation << "\n"; );
-		DEBUG_PKT( outs() << *f << "\n"; );
+		//DEBUG_PKT( outs() << *f << "\n"; );
 		DEBUG_PKT( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
 
 		DEBUG_PKT(
