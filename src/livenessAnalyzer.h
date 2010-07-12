@@ -67,18 +67,38 @@ namespace {
 				liveValueMap.insert(std::make_pair(BB, std::make_pair(liveInSet, liveOutSet)));
 			}
 
+#ifndef UGLY_OLD_VERSION
+			computeLiveValues(&f);
+#else
 			std::set<BasicBlock*> visitedBlocks;
 			computeBlockLiveValues(&f.getEntryBlock(), visitedBlocks);
+#endif
 
 			DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 			DEBUG_PKT( outs() << "liveness analysis of function '" << f.getNameStr() << "' finished!\n"; );
-			DEBUG_PKT( print(outs(), NULL); );
+			DEBUG_PKT( print(outs()); );
 			DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
 			return false;
         }
 
-        void print(raw_ostream& o, const Module *M) const {}
+        void print(raw_ostream& o, const Module *M=NULL) const {
+			for (LiveValueMapType::const_iterator it=liveValueMap.begin(), E=liveValueMap.end(); it!=E; ++it) {
+				BasicBlock* block = it->first;
+				LiveValueSetType liveValues = it->second;
+				LiveSetType* liveInValues = liveValues.first;
+				LiveSetType* liveOutValues = liveValues.second;
+				outs() << "\nLive-In values of block '" << block->getNameStr() << "':\n";
+				for (LiveSetType::iterator it2=liveInValues->begin(), E2=liveInValues->end(); it2!=E2; ++it2) {
+					outs() << " * " << **it2 << "\n";
+				}
+				outs() << "\nLive-Out values of block '" << block->getNameStr() << "':\n";
+				for (LiveSetType::iterator it2=liveOutValues->begin(), E2=liveOutValues->end(); it2!=E2; ++it2) {
+					outs() << " * " << **it2 << "\n";
+				}
+				outs() << "\n";
+			}
+		}
         virtual void getAnalysisUsage(AnalysisUsage &AU) const {
 			AU.addRequired<LoopInfo>();
 			AU.setPreservesAll();
@@ -229,6 +249,87 @@ namespace {
 
 		LiveValueMapType liveValueMap;
 
+
+#ifndef UGLY_OLD_VERSION
+		void computeLiveValues(Function* f) {
+			assert (f && loopInfo);
+
+			// compute liveness of arguments
+			BasicBlock* entryBB = &f->getEntryBlock();
+			for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A) {
+				outs() << "computing live values for argument: " << *A << "\n";
+				for (Instruction::use_iterator U=A->use_begin(), UE=A->use_end(); U!=UE; ++U) {
+					assert (isa<Instruction>(U));
+					Instruction* useI = cast<Instruction>(U);
+
+					std::set<BasicBlock*> visitedBlocks;
+					const bool defUseChainExists = computeLivenessInformation(entryBB, A, useI, visitedBlocks);
+					assert (defUseChainExists);
+				}
+			}
+
+			// compute liveness of all instructions
+			for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
+				outs() << "computing live values for block: " << BB->getNameStr() << "\n";
+				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+					outs() << "  computing live values for instruction: " << *I << "\n";
+					for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
+						assert (isa<Instruction>(U));
+						Instruction* useI = cast<Instruction>(U);
+
+						if (useI->getParent() == BB) continue; // def-use chain inside same block -> ignore
+						outs() << "    checking use: " << *useI << "\n";
+
+						std::set<BasicBlock*> visitedBlocks;
+						const bool defUseChainExists = computeLivenessInformation(BB, I, useI, visitedBlocks);
+						assert (defUseChainExists);
+					}
+				}
+			}
+
+		}
+
+		// TODO: use some kind of marking of blocks to prevent traversing a path more than once
+		// TODO: check if it is really correct to return true if we see the same block again!
+		bool computeLivenessInformation(BasicBlock* block, Value* def, Instruction* use, std::set<BasicBlock*>& visitedBlocks) {
+			//outs() << "computeLivenessInformation(" << block->getNameStr() << ")\n";
+			if (visitedBlocks.find(block) != visitedBlocks.end()) return true;
+			visitedBlocks.insert(block);
+
+			if (use->getParent() == block) {
+				outs() << "      is live-in value of block '" << block->getNameStr() << "'\n";
+				outs() << "         is parent of use!\n";
+				// add def as live-in for this block and return 'found'
+				liveValueMap[block].first->insert(def);
+				return true;
+			}
+
+			bool defUseChainExists = false;
+
+			// recurse into successors
+			for (succ_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
+				BasicBlock* succBB = *S;
+				defUseChainExists |= computeLivenessInformation(succBB, def, use, visitedBlocks);
+			}
+
+			if (!defUseChainExists) outs() << "      no def-use chain found in successors of block " << block->getNameStr() << "!\n";
+			if (!defUseChainExists) return false;
+
+
+			// add def as live-in for this block (if block is not the parent of def)
+			if (!isa<Instruction>(def) || (cast<Instruction>(def)->getParent() != block)) {
+				liveValueMap[block].first->insert(def);
+				outs() << "      is live-in value of block '" << block->getNameStr() << "'\n";
+			}
+
+			// add def as live-out for this block
+			liveValueMap[block].second->insert(def);
+
+			outs() << "      is live-out value of block '" << block->getNameStr() << "'\n";
+
+			return true;
+		}
+#else
 		// dataflow analysis for liveness information
 		// dataflow equations:
 		// 1) LiveIn(block) = gen(block) u (LiveOut(block) - kill(block))
@@ -256,7 +357,8 @@ namespace {
 
 			Loop* loop = loopInfo->getLoopFor(block);
 
-			// ugly hack
+			// ugly hack, doesn't work for all cases :P
+			// (endless loop at recomputation)
 			bool recomputeLatch = false;
 
 			// if we reached a loop header, make sure all successors of the loop
@@ -384,6 +486,7 @@ namespace {
 				outs() << "\n";
 			);
 		}
+#endif
 
 	};
 }

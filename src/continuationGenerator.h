@@ -47,6 +47,8 @@
 #define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID -1
 #define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_START_ID 0
 
+#define USE_MANUAL_DOMTREE_PASS
+
 using namespace llvm;
 
 namespace {
@@ -58,9 +60,6 @@ public:
 	~ContinuationGenerator() { releaseMemory(); }
 
 	virtual bool runOnFunction(Function &f) {
-
-		// get dominator tree
-		//domTree = &getAnalysis<DominatorTree>();
 
 		// get loop info
 		loopInfo = &getAnalysis<LoopInfo>();
@@ -103,10 +102,8 @@ public:
 
 	void print(raw_ostream& o, const Module *M) const {}
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-		AU.addRequired<DominatorTree>();
 		AU.addRequired<LoopInfo>();
 		AU.addRequired<LivenessAnalyzer>();
-		//AU.setPreservesAll();
 	}
 	void releaseMemory() {}
 
@@ -114,7 +111,6 @@ public:
 
 private:
 	const bool verbose;
-	//DominatorTree* domTree;
 	LoopInfo* loopInfo;
 	LivenessAnalyzer* livenessAnalyzer;
 	Function* barrierFreeFunction;
@@ -186,22 +182,26 @@ private:
 		}
 	}
 
+
+#ifndef USE_MANUAL_DOMTREE_PASS
 	// We need these two functions because requiring domTree is not enoug
 	// -> it only generates dominator information for original function, not for
 	//    new continuations.
 
 	//returns true if blockA 'follows' blockB or blockA == blockB
 	//REQUIRES LoopInfo
-	bool isDominatedBy(BasicBlock* blockA, BasicBlock* blockB) {
+	bool isDominatedBy(BasicBlock* blockA, BasicBlock* blockB, std::set<BasicBlock*>& visitedBlocks) {
 		if (blockA == blockB) return true;
+		if (visitedBlocks.find(blockB) != visitedBlocks.end()) return false;
+		visitedBlocks.insert(blockB);
 
 		bool isDominated = false;
 		for (succ_iterator it=succ_begin(blockB); it!=succ_end(blockB); ++it) {
-			if (Loop* L = loopInfo->getLoopFor(*it)) {
-				if (L->getHeader() == *it) continue;
-			}
+			//if (Loop* L = loopInfo->getLoopFor(*it)) {
+				//if (L->getHeader() == *it) continue;
+			//}
 			if (blockA == *it) return true;
-			isDominated |= isDominatedBy(blockA, *it);
+			isDominated |= isDominatedBy(blockA, *it, visitedBlocks);
 		}
 		return isDominated;
 	}
@@ -210,8 +210,10 @@ private:
 		if (instA == instB) return true;
 
 		BasicBlock* blockA = instA->getParent();
-		if (blockA != instB->getParent())
-			return isDominatedBy(blockA, instB->getParent());
+		if (blockA != instB->getParent()) {
+			std::set<BasicBlock*> visitedBlocks;
+			return isDominatedBy(blockA, instB->getParent(), visitedBlocks);
+		}
 
 		for (BasicBlock::iterator it=blockA->begin(); it!=blockA->end(); ++it) {
 			if (instA == it) return false;
@@ -220,7 +222,7 @@ private:
 		assert (!"CRITICAL ERROR in 'isDominatedBy()'!");
 		return false;
 	}
-	
+#endif
 
 	// generates a continuation function that is called at the point of the barrier
 	void createContinuation(BarrierInfo* barrierInfo, const std::string& newFunName, TargetData* targetData) {
@@ -266,9 +268,9 @@ private:
 		// TODO: Refine by removing defined values in same block above barrier.
 		//--------------------------------------------------------------------//
 		LivenessAnalyzer::LiveSetType* liveInValues = livenessAnalyzer->getBlockLiveInValues(parentBlock);
-		LivenessAnalyzer::LiveSetType* liveOutValues = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
+		//LivenessAnalyzer::LiveSetType* liveOutValues = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
 		assert (liveInValues);
-		assert (liveOutValues);
+		//assert (liveOutValues);
 		
 		// merge block-internal live values with liveInValues
 		liveInValues->insert(internalLiveValues.begin(), internalLiveValues.end());
@@ -410,6 +412,16 @@ private:
 		SmallVector<ReturnInst*, 2> returns;
 		CloneFunctionInto(continuation, f, valueMap, returns, ".");
 
+#ifdef USE_MANUAL_DOMTREE_PASS
+		// compute dominator tree
+		FunctionPassManager FPM(mod);
+		DominatorTree* domTree = new DominatorTree();
+		FPM.add(domTree);
+		FPM.doInitialization();
+		FPM.run(*continuation);
+		FPM.doFinalization();
+#endif
+
 		// remap values that were no arguments
 		// NOTE: apparently, CloneFunctionInto does not look into the valueMap
 		//       if it directly finds all references. Due to the fact that we
@@ -433,14 +445,17 @@ private:
 			if (Instruction* inst = dyn_cast<Instruction>(liveVal)) {
 				if (copyBlocks.find(inst->getParent()) != copyBlocks.end()) {
 					Instruction* newInst = cast<Instruction>(newVal);
-					outs() << "instruction is defined in copied block: " << *newInst << "\n";
+					DEBUG_PKT( outs() << "instruction is defined in copied block: " << *newInst << "\n"; );
 					for (Instruction::use_iterator U=newInst->use_begin(), UE=newInst->use_end(); U!=UE; ++U) {
 						assert (isa<Instruction>(U));
 						Instruction* useI = cast<Instruction>(U);
-						outs() << "  testing use: " << *useI << "\n";
-						//if (domTree->dominates(newInst, useI)) continue;
-						if (isDominatedBy(useI, newInst)) continue;
-						outs() << "    is not dominated, will be replaced by argument!\n";
+						DEBUG_PKT( outs() << "  testing use: " << *useI << "\n"; );
+#ifdef USE_MANUAL_DOMTREE_PASS
+						if (!domTree->dominates(newInst, useI)) continue;
+#else
+						if (!isDominatedBy(newInst, useI)) continue;
+#endif
+						DEBUG_PKT( outs() << "    is not dominated, will be replaced by argument!\n"; );
 						useI->replaceUsesOfWith(newInst, A2);
 					}
 					continue;
@@ -492,12 +507,13 @@ private:
 		// TODO: erase dummy values from value map?
 
 		DEBUG_PKT( outs() << *continuation << "\n"; );
-		continuation->viewCFG();
-		//DEBUG_PKT( outs() << *f << "\n"; );
 		DEBUG_PKT( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
 
 		DEBUG_PKT(
 			outs() << "verifying functions... ";
+		PacketizedOpenCLDriver::writeModuleToFile(mod, "ffff.ll");
+			f->viewCFG();
+			continuation->viewCFG();
 			verifyFunction(*f);
 			verifyFunction(*continuation);
 			outs() << "done.\n";
@@ -599,7 +615,7 @@ private:
 		// 0 is reserved for 'start'-function, so the last index is numBarriers and 0 is not used
 		unsigned barrierIndex = numBarriers; 
 		for (int depth=maxBarrierDepth; depth >= 0; --depth) {
-			outs() << "sorting barriers of block depth " << depth << "...\n";
+			DEBUG_PKT( outs() << "sorting barriers of block depth " << depth << "...\n"; );
 			BarrierMapType::iterator it = barriers.find(depth);
 			if (it == barriers.end()) continue; // no barriers at this depth
 
@@ -615,7 +631,7 @@ private:
 				orderedBarriers.push_back(binfo);
 				binfo->id = barrierIndex; // set id
 				barrierIndices[binfo->barrier] = barrierIndex--; // save barrier -> id mapping
-				outs() << "  added barrier " << i << " with id " << barrierIndex+1 << ": " << *binfo->barrier << "\n";
+				DEBUG_PKT( outs() << "  added barrier " << i << " with id " << barrierIndex+1 << ": " << *binfo->barrier << "\n"; );
 			}
 		}
 
