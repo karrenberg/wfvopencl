@@ -67,16 +67,12 @@ namespace {
 				liveValueMap.insert(std::make_pair(BB, std::make_pair(liveInSet, liveOutSet)));
 			}
 
-#ifndef UGLY_OLD_VERSION
 			computeLiveValues(&f);
-#else
-			std::set<BasicBlock*> visitedBlocks;
-			computeBlockLiveValues(&f.getEntryBlock(), visitedBlocks);
-#endif
 
 			DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
-			DEBUG_PKT( outs() << "liveness analysis of function '" << f.getNameStr() << "' finished!\n"; );
 			DEBUG_PKT( print(outs()); );
+			DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+			DEBUG_PKT( outs() << "liveness analysis of function '" << f.getNameStr() << "' finished!\n"; );
 			DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
 			return false;
@@ -158,12 +154,16 @@ namespace {
 			// if so, it is live after inst
 			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
 				const unsigned instId = instMap[I];
-				if (instId > frontierId) break;
+				if (instId >= frontierId) break;
 				DEBUG_PKT( outs() << "checking uses of instruction " << instId << "\n"; );
 				for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
 					assert (isa<Instruction>(U));
 					Instruction* useI = cast<Instruction>(U);
-					const unsigned useId = instMap[useI];
+
+					// if the use is in a different block, the value also
+					// needs to be marked as live (the use has to be dominated,
+					// so it has to lie behind the barrier)
+					const unsigned useId = (instMap.find(useI) == instMap.end()) ? frontierId+1 : instMap[useI];
 					const bool isLive = useId > frontierId;
 					if (isLive) {
 						liveVals.insert(I);
@@ -249,8 +249,6 @@ namespace {
 
 		LiveValueMapType liveValueMap;
 
-
-#ifndef UGLY_OLD_VERSION
 		void computeLiveValues(Function* f) {
 			assert (f && loopInfo);
 
@@ -329,165 +327,6 @@ namespace {
 
 			return true;
 		}
-#else
-		// dataflow analysis for liveness information
-		// dataflow equations:
-		// 1) LiveIn(block) = gen(block) u (LiveOut(block) - kill(block))
-		// 2) LiveOut(final) = {}
-		// 3) LiveOut(block) = u LiveIn(all successors)
-		//
-		// this is SO ugly ^^
-		// TODO: rewrite with simple brute-force iteration using SSA property
-		//       (for each use of each instruction, mark all blocks on all def-
-		//       use paths).
-		void computeBlockLiveValues(BasicBlock* block, std::set<BasicBlock*>& visitedBlocks) {
-			assert (block && loopInfo);
-			DEBUG_PKT( outs() << "getBlockLiveValues(" << block->getNameStr() << ")\n"; );
-			if (visitedBlocks.find(block) != visitedBlocks.end()) {
-				DEBUG_PKT( outs() << "  block already seen, skipped!\n"; );
-				return; // block already seen
-			}
-			visitedBlocks.insert(block);
-
-			// get sets for this block
-			assert (liveValueMap.find(block) != liveValueMap.end());
-			LiveValueSetType liveValueSet = liveValueMap.find(block)->second;
-			LiveSetType* liveInSet = liveValueSet.first;
-			LiveSetType* liveOutSet = liveValueSet.second;
-
-			Loop* loop = loopInfo->getLoopFor(block);
-
-			// ugly hack, doesn't work for all cases :P
-			// (endless loop at recomputation)
-			bool recomputeLatch = false;
-
-			// if we reached a loop header, make sure all successors of the loop
-			// are traversed first
-			if (loop && loop->getHeader() == block) {
-				DEBUG_PKT( outs() << "  block is loop header of loop: "; loop->dump(); );
-				SmallVector<BasicBlock*, 4> exitBlocks;
-				loop->getExitBlocks(exitBlocks);
-
-				for (SmallVector<BasicBlock*, 4>::iterator BB=exitBlocks.begin(), BBE=exitBlocks.end(); BB!=BBE; ++BB) {
-					BasicBlock* exitBB = *BB;
-					DEBUG_PKT( outs() << "  traversing exit block: " << exitBB->getNameStr() << "\n"; );
-					if (visitedBlocks.find(exitBB) == visitedBlocks.end()) {
-						computeBlockLiveValues(exitBB, visitedBlocks);
-					}
-				}
-				recomputeLatch = true;
-			}
-
-
-			// post-order DFS
-			for (succ_iterator S = succ_begin(block), SE = succ_end(block); S!=SE; ++S) {
-				BasicBlock* succBB = *S;
-				// if successor is loop header of the same loop 'block' belongs
-				// to, process it differently (no further recursion)
-				if (loop && loop->getHeader() == succBB) {
-					DEBUG_PKT( outs() << "  block is loop latch of loop: "; loop->dump(); );
-					for (BasicBlock::iterator I=succBB->begin(), IE=succBB->getFirstNonPHI(); I!=IE; ++I) {
-						assert (isa<PHINode>(I));
-						PHINode* phi = cast<PHINode>(I);
-						Value* val = phi->getIncomingValueForBlock(block);
-						assert (val);
-
-						// ignore all values that are neither an instruction nor an argument
-						if (!isa<Instruction>(val) && !isa<Argument>(val)) continue;
-
-						liveOutSet->insert(val);
-						DEBUG_PKT( outs() << "  added value to liveOut-set: " << *val << "\n"; );
-					}
-					//continue;
-				}
-				
-				// First, check if we have already processed this successor
-				// and recurse if necessary.
-				if (visitedBlocks.find(succBB) == visitedBlocks.end()) {
-					computeBlockLiveValues(succBB, visitedBlocks);
-				}
-
-				assert (liveValueMap.find(succBB) != liveValueMap.end());
-				LiveValueSetType succLiveValueSet = liveValueMap.find(succBB)->second;
-				LiveSetType* succLiveInSet = succLiveValueSet.first;
-
-
-				// liveOut-set is the union of all liveIn-sets of successors [dataflow-equation 3]
-				liveOutSet->insert(succLiveInSet->begin(), succLiveInSet->end());
-				for (LiveSetType::iterator it=succLiveInSet->begin(), E=succLiveInSet->end(); it!=E; ++it) {
-					DEBUG_PKT( outs() << "  added value to liveOut-set: " << **it << "\n"; );
-				}
-
-				// remove values from liveOut-set that flow into successor-phi
-				// from other directions than current block
-				for (BasicBlock::iterator I=succBB->begin(), IE=succBB->getFirstNonPHI(); I!=IE; ++I) {
-					assert (isa<PHINode>(I));
-					PHINode* phi = cast<PHINode>(I);
-					//Value* val = phi->getIncomingValueForBlock(block);
-
-					for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
-						if (phi->getIncomingBlock(i) == block) continue;
-
-						liveOutSet->erase(phi->getIncomingValue(i));
-						DEBUG_PKT( outs() << "  removed value from liveOut-set: " << *phi->getIncomingValue(i) << "\n"; );
-					}
-				}
-
-				// liveIn-set is equal to liveOut-set (before applying kill/gen sets)
-				liveInSet->insert(liveOutSet->begin(), liveOutSet->end());
-				for (LiveSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
-					DEBUG_PKT( outs() << "  added value to liveIn-set: " << **it << "\n"; );
-				}
-			}
-
-			if (recomputeLatch) {
-				visitedBlocks.erase(loop->getLoopLatch());
-				computeBlockLiveValues(loop->getLoopLatch(), visitedBlocks);
-			}
-
-
-			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-				// remove defined values from liveIn-set [kill]
-				if (!liveInSet->empty()) {
-					liveInSet->erase(cast<Value>(I));
-					DEBUG_PKT( outs() << "  removed value from liveIn-set: " << *I << "\n"; );
-				}
-
-				// add used values to liveIn-set [gen]
-				for (Instruction::op_iterator OP=I->op_begin(), OPE=I->op_end(); OP!=OPE; ++OP) {
-					if (!isa<Value>(OP)) continue; // ignore all operands that are no instructions
-
-					// ignore all values that are neither an instruction nor an argument
-					if (Instruction* opI = dyn_cast<Instruction>(OP)) {
-						// ignore operands that are defined in same block
-						if (opI->getParent() != block) {
-							liveInSet->insert(opI);
-							DEBUG_PKT( outs() << "  added value to liveIn-set: " << *opI << "\n"; );
-						}
-					} else if (Argument* argI = dyn_cast<Argument>(OP)) {
-						liveInSet->insert(cast<Value>(argI));
-						DEBUG_PKT( outs() << "  added value to liveIn-set: " << *argI << "\n"; );
-					}
-				}
-			}
-
-
-
-
-			DEBUG_PKT(
-				outs() << "\nLive-In set of block'" << block->getNameStr() << "':\n";
-				for (std::set<Value*>::iterator it=liveInSet->begin(), E=liveInSet->end(); it!=E; ++it) {
-					outs() << " - " << **it << "\n";
-				}
-				outs() << "\nLive-Out set of block '" << block->getNameStr() << "':\n";
-				for (std::set<Value*>::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
-					outs() << " - " << **it << "\n";
-				}
-				outs() << "\n";
-			);
-		}
-#endif
-
 	};
 }
 
