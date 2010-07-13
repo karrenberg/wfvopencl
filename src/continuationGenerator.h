@@ -249,7 +249,7 @@ private:
 		// before splitting, get block-internal live values
 		// (values that are defined inside block and live over the barrier)
 		LivenessAnalyzer::LiveSetType internalLiveValues;
-		livenessAnalyzer->getBlockInternalLiveValues(barrier, internalLiveValues);
+		livenessAnalyzer->getBlockInternalLiveInValues(barrier, internalLiveValues);
 
 		//--------------------------------------------------------------------//
 		// split block at the position of the barrier
@@ -269,15 +269,16 @@ private:
 		// NOTE: This only fetches live values of former parent block
 		//       in order to prevent recalculating live value information for
 		//       entire function.
-		// TODO: Refine by removing defined values in same block above barrier.
 		//--------------------------------------------------------------------//
 		LivenessAnalyzer::LiveSetType* liveInValues = livenessAnalyzer->getBlockLiveInValues(parentBlock);
-		//LivenessAnalyzer::LiveSetType* liveOutValues = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
+		LivenessAnalyzer::LiveSetType* liveOutValues = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
 		assert (liveInValues);
-		//assert (liveOutValues);
+		assert (liveOutValues);
 		
 		// merge block-internal live values with liveInValues
 		liveInValues->insert(internalLiveValues.begin(), internalLiveValues.end());
+		// remove all values that die in same block but above barrier
+		livenessAnalyzer->removeBlockInternalNonLiveInValues(barrier, *liveInValues, *liveOutValues);
 
 
 		DEBUG_PKT(

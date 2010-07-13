@@ -133,22 +133,28 @@ namespace {
 			return it->second.second;
 		}
 
-		void getBlockInternalLiveValues(Instruction* inst, LiveSetType& liveVals) {
+		// create map which holds order of instructions
+		unsigned createInstructionOrdering(BasicBlock* block, Instruction* frontier, std::map<Instruction*, unsigned>& instMap) const {
+			unsigned frontierId = 0;
+			unsigned i=0;
+			DEBUG_PKT( outs() << "instructions:\n"; );
+			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
+				if (frontier == I) frontierId = i;
+				instMap[I] = i++;
+				DEBUG_PKT( outs() << " (" << i-1 << ")" << (frontier == I ? "*" : " ") << *I << "\n"; );
+			}
+			DEBUG_PKT( outs() << "\n"; );
+
+			return frontierId;
+		}
+		void getBlockInternalLiveInValues(Instruction* inst, LiveSetType& liveVals) {
 			assert (inst && inst->getParent());
 			BasicBlock* block = inst->getParent();
 			DEBUG_PKT( outs() << "\ngetBlockInternalLiveValues(" << block->getNameStr() << ")\n"; );
 
 			// create map which holds order of instructions
-			unsigned frontierId = 0;
 			std::map<Instruction*, unsigned> instMap;
-			unsigned i=0;
-			DEBUG_PKT( outs() << "instructions:\n"; );
-			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
-				if (inst == I) frontierId = i;
-				instMap[I] = i++;
-				DEBUG_PKT( outs() << " (" << i-1 << ")" << (inst == I ? "*" : " ") << *I << "\n"; );
-			}
-			DEBUG_PKT( outs() << "\n"; );
+			const unsigned frontierId = createInstructionOrdering(block, inst, instMap);
 
 			// check each use of each instruction if it lies "behind" inst
 			// if so, it is live after inst
@@ -163,14 +169,68 @@ namespace {
 					// if the use is in a different block, the value also
 					// needs to be marked as live (the use has to be dominated,
 					// so it has to lie behind the barrier)
-					const unsigned useId = (instMap.find(useI) == instMap.end()) ? frontierId+1 : instMap[useI];
-					const bool isLive = useId > frontierId;
+					const unsigned useId = instMap[useI];
+					const bool isLive = useId > frontierId || useI->getParent() != block;
 					if (isLive) {
 						liveVals.insert(I);
 					}
 					DEBUG_PKT( outs() << "  use: (" << useId << ") - is " << (isLive ? "" : "not ") << "live!\n"; );
 				}
 			}
+		}
+		// removes all values from 'liveVals' that are live-in of the block of
+		// 'inst' but that do not survive 'inst'.
+		// TODO: implement more cases than just phis
+		void removeBlockInternalNonLiveInValues(Instruction* inst, LiveSetType& liveInVals, LiveSetType& liveOutVals) {
+			assert (inst);
+			if (liveInVals.empty()) return;
+
+			BasicBlock* block = inst->getParent();
+
+			// remove all values that go into a phi (they die immediately)
+			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
+				if (block->getFirstNonPHI() == I) break;
+				PHINode* phi = cast<PHINode>(I);
+
+				for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
+					Value* val = phi->getIncomingValue(i);
+					// no need to check if this value really exists in set
+					liveInVals.erase(val);
+				}
+			}
+
+			// remove all values that are live-in but not live-out and do not
+			// have uses behind the frontier (they die before the frontier)
+
+			// create map which holds order of instructions
+			std::map<Instruction*, unsigned> instMap;
+			const unsigned frontierId = createInstructionOrdering(block, inst, instMap);
+
+			for (LiveSetType::iterator it=liveInVals.begin(), E=liveInVals.end(); it!=E; ++it) {
+				Value* liveVal = *it;
+				// If the value is also live-out, we know it survives the frontier
+				// and we must not remove it from live values.
+				if (liveOutVals.find(liveVal) != liveOutVals.end()) continue;
+
+				bool survivesFrontier = false;
+				for (Value::use_iterator U=liveVal->use_begin(), UE=liveVal->use_end(); U!=UE && !survivesFrontier; ++U) {
+					assert (isa<Instruction>(U));
+					Instruction* useI = cast<Instruction>(U);
+					// ignore uses in different (preceding) blocks
+					// if there was a use in a successing block, we would not
+					// iterate over the uses in the first place (see continue above)
+					if (useI->getParent() != block) continue;
+
+					const unsigned useId = instMap[useI];
+					if (useId >= frontierId) survivesFrontier = true;
+				}
+
+				if (survivesFrontier) {
+					liveInVals.erase(liveVal);
+				}
+			}
+
+
 		}
 
 		// this is so ugly... =)
