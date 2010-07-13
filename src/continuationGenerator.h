@@ -71,10 +71,14 @@ public:
 		DEBUG_PKT( outs() << "generating continuations...\n"; );
 		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 
+		f.viewCFG();
+
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
 
 		barrierFreeFunction = eliminateBarriers(&f, targetData);
+
+		if (!barrierFreeFunction) return false; // if barrierFreeFunction does not exist, nothing has changed
 
 		DEBUG_PKT( verifyModule(*f.getParent()); );
 
@@ -97,7 +101,7 @@ public:
 		DEBUG_PKT( print(outs(), NULL); );
 		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
-		return barrierFreeFunction != NULL; // if barrierFreeFunction does not exist, nothing has changed
+		return true;
 	}
 
 	void print(raw_ostream& o, const Module *M) const {}
@@ -128,7 +132,7 @@ private:
 	typedef DenseMap<unsigned, SmallVector<BarrierInfo*, 4>* > BarrierMapType;
 
 
-	unsigned findBarriersDFS(BasicBlock* block, unsigned depth, BarrierMapType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
+	unsigned collectBarriersDFS(BasicBlock* block, unsigned depth, BarrierMapType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
 		assert (block);
 		if (visitedBlocks.find(block) != visitedBlocks.end()) return 0;
 		visitedBlocks.insert(block);
@@ -164,7 +168,7 @@ private:
 		for (succ_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
 			BasicBlock* succBB = *S;
 
-			numBarriers += findBarriersDFS(succBB, depth+1, barriers, maxBarrierDepth, visitedBlocks);
+			numBarriers += collectBarriersDFS(succBB, depth+1, barriers, maxBarrierDepth, visitedBlocks);
 		}
 
 		return numBarriers;
@@ -369,15 +373,14 @@ private:
 		// create mappings of live-in values to arguments for copying of blocks
 		DEBUG_PKT( outs() << "\nlive value mappings:\n"; );
 		DenseMap<const Value*, Value*> valueMap;
+		DenseMap<const Value*, Value*> liveValueToArgMap;
 		Function::arg_iterator A = continuation->arg_begin();
 		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A) {
 			Value* liveVal = *it;
 			valueMap[liveVal] = A;
+			liveValueToArgMap[liveVal] = A;
 			DEBUG_PKT( outs() << " * " << *liveVal << " -> " << *A << "\n"; );
 		}
-
-		// create mapping for data pointer (last argument to last argument
-		valueMap[(--(f->arg_end()))] = --(continuation->arg_end());
 
 
 		//--------------------------------------------------------------------//
@@ -393,6 +396,7 @@ private:
 			for (std::set<const BasicBlock*>::iterator it=copyBlocks.begin(), E=copyBlocks.end(); it!=E; ++it) {
 				outs() << " * " << (*it)->getNameStr() << "\n";
 			}
+			outs() << "\n";
 		);
 
 		// HACK: Copy over entire function and remove all unnecessary blocks.
@@ -401,26 +405,28 @@ private:
 		//       is not available via includes (as of llvm-2.8svn ~May/June 2010 :p).
 
 		// Therefore, we need to have dummy-mappings for all arguments of the
-		// old function that do not yet have a mapping (= that are not part of
-		// the live values).
+		// old function that do not map to a live value.
+		// TODO: erase dummy values again from value map at some point?
 		for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A) {
+			//if (liveValueMap.find(A) != liveValueMap.end()) {
+				//valueMap[A] = liveValueMap[A];
+				//continue;
+			//}
 			if (valueMap.find(A) != valueMap.end()) continue;
 			Value* dummy = UndefValue::get(A->getType());
 			valueMap[A] = dummy;
 		}
 
+		// create mapping for data pointer (last argument to last argument
+		valueMap[(--(f->arg_end()))] = --(continuation->arg_end());
+
 		SmallVector<ReturnInst*, 2> returns;
 		CloneFunctionInto(continuation, f, valueMap, returns, ".");
 
-#ifdef USE_MANUAL_DOMTREE_PASS
-		// compute dominator tree
-		FunctionPassManager FPM(mod);
-		DominatorTree* domTree = new DominatorTree();
-		FPM.add(domTree);
-		FPM.doInitialization();
-		FPM.run(*continuation);
-		FPM.doFinalization();
-#endif
+
+		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF1.ll");
+		continuation->viewCFG();
+
 
 		// remap values that were no arguments
 		// NOTE: apparently, CloneFunctionInto does not look into the valueMap
@@ -433,37 +439,6 @@ private:
 		//       continuation, e.g. in loops.
 		// TODO: Are we sure that the ordering is always correct with LiveSetType
 		//       being a set? :p
-		Function::arg_iterator A2 = continuation->arg_begin();
-		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A2) {
-			Value* liveVal = *it;
-			if (isa<Argument>(liveVal)) continue;
-
-			Value* newVal = valueMap[liveVal];
-
-			// if the value is defined in one of the copied blocks, we must only
-			// replace those uses that are not dominated by their definition anymore
-			if (Instruction* inst = dyn_cast<Instruction>(liveVal)) {
-				if (copyBlocks.find(inst->getParent()) != copyBlocks.end()) {
-					Instruction* newInst = cast<Instruction>(newVal);
-					DEBUG_PKT( outs() << "instruction is defined in copied block: " << *newInst << "\n"; );
-					for (Instruction::use_iterator U=newInst->use_begin(), UE=newInst->use_end(); U!=UE; ++U) {
-						assert (isa<Instruction>(U));
-						Instruction* useI = cast<Instruction>(U);
-						DEBUG_PKT( outs() << "  testing use: " << *useI << "\n"; );
-#ifdef USE_MANUAL_DOMTREE_PASS
-						if (!domTree->dominates(newInst, useI)) continue;
-#else
-						if (!isDominatedBy(newInst, useI)) continue;
-#endif
-						DEBUG_PKT( outs() << "    is not dominated, will be replaced by argument!\n"; );
-						useI->replaceUsesOfWith(newInst, A2);
-					}
-					continue;
-				}
-			}
-
-			newVal->replaceAllUsesWith(A2);
-		}
 
 		// erase all blocks that do not belong to this continuation
 		BasicBlock* dummyBB = BasicBlock::Create(context, "dummy", continuation);
@@ -471,27 +446,45 @@ private:
 		// -> can't find out block in old fun for given block in new fun via map ;)
 		for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ) {
 			assert (valueMap.find(BB) != valueMap.end());
-			BasicBlock* blockO = BB++;
-			BasicBlock* blockC = cast<BasicBlock>(valueMap[blockO]);
-			if (copyBlocks.find(blockO) != copyBlocks.end()) continue;
+			BasicBlock* blockOrig = BB++;
+			BasicBlock* blockCopy = cast<BasicBlock>(valueMap[blockOrig]);
+			if (copyBlocks.find(blockOrig) != copyBlocks.end()) continue;
 
-			// block must not be copied -> delete it
+			// block must not be "copied" -> delete it
 
-			// but first, replace all uses of instructions of block by dummies...
-			for (BasicBlock::iterator I=blockC->begin(), IE=blockC->end(); I!=IE; ++I) {
-				I->replaceAllUsesWith(UndefValue::get(I->getType()));
+			// but first, replace all uses of instructions of block by dummies
+			// or arguments in case of live values...
+			BasicBlock::iterator IO=blockOrig->begin(); // mapping uses values from old function...
+			for (BasicBlock::iterator I=blockCopy->begin(), IE=blockCopy->end(); I!=IE; ++I, ++IO) {
+				outs() << "replacing uses of inst: " << *I << "\n";
+				if (liveInValues->find(IO) != liveInValues->end()) {
+					outs() << "  is a live value, replaced with argument: " << *liveValueToArgMap[IO] << "\n";
+					I->replaceAllUsesWith(liveValueToArgMap[IO]);
+				} else {
+					I->replaceAllUsesWith(UndefValue::get(I->getType()));
+				}
+
+				// erase instruction from value map (pointer will be invalid after deletion)
+				valueMap.erase(IO);
 			}
+
+			// erase block from value map (pointer will be invalid after deletion)
+			valueMap.erase(blockOrig);
 
 			// remove all incoming values from this block to phis
-			for (BasicBlock::use_iterator U=blockC->use_begin(), UE=blockC->use_end(); U!=UE; ++U) {
+			outs() << "block: " << blockCopy->getNameStr() << "\n";
+			for (BasicBlock::use_iterator U=blockCopy->use_begin(), UE=blockCopy->use_end(); U!=UE; ++U) {
 				if (!isa<PHINode>(U)) continue;
 				PHINode* phi = cast<PHINode>(U);
-				phi->removeIncomingValue(blockC, true);
+				outs() << "phi: " << *phi << "\n";
+				if (phi->getBasicBlockIndex(blockCopy) != -1) phi->removeIncomingValue(blockCopy, false);
 			}
 
-			blockC->replaceAllUsesWith(dummyBB);
-			blockC->eraseFromParent();
+			blockCopy->replaceAllUsesWith(dummyBB);
+			blockCopy->eraseFromParent();
 		}
+
+		outs() << "\n";
 
 		// erase dummy block
 		assert (dummyBB->use_empty());
@@ -504,6 +497,65 @@ private:
 			entryBlock->moveBefore(&continuation->getEntryBlock());
 		}
 
+		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF2.ll");
+		continuation->viewCFG();
+
+
+		// Make sure all uses of live values that are not dominated anymore are
+		// rewired to arguments.
+		// NOTE: This can't be done before blocks are deleted ;).
+
+#ifdef USE_MANUAL_DOMTREE_PASS
+		// compute dominator tree (somehow does not work with functionpassmanager)
+		DominatorTree* domTree = new DominatorTree();
+		domTree->runOnFunction(*continuation);
+		DEBUG_PKT( domTree->print(outs(), mod); );
+#endif
+
+		Function::arg_iterator A2 = continuation->arg_begin();
+		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A2) {
+			Value* liveVal = *it;
+			outs() << "live value: " << *liveVal << "\n";
+			if (isa<Argument>(liveVal)) continue;
+
+			// if all uses already replaced above, skip this value
+			if (valueMap.find(liveVal) == valueMap.end()) {
+				outs() << "  all uses already replaced!\n";
+				continue;
+			}
+
+			Value* newLiveVal = valueMap[liveVal];
+			outs() << "new live value: " << *newLiveVal << "\n";
+
+			// if the value is defined in one of the copied blocks, we must only
+			// replace those uses that are not dominated by their definition anymore
+			if (Instruction* inst = dyn_cast<Instruction>(liveVal)) {
+				if (copyBlocks.find(inst->getParent()) != copyBlocks.end()) {
+					Instruction* newInst = cast<Instruction>(newLiveVal);
+					DEBUG_PKT( outs() << "live value is defined in copied block: " << (*copyBlocks.find(inst->getParent()))->getNameStr() << "\n"; );
+					for (Instruction::use_iterator U=newInst->use_begin(), UE=newInst->use_end(); U!=UE; ) {
+						assert (isa<Instruction>(U));
+						Instruction* useI = cast<Instruction>(U++);
+						DEBUG_PKT( outs() << "  testing use: " << *useI << "\n"; );
+#ifdef USE_MANUAL_DOMTREE_PASS
+						if (domTree->dominates(newInst, useI)) continue;
+#else
+						if (isDominatedBy(useI, newInst)) continue;
+#endif
+						DEBUG_PKT( outs() << "    is not dominated, will be replaced by argument!\n"; );
+						useI->replaceUsesOfWith(newInst, A2);
+					}
+					continue;
+				}
+			}
+
+			newLiveVal->replaceAllUsesWith(A2);
+		}
+
+		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF3.ll");
+		continuation->viewCFG();
+
+
 		// TODO: erase dummy values from value map?
 
 		DEBUG_PKT( outs() << *continuation << "\n"; );
@@ -511,9 +563,9 @@ private:
 
 		DEBUG_PKT(
 			outs() << "verifying functions... ";
-		PacketizedOpenCLDriver::writeModuleToFile(mod, "ffff.ll");
-			f->viewCFG();
-			continuation->viewCFG();
+			PacketizedOpenCLDriver::writeModuleToFile(mod, "ffff.ll");
+			//f->viewCFG();
+			//continuation->viewCFG();
 			verifyFunction(*f);
 			verifyFunction(*continuation);
 			outs() << "done.\n";
@@ -580,7 +632,7 @@ private:
 		BarrierMapType barriers; // depth -> [ infos ] mapping
 		std::set<BasicBlock*> visitedBlocks;
 		unsigned maxBarrierDepth = 0;
-		const unsigned numBarriers = findBarriersDFS(&newF->getEntryBlock(), 0, barriers, maxBarrierDepth, visitedBlocks);
+		const unsigned numBarriers = collectBarriersDFS(&newF->getEntryBlock(), 0, barriers, maxBarrierDepth, visitedBlocks);
 
 		if (numBarriers == 0) {
 			DEBUG_PKT( outs() << "  no barriers found in function!\n"; );
