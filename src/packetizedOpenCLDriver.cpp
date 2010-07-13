@@ -607,7 +607,8 @@ namespace PacketizedOpenCLDriver {
 
 		const bool isArrayArg = isa<ArrayType>(arg->getType());
 		const bool isPointerArg = isa<PointerType>(arg->getType());
-		
+
+//		std::vector<CallInst*> eraseVec;
 		for (Function::use_iterator U=f->use_begin(), UE=f->use_end(); U!=UE; ) {
 			if (!isa<CallInst>(U)) continue;
 			CallInst* call = cast<CallInst>(U++);
@@ -646,7 +647,14 @@ namespace PacketizedOpenCLDriver {
 			
 			call->replaceAllUsesWith(arg);
 			call->eraseFromParent();
+//			eraseVec.push_back(call);
 		}
+
+//		for (std::vector<CallInst*>::iterator it=eraseVec.begin(), E=eraseVec.end(); it!=E; ++it) {
+//			CallInst* call = *it;
+//			assert (call->use_empty());
+//			call->eraseFromParent();
+//		}
 	}
 
 	inline llvm::Function* generateKernelWrapper(
@@ -2025,7 +2033,8 @@ clCreateKernel(cl_program      program,
 	FPM.add(CG);
 	FPM.run(*f);
 
-	f = CG->getBarrierFreeFunction();
+	Function* f_nobarriers = CG->getBarrierFreeFunction();
+	if (f_nobarriers) f = f_nobarriers;
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
 
 
@@ -2093,7 +2102,8 @@ clCreateKernel(cl_program      program,
 	FPM.add(LA);
 	FPM.add(CG);
 	FPM.run(*f_SIMD);
-	f_SIMD = CG->getBarrierFreeFunction();
+	Function* f_SIMD_nobarriers = CG->getBarrierFreeFunction();
+	if (f_SIMD_nobarriers) f_SIMD = f_SIMD_nobarriers;
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
 
 	strs2 << "_wrapper";
