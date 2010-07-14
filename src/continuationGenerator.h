@@ -71,7 +71,8 @@ public:
 		DEBUG_PKT( outs() << "generating continuations...\n"; );
 		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 
-		f.viewCFG();
+		PacketizedOpenCLDriver::writeFunctionToFile(&f, "beforeBarriers.ll");
+		//f.viewCFG();
 
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
@@ -426,7 +427,6 @@ private:
 
 
 		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF1.ll");
-		continuation->viewCFG();
 
 
 		// remap values that were no arguments
@@ -499,7 +499,6 @@ private:
 		}
 
 		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF2.ll");
-		continuation->viewCFG();
 
 
 		// Make sure all uses of live values that are not dominated anymore are
@@ -554,7 +553,7 @@ private:
 		}
 
 		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF3.ll");
-		continuation->viewCFG();
+		//continuation->viewCFG();
 
 
 		// TODO: erase dummy values from value map?
@@ -563,11 +562,12 @@ private:
 		DEBUG_PKT( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
 
 		DEBUG_PKT(
-			outs() << "verifying functions... ";
 			PacketizedOpenCLDriver::writeModuleToFile(mod, "ffff.ll");
 			//f->viewCFG();
 			//continuation->viewCFG();
+			outs() << "verifying function '" << f->getNameStr() << "'... ";
 			verifyFunction(*f);
+			outs() << "done.\nverifying function '" << continuation->getNameStr() << "'... ";
 			verifyFunction(*continuation);
 			outs() << "done.\n";
 		);
