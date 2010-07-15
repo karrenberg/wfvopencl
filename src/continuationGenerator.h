@@ -244,6 +244,7 @@ private:
 		assert (barrier->getParent() == parentBlock);
 
 		LLVMContext& context = mod->getContext();
+		//f->viewCFG();
 
 		DEBUG_PKT( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
 
@@ -271,15 +272,19 @@ private:
 		//       in order to prevent recalculating live value information for
 		//       entire function.
 		//--------------------------------------------------------------------//
-		LivenessAnalyzer::LiveSetType* liveInValues = livenessAnalyzer->getBlockLiveInValues(parentBlock);
-		LivenessAnalyzer::LiveSetType* liveOutValues = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
-		assert (liveInValues);
-		assert (liveOutValues);
+		const LivenessAnalyzer::LiveSetType* liveInValuesOrig = livenessAnalyzer->getBlockLiveInValues(parentBlock);
+		const LivenessAnalyzer::LiveSetType* liveOutValuesOrig = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
+		assert (liveInValuesOrig);
+		assert (liveOutValuesOrig);
+
+		// we have to copy the live-in value set before modifying it
+		LivenessAnalyzer::LiveSetType* liveInValues = new LivenessAnalyzer::LiveSetType();
+		liveInValues->insert(liveInValuesOrig->begin(), liveInValuesOrig->end());
 		
 		// merge block-internal live values with liveInValues
 		liveInValues->insert(internalLiveValues.begin(), internalLiveValues.end());
 		// remove all values that die in same block but above barrier
-		livenessAnalyzer->removeBlockInternalNonLiveInValues(barrier, *liveInValues, *liveOutValues);
+		livenessAnalyzer->removeBlockInternalNonLiveInValues(barrier, *liveInValues, *liveOutValuesOrig);
 
 
 		DEBUG_PKT(

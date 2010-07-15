@@ -182,7 +182,7 @@ namespace {
 		// removes all values from 'liveVals' that are live-in of the block of
 		// 'inst' but that do not survive 'inst'.
 		// TODO: implement more cases than just phis
-		void removeBlockInternalNonLiveInValues(Instruction* inst, LiveSetType& liveInVals, LiveSetType& liveOutVals) {
+		void removeBlockInternalNonLiveInValues(Instruction* inst, LiveSetType& liveInVals, const LiveSetType& liveOutVals) {
 			assert (inst);
 			if (liveInVals.empty()) return;
 
@@ -310,7 +310,7 @@ namespace {
 
 		LiveValueMapType liveValueMap;
 
-
+		// TODO: can we skip blocks without successors?
 		void computeLiveValues(Function* f) {
 			assert (f && loopInfo);
 
