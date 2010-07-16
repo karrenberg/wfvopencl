@@ -599,11 +599,17 @@ namespace PacketizedOpenCLDriver {
 	//------------------------------------------------------------------------//
 	// LLVM tools
 	//------------------------------------------------------------------------//
+
+	// TODO: This won't handle continuations correctly:
+	//       Uses are in different functions and have to be replaced by different
+	//       values. For the continuations (all except the _begin-function),
+	//       these values are not arguments but computed inside the loop around
+	//       the continuation.
 	void replaceCallbacksByArgAccess(Function* f, Value* arg, Function* source) {
 		if (!f) return;
 		assert (arg && source);
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "replaceCallbacksByArgAccess(" << f->getNameStr() << ", " << *arg << ", " << source->getName() << ")\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nreplaceCallbacksByArgAccess(" << f->getNameStr() << ", " << *arg << ", " << source->getName() << ")\n"; );
 
 		const bool isArrayArg = isa<ArrayType>(arg->getType());
 		const bool isPointerArg = isa<PointerType>(arg->getType());
@@ -612,8 +618,12 @@ namespace PacketizedOpenCLDriver {
 		for (Function::use_iterator U=f->use_begin(), UE=f->use_end(); U!=UE; ) {
 			if (!isa<CallInst>(U)) continue;
 			CallInst* call = cast<CallInst>(U++);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "replacing use: " << *call << "\n"; );
 
-			if (call->getParent()->getParent() != source) continue; // ignore uses in other functions
+			if (call->getParent()->getParent() != source) {
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  is in different function: " << call->getParent()->getParent()->getNameStr() << "\n"; );
+				continue; // ignore uses in other functions
+			}
 
 			// if arg type is an array, check second operand of call (= supplied parameter)
 			// and generate appropriate ExtractValueInst
@@ -624,29 +634,36 @@ namespace PacketizedOpenCLDriver {
 				const ConstantInt* dimConst = cast<ConstantInt>(dimVal);
 				const uint64_t* dimension = dimConst->getValue().getRawData();
 				ExtractValueInst* ev = ExtractValueInst::Create(arg, *dimension, "", call);
-				arg = ev;
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  new extract: " << *arg << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  new extract: " << *ev << "\n"; );
 				
 				// if the result is a 64bit integer value, truncate to 32bit -> more other problems :/
 				//if (ev->getType() == f->getReturnType()) arg = ev;
 				//else arg = TruncInst::CreateTruncOrBitCast(ev, f->getReturnType(), "", call);
 				//outs() << "  new extract/cast: " << *arg << "\n";
+				assert (f->getReturnType() == ev->getType());
+				call->replaceAllUsesWith(ev);
+				call->eraseFromParent();
 			} else if (isPointerArg) {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  pointer arg found!\n"; );
 				Value* dimVal = call->getOperand(1);
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  dimVal: " << *dimVal << "\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  arg: " << *arg << "\n"; );
-				GetElementPtrInst* gep = GetElementPtrInst::Create(arg, dimVal, "", call);
+				GetElementPtrInst* gep = GetElementPtrInst::Create(arg, dimVal, "", call); //TODO: HERE!!!
 				LoadInst* load = new LoadInst(gep, "", call);
-				arg = load;
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  new gep: " << *gep << "\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  new load: " << *load << "\n"; );
+
+				assert (f->getReturnType() == load->getType());
+				call->replaceAllUsesWith(load);
+				call->eraseFromParent();
+			} else {
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  normal arg found!\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  arg: " << *arg << "\n"; );
+				assert (f->getReturnType() == arg->getType());
+				call->replaceAllUsesWith(arg);
+				call->eraseFromParent();
 			}
-		
-			assert (f->getReturnType() == arg->getType());
 			
-			call->replaceAllUsesWith(arg);
-			call->eraseFromParent();
 //			eraseVec.push_back(call);
 		}
 

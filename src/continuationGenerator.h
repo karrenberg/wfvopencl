@@ -35,13 +35,13 @@
 #include <llvm/Pass.h>
 #include <llvm/Function.h>
 #include <llvm/Module.h>
+#include <llvm/Analysis/Dominators.h>
 
 #include "livenessAnalyzer.h"
 #include "llvmTools.hpp"
-#include <llvm/Analysis/Dominators.h>
 
-#define DEBUG_PKT(x) do { x } while (false)
-//#define DEBUG_PKT(x) ((void)0)
+//#define DEBUG_PKT(x) do { x } while (false)
+#define DEBUG_PKT(x) ((void)0)
 
 #define PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER "barrier"
 #define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID -1
@@ -62,7 +62,7 @@ public:
 	virtual bool runOnFunction(Function &f) {
 
 		// get loop info
-		loopInfo = &getAnalysis<LoopInfo>();
+		//loopInfo = &getAnalysis<LoopInfo>();
 
 		// get liveness information
 		livenessAnalyzer = &getAnalysis<LivenessAnalyzer>();
@@ -72,7 +72,6 @@ public:
 		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 
 		PacketizedOpenCLDriver::writeFunctionToFile(&f, "beforeBarriers.ll");
-		//f.viewCFG();
 
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
@@ -87,15 +86,14 @@ public:
 		// inline continuation functions & optimize wrapper
 		//--------------------------------------------------------------------//
 		PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
-		//DEBUG_PKT( outs() << *barrierFreeFunction << "\n"; );
 		PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
 
 		DEBUG_PKT( verifyFunction(*barrierFreeFunction); );
 		DEBUG_PKT( outs() << *barrierFreeFunction << "\n"; );
-		isa<UndefValue>(&f);
 
 		f.replaceAllUsesWith(barrierFreeFunction);
 		barrierFreeFunction->takeName(&f);
+		f.setName(barrierFreeFunction->getNameStr()+"_orig");
 
 		DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 		DEBUG_PKT( outs() << "generation of continuations finished!\n"; );
@@ -107,7 +105,7 @@ public:
 
 	void print(raw_ostream& o, const Module *M) const {}
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-		AU.addRequired<LoopInfo>();
+		//AU.addRequired<LoopInfo>();
 		AU.addRequired<LivenessAnalyzer>();
 	}
 	void releaseMemory() {}
@@ -116,7 +114,7 @@ public:
 
 private:
 	const bool verbose;
-	LoopInfo* loopInfo;
+	//LoopInfo* loopInfo;
 	LivenessAnalyzer* livenessAnalyzer;
 	Function* barrierFreeFunction;
 
@@ -462,9 +460,9 @@ private:
 			// or arguments in case of live values...
 			BasicBlock::iterator IO=blockOrig->begin(); // mapping uses values from old function...
 			for (BasicBlock::iterator I=blockCopy->begin(), IE=blockCopy->end(); I!=IE; ++I, ++IO) {
-				outs() << "replacing uses of inst: " << *I << "\n";
+				DEBUG_PKT( outs() << "replacing uses of inst: " << *I << "\n"; );
 				if (liveInValues->find(IO) != liveInValues->end()) {
-					outs() << "  is a live value, replaced with argument: " << *liveValueToArgMap[IO] << "\n";
+					DEBUG_PKT( outs() << "  is a live value, replaced with argument: " << *liveValueToArgMap[IO] << "\n"; );
 					I->replaceAllUsesWith(liveValueToArgMap[IO]);
 				} else {
 					I->replaceAllUsesWith(UndefValue::get(I->getType()));
@@ -478,11 +476,11 @@ private:
 			valueMap.erase(blockOrig);
 
 			// remove all incoming values from this block to phis
-			outs() << "block: " << blockCopy->getNameStr() << "\n";
+			DEBUG_PKT( outs() << "block: " << blockCopy->getNameStr() << "\n"; );
 			for (BasicBlock::use_iterator U=blockCopy->use_begin(), UE=blockCopy->use_end(); U!=UE; ++U) {
 				if (!isa<PHINode>(U)) continue;
 				PHINode* phi = cast<PHINode>(U);
-				outs() << "phi: " << *phi << "\n";
+				DEBUG_PKT( outs() << "phi: " << *phi << "\n"; );
 				if (phi->getBasicBlockIndex(blockCopy) != -1) phi->removeIncomingValue(blockCopy, false);
 			}
 
@@ -490,7 +488,7 @@ private:
 			blockCopy->eraseFromParent();
 		}
 
-		outs() << "\n";
+		DEBUG_PKT( outs() << "\n"; );
 
 		// erase dummy block
 		assert (dummyBB->use_empty());
@@ -520,17 +518,17 @@ private:
 		Function::arg_iterator A2 = continuation->arg_begin();
 		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A2) {
 			Value* liveVal = *it;
-			outs() << "live value: " << *liveVal << "\n";
+			DEBUG_PKT( outs() << "live value: " << *liveVal << "\n"; );
 			if (isa<Argument>(liveVal)) continue;
 
 			// if all uses already replaced above, skip this value
 			if (valueMap.find(liveVal) == valueMap.end()) {
-				outs() << "  all uses already replaced!\n";
+				DEBUG_PKT( outs() << "  all uses already replaced!\n"; );
 				continue;
 			}
 
 			Value* newLiveVal = valueMap[liveVal];
-			outs() << "new live value: " << *newLiveVal << "\n";
+			DEBUG_PKT( outs() << "new live value: " << *newLiveVal << "\n"; );
 
 			// if the value is defined in one of the copied blocks, we must only
 			// replace those uses that are not dominated by their definition anymore

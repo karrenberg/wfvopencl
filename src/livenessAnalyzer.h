@@ -36,11 +36,10 @@
 #include <llvm/Function.h>
 #include <llvm/Module.h>
 
-#include <llvm/Analysis/LoopInfo.h>
-#include <llvm/Analysis/LiveValues.h>
+//#include <llvm/Analysis/LoopInfo.h>
 
-#define DEBUG_PKT(x) do { x } while (false)
-//#define DEBUG_PKT(x) ((void)0)
+//#define DEBUG_PKT(x) do { x } while (false)
+#define DEBUG_PKT(x) ((void)0)
 
 using namespace llvm;
 
@@ -54,8 +53,8 @@ namespace {
         virtual bool runOnFunction(Function &f) {
 
             // get loop info
-            loopInfo = &getAnalysis<LoopInfo>();
-			DEBUG_PKT( print(outs(), f.getParent()); );
+            //loopInfo = &getAnalysis<LoopInfo>();
+			//DEBUG_PKT( print(outs(), f.getParent()); );
 			
             DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
             DEBUG_PKT( outs() << "analyzing liveness of blocks in function '" << f.getNameStr() << "'...\n"; );
@@ -97,7 +96,7 @@ namespace {
 			}
 		}
         virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-			AU.addRequired<LoopInfo>();
+			//AU.addRequired<LoopInfo>();
 			AU.setPreservesAll();
         }
 		void releaseMemory() {
@@ -306,17 +305,17 @@ namespace {
 
     private:
         const bool verbose;
-		LoopInfo* loopInfo;
+		//LoopInfo* loopInfo;
 
 		LiveValueMapType liveValueMap;
 
 		// TODO: can we skip blocks without successors?
 		void computeLiveValues(Function* f) {
-			assert (f && loopInfo);
+			assert (f);
 
 			// compute liveness of arguments
 			for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A) {
-				outs() << "computing live values for argument: " << *A << "\n";
+				DEBUG_PKT( outs() << "computing live values for argument: " << *A << "\n"; );
 				for (Instruction::use_iterator U=A->use_begin(), UE=A->use_end(); U!=UE; ++U) {
 					assert (isa<Instruction>(U));
 					Instruction* useI = cast<Instruction>(U);
@@ -328,15 +327,15 @@ namespace {
 
 			// compute liveness of all instructions
 			for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
-				outs() << "computing live values for block: " << BB->getNameStr() << "\n";
+				DEBUG_PKT( outs() << "computing live values for block: " << BB->getNameStr() << "\n"; );
 				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
-					outs() << "  computing live values for instruction: " << *I << "\n";
+					DEBUG_PKT( outs() << "  computing live values for instruction: " << *I << "\n"; );
 					for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
 						assert (isa<Instruction>(U));
 						Instruction* useI = cast<Instruction>(U);
 
 						if (useI->getParent() == BB) continue; // def-use chain inside same block -> ignore
-						outs() << "    checking use: " << *useI << "\n";
+						DEBUG_PKT( outs() << "    checking use: " << *useI << "\n"; );
 
 						std::set<BasicBlock*> visitedBlocks;
 						computeLivenessInformation(useI->getParent(), I, useI, visitedBlocks);
@@ -348,11 +347,11 @@ namespace {
 
 
 		void computeLivenessInformation(BasicBlock* block, Value* def, Instruction* use, std::set<BasicBlock*>& visitedBlocks) {
-			//outs() << "computeLivenessInformation(" << block->getNameStr() << ")\n";
+			//DEBUG_PKT( outs() << "computeLivenessInformation(" << block->getNameStr() << ")\n"; );
 
 			// if we see a block again, make sure the value is live-out there
 			if (visitedBlocks.find(block) != visitedBlocks.end()) {
-				outs() << "      is live-out value of block '" << block->getNameStr() << "' (loop)\n";
+				DEBUG_PKT( outs() << "      is live-out value of block '" << block->getNameStr() << "' (loop)\n"; );
 				liveValueMap[block].second->insert(def);
 				return;
 			}
@@ -362,13 +361,13 @@ namespace {
 
 			// if def and use are in the same block, there is no live information to be added anywhere
 			if (defI && defI->getParent() == use->getParent()) {
-				outs() << "      is used and defined in same block '" << block->getNameStr() << "' (neither live-in nor live-out of any block)\n";
+				DEBUG_PKT( outs() << "      is used and defined in same block '" << block->getNameStr() << "' (neither live-in nor live-out of any block)\n"; );
 				return;
 			}
 
 			// if we have reached the definition, the value is live-out only
 			if (defI && defI->getParent() == block) {
-				outs() << "      is live-out value of block '" << block->getNameStr() << "' (defined here)\n";
+				DEBUG_PKT( outs() << "      is live-out value of block '" << block->getNameStr() << "' (defined here)\n"; );
 				liveValueMap[block].second->insert(def);
 				return;
 			}
@@ -378,7 +377,7 @@ namespace {
 			// live-out (handled above by visitedBlocks).
 			// If the use is a PHI, the value is neither live-in, nor live-out.
 			if (use->getParent() == block && !isa<PHINode>(use)) {
-				outs() << "      is live-in value of block '" << block->getNameStr() << "' (used here)\n";
+				DEBUG_PKT( outs() << "      is live-in value of block '" << block->getNameStr() << "' (used here)\n"; );
 				liveValueMap[block].first->insert(def);
 			}
 
@@ -386,7 +385,7 @@ namespace {
 			// this block is somewhere in between the two and thus the value
 			// is live-in and live-out
 			if (use->getParent() != block) {
-				outs() << "      is live-through value of block '" << block->getNameStr() << "'\n";
+				DEBUG_PKT( outs() << "      is live-through value of block '" << block->getNameStr() << "'\n"; );
 				liveValueMap[block].first->insert(def);
 				liveValueMap[block].second->insert(def);
 			}
@@ -423,97 +422,6 @@ namespace {
 			}
 		}
 
-		// TODO: use some kind of marking of blocks to prevent traversing a path more than once
-		// TODO: check if it is really correct to return true if we see the same block again!
-		bool computeLivenessInformation2(BasicBlock* block, Value* def, Instruction* use, std::map<BasicBlock*, bool>& visitedBlocks) {
-			//outs() << "computeLivenessInformation(" << block->getNameStr() << ")\n";
-			if (visitedBlocks.find(block) != visitedBlocks.end()) return visitedBlocks[block];
-			visitedBlocks[block] = false;
-
-			// If this block is the header of a loop, the value is live in the
-			// entire loop unless the use is an incoming value from outside the
-			// loop to a phi.
-			Loop* loop = loopInfo->getLoopFor(block);
-			assert (!loop || loop->getHeader() == block);
-			bool liveInEntireLoop = loop != NULL;
-			if (loop && isa<PHINode>(use) && use->getParent() == block) {
-				PHINode* phi = cast<PHINode>(use);
-				for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
-					if (phi->getIncomingValue(i) != use) continue;
-					BasicBlock* incomingBlock = phi->getIncomingBlock(i);
-					Loop* incomingLoop = loopInfo->getLoopFor(incomingBlock);
-					if (!incomingLoop || incomingLoop != loop) break;
-					liveInEntireLoop = false;
-					break;
-				}
-			}
-			if (liveInEntireLoop) {
-				// mark value to be live-in and live-out in all blocks of the loop
-				for (Loop::block_iterator BB=loop->block_begin(); BB!=loop->block_end(); ++BB) {
-					BasicBlock* loopBlock = *BB;
-					liveValueMap[loopBlock].first->insert(def);
-					liveValueMap[loopBlock].second->insert(def);
-					visitedBlocks[loopBlock] = true;
-				}
-
-				// recurse into exitblocks of loop instead of direct successors
-				SmallVector<BasicBlock*, 4> exitBlocks;
-				loop->getExitBlocks(exitBlocks);
-
-				bool defUseChainExists = false;
-				for (SmallVector<BasicBlock*, 4>::iterator it=exitBlocks.begin(); it!=exitBlocks.end(); ++it) {
-					defUseChainExists |= computeLivenessInformation2(*it, def, use, visitedBlocks);
-				}
-				if (!defUseChainExists) { outs() << "      no def-use chain found in successors of loop: "; loop->dump(); }
-				if (!defUseChainExists) return false;
-
-				// ...
-				// TODO: have to do the same as below
-
-				return true;
-			}
-
-
-
-			if (use->getParent() == block) {
-				outs() << "      is live-in value of block '" << block->getNameStr() << "'\n";
-				outs() << "         is parent of use!\n";
-				// add def as live-in for this block and return 'found'
-				liveValueMap[block].first->insert(def);
-				visitedBlocks[block] = true;
-				return true;
-			}
-
-			if (succ_begin(block) == succ_end(block)) {
-				outs() << "      block '" << block->getNameStr() << "' has no successors!\n";
-				return false;
-			}
-
-			bool defUseChainExists = false;
-
-			// recurse into successors
-			for (succ_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
-				BasicBlock* succBB = *S;
-				defUseChainExists |= computeLivenessInformation2(succBB, def, use, visitedBlocks);
-			}
-
-			if (!defUseChainExists) outs() << "      no def-use chain found in successors of block '" << block->getNameStr() << "'!\n";
-			if (!defUseChainExists) return false;
-
-
-			// add def as live-in for this block (if block is not the parent of def)
-			if (!isa<Instruction>(def) || (cast<Instruction>(def)->getParent() != block)) {
-				liveValueMap[block].first->insert(def);
-				outs() << "      is live-in value of block '" << block->getNameStr() << "'\n";
-			}
-
-			// add def as live-out for this block
-			liveValueMap[block].second->insert(def);
-			outs() << "      is live-out value of block '" << block->getNameStr() << "'\n";
-
-			visitedBlocks[block] = true;
-			return true;
-		}
 	};
 }
 

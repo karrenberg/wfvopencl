@@ -105,7 +105,7 @@ int main(int argc, char** argv)
 
     // Fill our data set with random float values
     //
-    int i = 0;
+    unsigned i = 0;
     unsigned int count = DATA_SIZE;
     for(i = 0; i < count; i++) {
         data[i] = rand() / (float)RAND_MAX;
