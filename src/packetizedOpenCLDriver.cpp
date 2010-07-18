@@ -614,7 +614,6 @@ namespace PacketizedOpenCLDriver {
 		const bool isArrayArg = isa<ArrayType>(arg->getType());
 		const bool isPointerArg = isa<PointerType>(arg->getType());
 
-//		std::vector<CallInst*> eraseVec;
 		for (Function::use_iterator U=f->use_begin(), UE=f->use_end(); U!=UE; ) {
 			if (!isa<CallInst>(U)) continue;
 			CallInst* call = cast<CallInst>(U++);
@@ -640,6 +639,7 @@ namespace PacketizedOpenCLDriver {
 				//if (ev->getType() == f->getReturnType()) arg = ev;
 				//else arg = TruncInst::CreateTruncOrBitCast(ev, f->getReturnType(), "", call);
 				//outs() << "  new extract/cast: " << *arg << "\n";
+
 				assert (f->getReturnType() == ev->getType());
 				call->replaceAllUsesWith(ev);
 				call->eraseFromParent();
@@ -663,15 +663,9 @@ namespace PacketizedOpenCLDriver {
 				call->replaceAllUsesWith(arg);
 				call->eraseFromParent();
 			}
-			
-//			eraseVec.push_back(call);
-		}
 
-//		for (std::vector<CallInst*>::iterator it=eraseVec.begin(), E=eraseVec.end(); it!=E; ++it) {
-//			CallInst* call = *it;
-//			assert (call->use_empty());
-//			call->eraseFromParent();
-//		}
+		} // for each use
+
 	}
 
 	inline llvm::Function* generateKernelWrapper(

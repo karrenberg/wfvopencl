@@ -47,7 +47,7 @@
 #define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID -1
 #define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_START_ID 0
 
-#define USE_MANUAL_DOMTREE_PASS
+#define USE_LLVM_DOMTREE_PASS
 
 using namespace llvm;
 
@@ -71,7 +71,7 @@ public:
 		DEBUG_PKT( outs() << "generating continuations...\n"; );
 		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 
-		PacketizedOpenCLDriver::writeFunctionToFile(&f, "beforeBarriers.ll");
+		DEBUG_PKT( PacketizedOpenCLDriver::writeFunctionToFile(&f, "beforeBarriers.ll"); );
 
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
@@ -186,7 +186,7 @@ private:
 	}
 
 
-#ifndef USE_MANUAL_DOMTREE_PASS
+#ifndef USE_LLVM_DOMTREE_PASS
 	// We need these two functions because requiring domTree is not enoug
 	// -> it only generates dominator information for original function, not for
 	//    new continuations.
@@ -429,8 +429,6 @@ private:
 		CloneFunctionInto(continuation, f, valueMap, returns, ".");
 
 
-		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF1.ll");
-
 
 		// remap values that were no arguments
 		// NOTE: apparently, CloneFunctionInto does not look into the valueMap
@@ -501,14 +499,12 @@ private:
 			entryBlock->moveBefore(&continuation->getEntryBlock());
 		}
 
-		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF2.ll");
-
 
 		// Make sure all uses of live values that are not dominated anymore are
 		// rewired to arguments.
 		// NOTE: This can't be done before blocks are deleted ;).
 
-#ifdef USE_MANUAL_DOMTREE_PASS
+#ifdef USE_LLVM_DOMTREE_PASS
 		// compute dominator tree (somehow does not work with functionpassmanager)
 		DominatorTree* domTree = new DominatorTree();
 		domTree->runOnFunction(*continuation);
@@ -540,7 +536,7 @@ private:
 						assert (isa<Instruction>(U));
 						Instruction* useI = cast<Instruction>(U++);
 						DEBUG_PKT( outs() << "  testing use: " << *useI << "\n"; );
-#ifdef USE_MANUAL_DOMTREE_PASS
+#ifdef USE_LLVM_DOMTREE_PASS
 						if (domTree->dominates(newInst, useI)) continue;
 #else
 						if (isDominatedBy(useI, newInst)) continue;
@@ -554,10 +550,6 @@ private:
 
 			newLiveVal->replaceAllUsesWith(A2);
 		}
-
-		PacketizedOpenCLDriver::writeFunctionToFile(continuation, "ASDF3.ll");
-		//continuation->viewCFG();
-
 
 		// TODO: erase dummy values from value map?
 
@@ -579,6 +571,61 @@ private:
 		barrierInfo->liveValueStructType = sType;
 	}
 
+	//--------------------------------------------------------------------//
+	// create wrapper function which contains a switch over the barrier id
+	// inside a while loop.
+	// the wrapper calls the function that corresponds to the barrier id.
+	// If the id is the special 'begin' id, it calls the first function
+	// (= the remainder of the original kernel).
+	// The while loop iterates until the barrier id is set to a special
+	// 'end' id.
+	// Each function has the same signature receiving only a void*.
+	// In case of a continuation, this is a struct which holds the live
+	// values that were live at the splitting point.
+	// Before returning to the switch, the struct is deleted and the live
+	// values for the next call are written into a newly allocated struct
+	// (which the void* then points to).
+	//
+	// Each continuation is wrapped in a loop that iterates over an entire block
+	// of input values. Depending on the dimensionality of the input data
+	// (determined by analyzing the calls to get_local_id() etc.), one or more
+	// nested loops are generated.
+	//--------------------------------------------------------------------//
+	// Example:
+	/*
+	void barrierSwitchFn(...) {
+		void* data = NULL;
+		const unsigned blockSizeDim0 = get_local_size(0);
+		while (true) {
+			switch (current_barrier_id) {
+				case BARRIER_END: return;
+				case BARRIER_BEGIN: {
+					for (int localId=0; localId<blockSizeDim0; ++localId) {
+						current_barrier_id = runOrigFunc(..., localId, &data); break;
+	 				}
+	 			}
+				case B0: {
+					// 1D case example
+					for (int localId=0; localId<blockSizeDim0; ++localId) {
+						current_barrier_id = runFunc0(localId, &data); break;
+	 				}
+				}
+				case B1: {
+					for (int localId=0; localId<blockSizeDim0; ++localId) {
+						current_barrier_id = runFunc1(localId, &data); break;
+		 			}
+				}
+				...
+				case BN: {
+					for (int localId=0; localId<blockSizeDim0; ++localId) {
+						current_barrier_id = runFuncN(localId, &data); break;
+		 			}
+				}
+				default: error; break;
+			}
+		}
+	}
+	*/
 	Function* eliminateBarriers(Function* f, TargetData* targetData) {
 		assert (f && targetData);
 		assert (f->getReturnType()->isVoidTy());
@@ -754,42 +801,9 @@ private:
 
 
 
-		//--------------------------------------------------------------------//
-		// create wrapper function which contains a switch over the barrier id
-		// inside a while loop.
-		// the wrapper calls the function that corresponds to the barrier id.
-		// If the id is the special 'begin' id, it calls the first function
-		// (= the remainder of the original kernel).
-		// The while loop iterates until the barrier id is set to a special
-		// 'end' id.
-		// Each function has the same signature receiving only a void*.
-		// In case of a continuation, this is a struct which holds the live
-		// values that were live at the splitting point.
-		// Before returning to the switch, the struct is deleted and the live
-		// values for the next call are written into a newly allocated struct
-		// (which the void* then points to).
-		//--------------------------------------------------------------------//
-		// Example:
-		/*
-		   void* data = NULL;
-		   while (true) {
-		   switch (current_barrier_id) {
-		   case BARRIER_BEGIN: current_barrier_id = runOrigFunc(..., &data); break;
-		   case BARRIER_END: return;
-		   case B0: {
-		   current_barrier_id = runFunc0(&data); break;
-		   }
-		   case B1: {
-		   current_barrier_id = runFunc1(&data); break;
-		   }
-		   ...
-		   case BN: {
-		   current_barrier_id = runFuncN(&data); break;
-		   }
-		   default: error; break;
-		   }
-		   }
-		 */
+		// create the wrapper
+
+
 		Function* wrapper = Function::Create(fTypeOld, Function::ExternalLinkage, functionName+"_barrierswitch", mod); // TODO: check linkage type
 
 		IRBuilder<> builder(context);
