@@ -40,8 +40,8 @@
 #include "livenessAnalyzer.h"
 #include "llvmTools.hpp"
 
-//#define DEBUG_PKT(x) do { x } while (false)
-#define DEBUG_PKT(x) ((void)0)
+#define DEBUG_PKT(x) do { x } while (false)
+//#define DEBUG_PKT(x) ((void)0)
 
 #define PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER "barrier"
 #define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID -1
@@ -85,9 +85,7 @@ public:
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
 
-		barrierFreeFunction = eliminateBarriers(&f, targetData);
-
-		if (!barrierFreeFunction) return false; // if barrierFreeFunction does not exist, nothing has changed
+		barrierFreeFunction = eliminateBarriers(&f, specialParams, specialParamNames, targetData);
 
 		DEBUG_PKT( verifyModule(*f.getParent()); );
 
@@ -96,7 +94,7 @@ public:
 		DEBUG_PKT( print(outs(), NULL); );
 		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
-		return true;
+		return barrierFreeFunction != NULL; // if barrierFreeFunction does not exist, nothing has changed
 	}
 
 	void print(raw_ostream& o, const Module *M) const {}
@@ -106,13 +104,21 @@ public:
 	}
 	void releaseMemory() {}
 
-	Function* getBarrierFreeFunction() const { return barrierFreeFunction; }
-	void getContinuations(std::vector<Function*>& continuations) const {
+	// each continuation function receives an additional parameter with this type and name
+	inline void addSpecialParam(const Type* param, const std::string& paramName) {
+		specialParams.push_back(param);
+		specialParamNames.push_back(paramName);
+	}
+
+	inline Function* getBarrierFreeFunction() const { return barrierFreeFunction; }
+	inline void getContinuations(SmallVector<Function*, 4>& continuations) const {
 		assert (continuations.empty());
-		continuations.reserve(continuationMap.size());
+		continuations.resize(continuationMap.size());
+		assert (continuations.size() == continuationMap.size());
 		for (DenseMap<unsigned, BarrierInfo*>::const_iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 			BarrierInfo* binfo = it->second;
 			assert (binfo->id < continuationMap.size());
+			assert (binfo->id < continuations.size());
 			continuations[binfo->id] = binfo->continuation;
 		}
 	}
@@ -121,6 +127,11 @@ private:
 	const bool verbose;
 	LivenessAnalyzer* livenessAnalyzer;
 	Function* barrierFreeFunction;
+
+	typedef std::vector<const Type*> SpecialParamVecType;
+	typedef std::vector<std::string> SpecialParamNameVecType;
+	SpecialParamVecType specialParams;
+	SpecialParamNameVecType specialParamNames;
 
 	DenseMap<unsigned, BarrierInfo*> continuationMap;
 
@@ -237,7 +248,6 @@ private:
 		assert (barrier->getParent() == parentBlock);
 
 		LLVMContext& context = mod->getContext();
-		//f->viewCFG();
 
 		DEBUG_PKT( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
 
@@ -303,11 +313,11 @@ private:
 		DEBUG_PKT( outs() << "alloc size        : " << targetData->getTypeAllocSize(sType) << "\n"; );
 
 		// pointer to union for live value struct for next call is the last parameter
-		Argument* newDataPtr = --(f->arg_end());
-		DEBUG_PKT( outs() << "pointer to union: " << *newDataPtr << "\n"; );
+		Argument* nextContLiveValStructPtr = --(f->arg_end());
+		DEBUG_PKT( outs() << "pointer to union: " << *nextContLiveValStructPtr << "\n"; );
 
 		// bitcast data pointer to correct struct type for GEP below
-		BitCastInst* bc = new BitCastInst(newDataPtr, PointerType::getUnqual(sType), "", barrier);
+		BitCastInst* bc = new BitCastInst(nextContLiveValStructPtr, PointerType::getUnqual(sType), "", barrier);
 
 		// store values
 		unsigned i=0;
@@ -352,15 +362,18 @@ private:
 		//--------------------------------------------------------------------//
 		// create new function with the following signature:
 		// - returns int (id of next continuation)
-		// - one parameter per live-in value
+		// - special parameters
+		// - live-in value parameters
 		// - last parameter: void* data (union where live values for next
 		//                   continuation are stored before returning)
+		//
+		// - original parameters of f not required (included in live vals if necessary)
 		//--------------------------------------------------------------------//
 		params.clear();
-		for (StructType::element_iterator T=sType->element_begin(), TE=sType->element_end(); T!=TE; ++T) {
-			params.push_back(*T);
-		}
-		params.push_back(Type::getInt8PtrTy(context));
+		//params.insert(params.end(), f->getFunctionType()->subtype_begin(), f->getFunctionType()->subtype_end()); // original parameters
+		params.insert(params.end(), specialParams.begin(), specialParams.end());   // special parameters
+		params.insert(params.end(), sType->element_begin(), sType->element_end()); // live values
+		params.push_back(Type::getInt8PtrTy(context)); // data ptr
 
 		FunctionType* fType = FunctionType::get(returnType, params, false);
 
@@ -374,7 +387,12 @@ private:
 		DEBUG_PKT( outs() << "\nlive value mappings:\n"; );
 		DenseMap<const Value*, Value*> valueMap;
 		DenseMap<const Value*, Value*> liveValueToArgMap;
-		Function::arg_iterator A = continuation->arg_begin();
+		//Function::arg_iterator A = continuation->arg_begin();
+		// A has to point to first live value parameter of continuation
+		Function::arg_iterator A = --continuation->arg_end();
+		for (unsigned i=0, e=sType->getNumContainedTypes(); i<e; ++i) {
+			--A;
+		}
 		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A) {
 			Value* liveVal = *it;
 			valueMap[liveVal] = A;
@@ -408,16 +426,12 @@ private:
 		// old function that do not map to a live value.
 		// TODO: erase dummy values again from value map at some point?
 		for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A) {
-			//if (liveValueMap.find(A) != liveValueMap.end()) {
-				//valueMap[A] = liveValueMap[A];
-				//continue;
-			//}
 			if (valueMap.find(A) != valueMap.end()) continue;
 			Value* dummy = UndefValue::get(A->getType());
 			valueMap[A] = dummy;
 		}
 
-		// create mapping for data pointer (last argument to last argument
+		// create mapping for data pointer (last argument to last argument)
 		valueMap[(--(f->arg_end()))] = --(continuation->arg_end());
 
 		SmallVector<ReturnInst*, 2> returns;
@@ -619,7 +633,7 @@ private:
 		}
 	}
 	*/
-	Function* eliminateBarriers(Function* f, TargetData* targetData) {
+	Function* eliminateBarriers(Function* f, SpecialParamVecType& specialParams, SpecialParamNameVecType& specialParamNames, TargetData* targetData) {
 		assert (f && targetData);
 		assert (f->getReturnType()->isVoidTy());
 		Module* mod = f->getParent();
@@ -631,28 +645,38 @@ private:
 
 		//--------------------------------------------------------------------//
 		// change return value of f to return unsigned (barrier id)
-		// and add one new parameter to the end of the argument list:
-		// - void* newData : pointer to live value union where live-in values of
-		//                   next continuation are stored
+		// and adjust parameters:
+		// - original parameters
+		// - special parameters (get_global_id, get_local_size, num_groups)
+		// - void* nextContLiveVals : pointer to live value union where live-in
+		//                            values of next continuation are stored
 		//
 		// = create new function with new signature and clone all blocks
 		// The former return statements now all return -1 (special end id)
 		//--------------------------------------------------------------------//
 		const FunctionType* fTypeOld = f->getFunctionType();
 		std::vector<const Type*> params;
-		for (FunctionType::param_iterator it=fTypeOld->param_begin(), E=fTypeOld->param_end(); it!=E; ++it) {
-			params.push_back(*it);
-		}
-		params.push_back(Type::getInt8PtrTy(context)); // add void*-argument (= live value struct return param)
+		params.insert(params.end(), fTypeOld->param_begin(), fTypeOld->param_end()); // parameters of original kernel
+		params.insert(params.end(), specialParams.begin(), specialParams.end()); // "special" parameters
+		params.push_back(Type::getInt8PtrTy(context)); // void*-parameter (= live value struct return param)
 		const FunctionType* fTypeNew = FunctionType::get(Type::getInt32Ty(context), params, false);
 		Function* newF = Function::Create(fTypeNew, Function::ExternalLinkage, functionName+"_begin", mod); // TODO: check linkage type
-		(--newF->arg_end())->setName("newData");
+
+		// set names of parameters
+		Function::arg_iterator A = --newF->arg_end();
+		SpecialParamNameVecType::const_iterator N = --specialParamNames.end();
+		A->setName("nextContLiveVals");
+		--A;
+		for (unsigned i=0, e=specialParams.size(); i<e; ++i, --A, --N) {
+			A->setName(*N);
+		}
 
 		// specify mapping of parameters
+		// (original parameters come first, so the iteration should be okay)
 		DenseMap<const Value*, Value*> valueMap;
 		Function::arg_iterator A2 = newF->arg_begin();
 		for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A, ++A2) {
-			valueMap[A] = A2; //valueMap.insert(std::make_pair(A, A2));
+			valueMap[A] = A2;
 			A2->takeName(A);
 		}
 		SmallVector<ReturnInst*, 2> returns;
@@ -664,6 +688,8 @@ private:
 			returns[i]->eraseFromParent();
 			ReturnInst::Create(context, ConstantInt::get(fTypeNew->getReturnType(), PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID, true), retBlock);
 		}
+
+		DEBUG_PKT( PacketizedOpenCLDriver::writeFunctionToFile(newF, "cont_begin_beforesplitting.ll"); );
 
 		// map the live values of the original function to the new one
 		livenessAnalyzer->mapLiveValues(f, newF, valueMap);
@@ -863,9 +889,9 @@ private:
 			builder.SetInsertPoint(block);
 
 			// extract arguments from live value struct (dataPtr)
-			BarrierInfo* bit = continuationMap[i];
-			const StructType* sType = bit->liveValueStructType;
-			const unsigned numLiveVals = sType->getNumElements();
+			BarrierInfo* binfo = continuationMap[i];
+			const StructType* sType = binfo->liveValueStructType;
+			const unsigned numLiveVals = sType->getNumElements(); // 0 for begin-fn
 			Value** contArgs = new Value*[numLiveVals]();
 
 			Value* bc = builder.CreateBitCast(dataPtr, PointerType::getUnqual(sType)); // cast data pointer to correct pointer to struct type
@@ -885,24 +911,36 @@ private:
 			// the first block holds the call to the (remainder of the) original function,
 			// which receives the original arguments plus the data pointer.
 			// All other blocks receive the extracted live-in values plus the data pointer.
-			SmallVector<Value*, 2> args;
+			SmallVector<Value*, 4> args;
+
+			// original parameters (only for begin-fn)
 			if (i == 0) {
 				for (Function::arg_iterator A=wrapper->arg_begin(), AE=wrapper->arg_end(); A!=AE; ++A) {
 					assert (isa<Value>(A));
 					args.push_back(cast<Value>(A));
 				}
-			} else {
+			}
+			// special parameters (insert dummies -> have to be replaced externally after the pass is finished)
+			for (SpecialParamVecType::iterator it=specialParams.begin(), E=specialParams.end(); it!=E; ++it) {
+				args.push_back(UndefValue::get(*it));
+			}
+			// live values (not for begin-fn)
+			if (i > 0) {
 				for (unsigned j=0; j<numLiveVals; ++j) {
 					args.push_back(contArgs[j]);
 				}
 			}
-			args.push_back(dataPtr);
+			args.push_back(dataPtr); // data ptr
+
+			outs() << "\narguments for call to continuation '" << binfo->continuation->getNameStr() << "':\n";
+			for (SmallVector<Value*, 4>::iterator it=args.begin(), E=args.end(); it!=E; ++it) {
+				outs() << " * " << **it << "\n";
+			}
+			outs() << "\n";
 
 			std::stringstream sstr;
 			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
 			calls[i] = builder.CreateCall(continuationMap[i]->continuation, args.begin(), args.end(), sstr.str());
-			//calls[i]->addAttribute(1, Attribute::NoCapture);
-			//calls[i]->addAttribute(1, Attribute::NoAlias);
 			DEBUG_PKT( outs() << "created call for continuation '" << continuationMap[i]->continuation->getNameStr() << "':" << *calls[i] << "\n"; );
 
 			builder.CreateBr(latchBB);

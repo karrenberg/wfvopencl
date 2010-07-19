@@ -60,7 +60,6 @@
 //#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 //#define PACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME
 //#define NDEBUG
-//#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER // outdated :p
 //----------------------------------------------------------------------------//
 
 
@@ -722,11 +721,19 @@ namespace PacketizedOpenCLDriver {
 	}
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-	inline Function* createKernelSequential(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, cl_int* errcode_ret) {
+	inline Function* createKernelSequential(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret) {
 		// eliminate barriers
 		FunctionPassManager FPM(module);
 		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
 		ContinuationGenerator* CG = new ContinuationGenerator(true);
+		// set "special" parameter types that are generated for each continuation
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_id");   // generated inside switch
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_id");    // generated inside switch
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_num_groups");  // generated inside switch
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_work_dim");    // supplied from outside
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_size"); // supplied from outside
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_size");  // supplied from outside
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_group_id");    // supplied from outside
 		FPM.add(LA);
 		FPM.add(CG);
 		FPM.run(*f);
@@ -745,18 +752,31 @@ namespace PacketizedOpenCLDriver {
 			f->setName(barrierFreeFunction->getNameStr()+"_orig");
 
 			f = barrierFreeFunction;
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "nobarriers.mod.ll"); );
+
+			SmallVector<Function*, 4> continuations;
+			CG->getContinuations(continuations);
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG(
+				outs() << "continuations:\n";
+				for (SmallVector<Function*, 4>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
+					Function* continuation = *it;
+					outs() << " * " << continuation->getNameStr() << "\n";
+				}
+				outs() << "\n";
+			);
+
+			// TODO: generate wrapper
+			// TODO: generate loops
+			// TODO: generate code for 3 generated special parameters in each loop
+			// TODO: map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
 		}
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "nobarriers.mod.ll"); );
 
+		exit(0);
+		
 
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
-		// USE CLC-GENERATED WRAPPER
-		//
-		std::stringstream strs2;
-		strs2 << "__OpenCL_" << kernel_name << "_stub";
-		const std::string wrapper_name = strs2.str();
-#else
-		// USE AUTO-GENERATED WRAPPER
+		// generate wrapper for kernel (= all kernels have same signature)
 		//
 		std::stringstream strs2;
 		strs2 << kernel_name << "_wrapper";
@@ -765,7 +785,6 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
 		PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f, module);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
-#endif
 
 		llvm::Function* f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
 		if (!f_wrapper) {
@@ -780,6 +799,7 @@ namespace PacketizedOpenCLDriver {
 
 		// replace functions by parameter accesses (has to be done AFTER inlining!
 		// start with second argument (first is void* of argument_struct)
+		// TODO: this has to be performed on each continuation if any exist
 		llvm::Function::arg_iterator arg = f_wrapper->arg_begin();
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(++arg), f_wrapper);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(++arg), f_wrapper);
@@ -807,7 +827,7 @@ namespace PacketizedOpenCLDriver {
 		return f_wrapper;
 	}
 #else
-	inline Function* createKernelPacketized(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, cl_int* errcode_ret, Function** f_SIMD_ret) {
+	inline Function* createKernelPacketized(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
 		// PACKETIZATION ENABLED
 		// USE AUTO-GENERATED PACKET WRAPPER
 		//
@@ -2164,9 +2184,11 @@ clCreateKernel(cl_program      program,
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "kernel_orig.ll"); );
 
+	LLVMContext& context = module->getContext();
+
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
-	llvm::Function* f_wrapper = PacketizedOpenCLDriver::createKernelSequential(f, kernel_name, module, program->targetData, errcode_ret);
+	llvm::Function* f_wrapper = PacketizedOpenCLDriver::createKernelSequential(f, kernel_name, module, program->targetData, context, errcode_ret);
 	if (!f_wrapper) {
 		errs() << "ERROR: kernel generation failed!\n";
 		return NULL;
@@ -2177,7 +2199,7 @@ clCreateKernel(cl_program      program,
 #else
 
 	llvm::Function* f_SIMD = NULL;
-	llvm::Function* f_wrapper = PacketizedOpenCLDriver::createKernelPacketized(f, kernel_name, module, program->targetData, errcode_ret, &f_SIMD);
+	llvm::Function* f_wrapper = PacketizedOpenCLDriver::createKernelPacketized(f, kernel_name, module, program->targetData, context, errcode_ret, &f_SIMD);
 	if (!f_wrapper || !f_SIMD) {
 		errs() << "ERROR: kernel generation failed!\n";
 		return NULL;
