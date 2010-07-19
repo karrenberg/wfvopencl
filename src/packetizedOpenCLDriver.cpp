@@ -58,7 +58,6 @@
 // these are assumed to be set by build script
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 //#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-//#define PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
 //#define PACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME
 //#define NDEBUG
 //#define PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER // outdated :p
@@ -675,9 +674,6 @@ namespace PacketizedOpenCLDriver {
 			llvm::Module* mod)
 	{
 		assert (f_SIMD && mod);
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-		return PacketizedOpenCLDriver::generateFunctionWrapper(wrapper_name, f_SIMD, mod);
-#else
 
 		LLVMContext& context = mod->getContext();
 
@@ -748,7 +744,6 @@ namespace PacketizedOpenCLDriver {
 #endif
 
 		return wrapper;
-#endif
 	}
 
 	inline void resolveRuntimeCalls(llvm::Module* mod) {
@@ -827,13 +822,6 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 #endif
 
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-		// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
-		PacketizedOpenCLDriver::resolveRuntimeCalls(module);
-		PacketizedOpenCLDriver::fixFunctionNames(module);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
-#endif
-
 		llvm::Function* f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
 		if (!f_wrapper) {
 			errs() << "ERROR: could not find wrapper function in kernel module!\n";
@@ -845,7 +833,6 @@ namespace PacketizedOpenCLDriver {
 		// inline all calls inside wrapper_fn
 		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper);
 
-#ifndef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
 		// replace functions by parameter accesses (has to be done AFTER inlining!
 		// start with second argument (first is void* of argument_struct)
 		llvm::Function::arg_iterator arg = f_wrapper->arg_begin();
@@ -863,7 +850,6 @@ namespace PacketizedOpenCLDriver {
 		#endif
 
 		PacketizedOpenCLDriver::fixFunctionNames(module);
-#endif
 
 		// optimize wrapper with inlined kernel
 		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
@@ -936,13 +922,6 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), simdWidth);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-		// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
-		PacketizedOpenCLDriver::resolveRuntimeCalls(module);
-		PacketizedOpenCLDriver::fixFunctionNames(module);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
-#endif
-
 		llvm::Function* f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
 		if (!f_wrapper) {
 			errs() << "ERROR: could not find wrapper function in kernel module!\n";
@@ -954,7 +933,6 @@ namespace PacketizedOpenCLDriver {
 		// inline all calls inside wrapper_fn
 		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper);
 
-#ifndef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
 		// replace functions by parameter accesses (has to be done AFTER inlining!
 		// start with second argument (first is void* of argument_struct)
 		llvm::Function::arg_iterator arg = f_wrapper->arg_begin();
@@ -972,7 +950,6 @@ namespace PacketizedOpenCLDriver {
 		#endif
 
 		PacketizedOpenCLDriver::fixFunctionNames(module);
-#endif
 
 		// optimize wrapper with inlined kernel
 		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
@@ -2606,9 +2583,6 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
 
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-	typedef void (*kernelFnPtr)(const void*);
-#else
 	const size_t groupnr = global_work_size / local_work_size;
 	const cl_uint argument_get_global_size = global_work_size;
 	const cl_uint argument_get_local_size  = local_work_size;
@@ -2622,7 +2596,6 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 			const cl_uint*,
 			const cl_uint*,
 			const cl_uint*);
-#endif
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	const void* argument_struct = kernel->get_argument_struct();
@@ -2641,20 +2614,6 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	for (i=0; i<num_iterations; ++i) {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << "\n"; );
 
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-		setCurrentGlobal(0, i);
-		setCurrentGroup(0, i / local_work_size);
-		setCurrentLocal(0, i % local_work_size);
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			outs() << "  global id: " << get_global_id(0) << "\n";
-			outs() << "  local id: " << get_local_id(0) << "\n";
-			outs() << "  group id: " << get_group_id(0) << "\n";
-			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
-		);
-
-		typedPtr(argument_struct);
-#else
 		// TODO: optimize for constant case where group or local ids do not change?
 		const cl_uint argument_get_global_id   = i;
 		const cl_uint argument_get_group_id    = i / local_work_size;
@@ -2677,7 +2636,6 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 			&argument_get_group_id,
 			&argument_get_local_id
 		);
-#endif
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG(
 			outs() << "iteration " << i << " finished!\n";
@@ -2693,10 +2651,6 @@ inline cl_int executeRangeKernelND(cl_kernel kernel, cl_uint num_dimensions, con
 
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	PACKETIZED_OPENCL_DRIVER_DEBUG( errs() << "WARNING: clEnqueueNDRangeKernels with work_dim > 1 currently does not support multithreading - falling back to single-thread mode!\n"; );
-	#endif
-
-	#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-	PACKETIZED_OPENCL_DRIVER_DEBUG( errs() << "WARNING: clEnqueueNDRangeKernels with work_dim > 1 currently does not allow using callbacks instead of arguments!\n"; );
 	#endif
 
 	typedef void (*kernelFnPtr)(
@@ -2844,9 +2798,6 @@ inline cl_int executeRangeKernel1DPacket(cl_kernel kernel, const size_t global_w
 	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
 
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-	typedef void (*kernelFnPtr)(const void*);
-#else
 	const size_t groupnr = global_work_size / local_work_size;
 	const cl_uint argument_get_global_size = global_work_size;
 	const cl_uint argument_get_local_size  = local_work_size;
@@ -2862,7 +2813,6 @@ inline cl_int executeRangeKernel1DPacket(cl_kernel kernel, const size_t global_w
 			const cl_uint*,
 			const __m128i*,
 			const __m128i*);
-#endif
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	const void* argument_struct = kernel->get_argument_struct();
@@ -2882,19 +2832,6 @@ inline cl_int executeRangeKernel1DPacket(cl_kernel kernel, const size_t global_w
 	for (i=0; i<num_iterations; ++i) {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << "\n"; );
 
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-		setCurrentGlobal(0, i);
-		setCurrentGroup(0, i);
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			outs() << "  current global: " << i << "\n";
-			outs() << "  get_global_id: " << get_global_id(0) << "\n";
-			outs() << "  get_global_id_SIMD: "; printV(get_global_id_SIMD(0)); outs() << "\n";
-			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
-		);
-
-		typedPtr(argument_struct);
-#else
 		const cl_uint argument_get_global_id      = i;
 		const cl_uint argument_get_group_id       = i;
 		const unsigned id0 = i * 4;
@@ -2911,7 +2848,6 @@ inline cl_int executeRangeKernel1DPacket(cl_kernel kernel, const size_t global_w
 			&argument_get_global_id_SIMD,
 			&argument_get_local_id_SIMD
 		);
-#endif
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG(
 			outs() << "  iteration " << i << " finished!\n";

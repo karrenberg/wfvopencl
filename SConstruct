@@ -6,7 +6,6 @@ import os
 debug = ARGUMENTS.get('debug', 0)
 use_openmp = ARGUMENTS.get('openmp', 0)
 packetize = ARGUMENTS.get('packetize', 0)
-use_callbacks = ARGUMENTS.get('callback', 0)
 force_nd_iteration = ARGUMENTS.get('force_nd', 0)
 
 if int(debug) and int(use_openmp):
@@ -37,9 +36,6 @@ if int(use_openmp):
 
 if not int(packetize):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION")
-
-if int(use_callbacks):
-	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_CALLBACKS")
 
 if int(force_nd_iteration):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME")
