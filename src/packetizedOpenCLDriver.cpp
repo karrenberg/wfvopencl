@@ -677,53 +677,21 @@ namespace PacketizedOpenCLDriver {
 
 		LLVMContext& context = mod->getContext();
 
-		// analyze function for callbacks (get_global_id etc.)
-		// TODO: Not necessary, as there currently is no efficient way to use
-		//       this knowledge: We have to supply all arguments every time to
-		//       retain the same function signature of the wrapper for all kernels.
-		#if 0
-		for (llvm::Function::const_iterator BB=f_SIMD->begin(), BBE=f_SIMD->end(); BB!=BBE; ++BB) {
-			for (llvm::BasicBlock::const_iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
-				if (!llvm::isa<llvm::CallInst>(I)) continue;
-
-				llvm::CallInst* call = llvm::cast<llvm::CallInst>(I);
-				
-				llvm::Function* callee = call->getCalledFunction();
-				if (callee->getNameStr() == "get_work_dim") {
-					// ...
-				} // else if ...
-
-			}
-		}
-		#endif
-
 		// collect return types of the callback functions of interest
 		std::vector<const llvm::Type*> additionalParams;
 		additionalParams.push_back(Type::getInt32Ty(context)); // get_work_dim = cl_uint
 
-//		additionalParams.push_back(ArrayType::get(Type::getInt32Ty(context), maxNumDimensions)); // get_global_size = size_t[]
-//		additionalParams.push_back(ArrayType::get(Type::getInt32Ty(context), maxNumDimensions)); // get_global_id = size_t[]
-//		additionalParams.push_back(ArrayType::get(Type::getInt32Ty(context), maxNumDimensions)); // get_local_size = size_t[]
-//		additionalParams.push_back(ArrayType::get(Type::getInt32Ty(context), maxNumDimensions)); // get_num_groups = size_t[]
-//		additionalParams.push_back(ArrayType::get(Type::getInt32Ty(context), maxNumDimensions)); // get_group_id = size_t[]
-//#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-//		additionalParams.push_back(ArrayType::get(Type::getInt32Ty(context), maxNumDimensions)); // get_local_id = size_t[]
-//#else
-//		additionalParams.push_back(ArrayType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), maxNumDimensions)); // get_global_id_SIMD = __m128i[]
-//		additionalParams.push_back(ArrayType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), maxNumDimensions)); // get_local_id_SIMD = __m128i[]
-//#endif
-
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_global_size = size_t[]
-		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_global_id = size_t[]
+		//additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_global_id = size_t[]
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_local_size = size_t[]
-		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_num_groups = size_t[]
+		//additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_num_groups = size_t[]
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_group_id = size_t[]
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_local_id = size_t[]
-#else
-		additionalParams.push_back(PointerType::getUnqual(VectorType::get(Type::getInt32Ty(context), simdWidth))); // get_global_id_SIMD = __m128i[]
-		additionalParams.push_back(PointerType::getUnqual(VectorType::get(Type::getInt32Ty(context), simdWidth))); // get_local_id_SIMD = __m128i[]
-#endif
+//#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+//		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_local_id = size_t[]
+//#else
+//		additionalParams.push_back(PointerType::getUnqual(VectorType::get(Type::getInt32Ty(context), simdWidth))); // get_global_id_SIMD = __m128i[]
+//		additionalParams.push_back(PointerType::getUnqual(VectorType::get(Type::getInt32Ty(context), simdWidth))); // get_local_id_SIMD = __m128i[]
+//#endif
 
 		// generate wrapper
 		llvm::Function* wrapper = PacketizedOpenCLDriver::generateFunctionWrapperWithParams(wrapper_name, f_SIMD, mod, additionalParams);
@@ -732,48 +700,12 @@ namespace PacketizedOpenCLDriver {
 		Function::arg_iterator arg = wrapper->arg_begin();
 		++arg; arg->setName("get_work_dim");
 		++arg; arg->setName("get_global_size");
-		++arg; arg->setName("get_global_id");
 		++arg; arg->setName("get_local_size");
-		++arg; arg->setName("get_num_groups");
 		++arg; arg->setName("get_group_id");
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		++arg; arg->setName("get_local_id");
-#else
-		++arg; arg->setName("get_global_id_SIMD");
-		++arg; arg->setName("get_local_id_SIMD");
-#endif
 
 		return wrapper;
 	}
 
-	inline void resolveRuntimeCalls(llvm::Module* mod) {
-		std::vector< std::pair<llvm::Function*, void*> > funs;
-		using std::make_pair;
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_work_dim",    mod), void_cast(get_work_dim)));
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_global_size", mod), void_cast(get_global_size)));
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_global_id",   mod), void_cast(get_global_id)));
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_local_size",  mod), void_cast(get_local_size)));
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_num_groups",  mod), void_cast(get_num_groups)));
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_group_id",    mod), void_cast(get_group_id)));
-
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_local_id", mod), void_cast(get_local_id)));
-#else
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", mod), void_cast(get_global_id_SIMD)));
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("get_local_id_SIMD",  mod), void_cast(get_local_id_SIMD)));
-#endif
-
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OS_SYNCHRONIZATION
-		funs.push_back(make_pair(PacketizedOpenCLDriver::getFunction("barrier", mod), void_cast(barrier)));
-#endif
-
-		for (cl_uint i=0, e=funs.size(); i<e; ++i) {
-			llvm::Function* funDecl = funs[i].first;
-			void* funImpl = funs[i].second;
-
-			if (funDecl) PacketizedOpenCLDriver::replaceAllUsesWith(funDecl, PacketizedOpenCLDriver::createFunctionPointer(funDecl, funImpl));
-		}
-	}
 	inline void fixFunctionNames(Module* mod) {
 		// fix __sqrt_f32
 		if (PacketizedOpenCLDriver::getFunction("__sqrt_f32", mod)) {
@@ -799,8 +731,21 @@ namespace PacketizedOpenCLDriver {
 		FPM.add(CG);
 		FPM.run(*f);
 
-		Function* f_nobarriers = CG->getBarrierFreeFunction();
-		if (f_nobarriers) f = f_nobarriers;
+		Function* barrierFreeFunction = CG->getBarrierFreeFunction();
+		if (barrierFreeFunction) {
+			// inline continuation functions & optimize wrapper
+			PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
+			PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
+
+			DEBUG_PKT( verifyFunction(*barrierFreeFunction); );
+			DEBUG_PKT( outs() << *barrierFreeFunction << "\n"; );
+
+			f->replaceAllUsesWith(barrierFreeFunction);
+			barrierFreeFunction->takeName(f);
+			f->setName(barrierFreeFunction->getNameStr()+"_orig");
+
+			f = barrierFreeFunction;
+		}
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "nobarriers.mod.ll"); );
 
 
@@ -907,8 +852,22 @@ namespace PacketizedOpenCLDriver {
 		FPM.add(LA);
 		FPM.add(CG);
 		FPM.run(*f_SIMD);
-		Function* f_SIMD_nobarriers = CG->getBarrierFreeFunction();
-		if (f_SIMD_nobarriers) f_SIMD = f_SIMD_nobarriers;
+
+		Function* barrierFreeFunction = CG->getBarrierFreeFunction();
+		if (barrierFreeFunction) {
+			// inline continuation functions & optimize wrapper
+			PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
+			PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
+
+			DEBUG_PKT( verifyFunction(*barrierFreeFunction); );
+			DEBUG_PKT( outs() << *barrierFreeFunction << "\n"; );
+
+			f_SIMD->replaceAllUsesWith(barrierFreeFunction);
+			barrierFreeFunction->takeName(f_SIMD);
+			f_SIMD->setName(barrierFreeFunction->getNameStr()+"_orig");
+
+			f_SIMD = barrierFreeFunction;
+		}
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
 
 		strs2 << "_wrapper";

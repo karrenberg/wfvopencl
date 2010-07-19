@@ -54,15 +54,24 @@ using namespace llvm;
 namespace {
 
 class VISIBILITY_HIDDEN ContinuationGenerator : public FunctionPass {
+private:
+	struct BarrierInfo {
+		BarrierInfo(CallInst* call, BasicBlock* parentBB, unsigned d)
+			: id(0), barrier(call), parentBlock(parentBB), depth(d), continuation(NULL), liveValueStructType(NULL) {}
+		unsigned id;
+		CallInst* barrier;
+		BasicBlock* parentBlock; // parent block of original function (might have been split due to other barriers)
+		unsigned depth;
+		Function* continuation;
+		StructType* liveValueStructType;
+	};
+
 public:
 	static char ID; // Pass identification, replacement for typeid
 	ContinuationGenerator(const bool verbose_flag = false) : FunctionPass(&ID), verbose(verbose_flag) {}
 	~ContinuationGenerator() { releaseMemory(); }
 
 	virtual bool runOnFunction(Function &f) {
-
-		// get loop info
-		//loopInfo = &getAnalysis<LoopInfo>();
 
 		// get liveness information
 		livenessAnalyzer = &getAnalysis<LivenessAnalyzer>();
@@ -82,19 +91,6 @@ public:
 
 		DEBUG_PKT( verifyModule(*f.getParent()); );
 
-		//--------------------------------------------------------------------//
-		// inline continuation functions & optimize wrapper
-		//--------------------------------------------------------------------//
-		PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
-		PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
-
-		DEBUG_PKT( verifyFunction(*barrierFreeFunction); );
-		DEBUG_PKT( outs() << *barrierFreeFunction << "\n"; );
-
-		f.replaceAllUsesWith(barrierFreeFunction);
-		barrierFreeFunction->takeName(&f);
-		f.setName(barrierFreeFunction->getNameStr()+"_orig");
-
 		DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 		DEBUG_PKT( outs() << "generation of continuations finished!\n"; );
 		DEBUG_PKT( print(outs(), NULL); );
@@ -111,25 +107,24 @@ public:
 	void releaseMemory() {}
 
 	Function* getBarrierFreeFunction() const { return barrierFreeFunction; }
+	void getContinuations(std::vector<Function*>& continuations) const {
+		assert (continuations.empty());
+		continuations.reserve(continuationMap.size());
+		for (DenseMap<unsigned, BarrierInfo*>::const_iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
+			BarrierInfo* binfo = it->second;
+			assert (binfo->id < continuationMap.size());
+			continuations[binfo->id] = binfo->continuation;
+		}
+	}
 
 private:
 	const bool verbose;
-	//LoopInfo* loopInfo;
 	LivenessAnalyzer* livenessAnalyzer;
 	Function* barrierFreeFunction;
 
-	struct BarrierInfo {
-		BarrierInfo(CallInst* call, BasicBlock* parentBB, unsigned d)
-			: id(0), barrier(call), parentBlock(parentBB), depth(d), continuation(NULL), liveValueStructType(NULL) {}
-		unsigned id;
-		CallInst* barrier;
-		BasicBlock* parentBlock; // parent block of original function (might have been split due to other barriers)
-		unsigned depth;
-		Function* continuation;
-		StructType* liveValueStructType;
-	};
-	typedef DenseMap<unsigned, SmallVector<BarrierInfo*, 4>* > BarrierMapType;
+	DenseMap<unsigned, BarrierInfo*> continuationMap;
 
+	typedef DenseMap<unsigned, SmallVector<BarrierInfo*, 4>* > BarrierMapType;
 
 	unsigned collectBarriersDFS(BasicBlock* block, unsigned depth, BarrierMapType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
 		assert (block);
@@ -741,10 +736,9 @@ private:
 		// call eliminateBarrier() for each barrier in newFunction
 		//--------------------------------------------------------------------//
 		const unsigned numContinuationFunctions = numBarriers+1;
-		DenseMap<unsigned, BarrierInfo*> continuations;
-		continuations[0] = new BarrierInfo(NULL, NULL, 0);
-		continuations[0]->continuation = newF;
-		continuations[0]->liveValueStructType = StructType::get(context, false);
+		continuationMap[0] = new BarrierInfo(NULL, NULL, 0);
+		continuationMap[0]->continuation = newF;
+		continuationMap[0]->liveValueStructType = StructType::get(context, false);
 
 		// Loop over barriers and generate a continuation for each one.
 		// NOTE: newF is modified each time
@@ -762,17 +756,17 @@ private:
 
 			assert (barrierInfo->continuation);
 			assert (barrierInfo->liveValueStructType);
-			continuations[barrierIndex] = barrierInfo;
+			continuationMap[barrierIndex] = barrierInfo;
 		}
 
-		assert (continuations.size() == numContinuationFunctions);
+		assert (continuationMap.size() == numContinuationFunctions);
 
 
 		//--------------------------------------------------------------------//
 		// Check if all barriers in all functions (original and continuations) were eliminated.
 		//--------------------------------------------------------------------//
 		DEBUG_PKT(
-			for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
+			for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 				BarrierInfo* binfo = it->second;
 				Function* continuation = binfo->continuation;
 				assert (continuation);
@@ -832,7 +826,7 @@ private:
 
 		// generate union for live value structs
 		unsigned unionSize = 0;
-		for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
+		for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 			BarrierInfo* bit = it->second;
 			StructType* liveValueStructType = bit->liveValueStructType;
 			assert (liveValueStructType);
@@ -869,7 +863,7 @@ private:
 			builder.SetInsertPoint(block);
 
 			// extract arguments from live value struct (dataPtr)
-			BarrierInfo* bit = continuations[i];
+			BarrierInfo* bit = continuationMap[i];
 			const StructType* sType = bit->liveValueStructType;
 			const unsigned numLiveVals = sType->getNumElements();
 			Value** contArgs = new Value*[numLiveVals]();
@@ -906,10 +900,10 @@ private:
 
 			std::stringstream sstr;
 			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
-			calls[i] = builder.CreateCall(continuations[i]->continuation, args.begin(), args.end(), sstr.str());
+			calls[i] = builder.CreateCall(continuationMap[i]->continuation, args.begin(), args.end(), sstr.str());
 			//calls[i]->addAttribute(1, Attribute::NoCapture);
 			//calls[i]->addAttribute(1, Attribute::NoAlias);
-			DEBUG_PKT( outs() << "created call for continuation '" << continuations[i]->continuation->getNameStr() << "':" << *calls[i] << "\n"; );
+			DEBUG_PKT( outs() << "created call for continuation '" << continuationMap[i]->continuation->getNameStr() << "':" << *calls[i] << "\n"; );
 
 			builder.CreateBr(latchBB);
 
