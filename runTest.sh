@@ -5,3 +5,4 @@
 ./runPacketizerSimpleConvolution.sh -q -e -x 8 && \
 ./runPacketizerEigenValue.sh -q -e -x 16 && \
 ./runPacketizerFloydWarshall.sh -q -e -x 16
+# packetized currently only passes first 3

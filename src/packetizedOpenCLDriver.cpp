@@ -530,8 +530,17 @@ namespace {
 		return initializeThreads(gThreads, lThreads);
 	}
 
+#endif
 
-	bool __packetizeKernelFunction(
+
+
+}
+
+// common functionality, with or without packetization/openmp
+namespace PacketizedOpenCLDriver {
+
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+		bool packetizeKernelFunction(
 			const std::string& kernelName,
 			const std::string& targetKernelName,
 			llvm::Module* mod,
@@ -586,15 +595,7 @@ namespace {
 
 		return true;
 	}
-
 #endif
-
-
-
-}
-
-// common functionality, with or without packetization/openmp
-namespace PacketizedOpenCLDriver {
 
 	//------------------------------------------------------------------------//
 	// LLVM tools
@@ -792,6 +793,199 @@ namespace PacketizedOpenCLDriver {
 			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__sqrt_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.sqrt.f32", mod));
 		}
 	}
+
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+	inline Function* createKernelSequential(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, cl_int* errcode_ret) {
+		// eliminate barriers
+		FunctionPassManager FPM(module);
+		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
+		ContinuationGenerator* CG = new ContinuationGenerator(true);
+		FPM.add(LA);
+		FPM.add(CG);
+		FPM.run(*f);
+
+		Function* f_nobarriers = CG->getBarrierFreeFunction();
+		if (f_nobarriers) f = f_nobarriers;
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "nobarriers.mod.ll"); );
+
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
+		// USE CLC-GENERATED WRAPPER
+		//
+		std::stringstream strs2;
+		strs2 << "__OpenCL_" << kernel_name << "_stub";
+		const std::string wrapper_name = strs2.str();
+#else
+		// USE AUTO-GENERATED WRAPPER
+		//
+		std::stringstream strs2;
+		strs2 << kernel_name << "_wrapper";
+		const std::string wrapper_name = strs2.str();
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
+		PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f, module);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+#endif
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
+		// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
+		PacketizedOpenCLDriver::resolveRuntimeCalls(module);
+		PacketizedOpenCLDriver::fixFunctionNames(module);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+#endif
+
+		llvm::Function* f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
+		if (!f_wrapper) {
+			errs() << "ERROR: could not find wrapper function in kernel module!\n";
+			*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+			return NULL;
+		}
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  optimizing wrapper... "; );
+		// inline all calls inside wrapper_fn
+		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper);
+
+#ifndef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
+		// replace functions by parameter accesses (has to be done AFTER inlining!
+		// start with second argument (first is void* of argument_struct)
+		llvm::Function::arg_iterator arg = f_wrapper->arg_begin();
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f_wrapper);
+		#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(++arg), f_wrapper);
+		#else
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(++arg), f_wrapper);
+		#endif
+
+		PacketizedOpenCLDriver::fixFunctionNames(module);
+#endif
+
+		// optimize wrapper with inlined kernel
+		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
+		PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "wrapper.ll"); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "mod.ll"); );
+
+		return f_wrapper;
+	}
+#else
+	inline Function* createKernelPacketized(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, cl_int* errcode_ret, Function** f_SIMD_ret) {
+		// PACKETIZATION ENABLED
+		// USE AUTO-GENERATED PACKET WRAPPER
+		//
+		// save SIMD function for argument checking (uniform vs. varying)
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating OpenCL-specific functions etc... "; );
+
+		std::stringstream strs2;
+		strs2 << kernel_name << "_SIMD";
+		const std::string kernel_simd_name = strs2.str();
+		llvm::Function* f_SIMD = PacketizedOpenCLDriver::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module, simdWidth);
+
+		PacketizedOpenCLDriver::generateOpenCLFunctions(module, simdWidth);
+
+		llvm::Function* gid = PacketizedOpenCLDriver::getFunction("get_global_id", module);
+		llvm::Function* gid_split = PacketizedOpenCLDriver::getFunction("get_global_id_split", module);
+		if (!gid) {
+			errs() << "\nERROR: could not find function 'get_global_id' in module!\n";
+			*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+			return NULL;
+		}
+		if (!gid_split) {
+			errs() << "\nERROR: could not find function 'get_global_id_split' in module!\n";
+			*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+			return NULL;
+		}
+		PacketizedOpenCLDriver::replaceNonContiguousIndexUsage(f, gid, gid_split);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+
+		// packetize scalar function into SIMD function
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "prepared.ll"); );
+		PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(), kernel_simd_name, module, simdWidth, true, false);
+		f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "packetized.ll"); );
+
+		// eliminate barriers
+		FunctionPassManager FPM(module);
+		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
+		ContinuationGenerator* CG = new ContinuationGenerator(true);
+		FPM.add(LA);
+		FPM.add(CG);
+		FPM.run(*f_SIMD);
+		Function* f_SIMD_nobarriers = CG->getBarrierFreeFunction();
+		if (f_SIMD_nobarriers) f_SIMD = f_SIMD_nobarriers;
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
+
+		strs2 << "_wrapper";
+		const std::string wrapper_name = strs2.str();
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
+		PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f_SIMD, module);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+
+		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), simdWidth);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
+		// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
+		PacketizedOpenCLDriver::resolveRuntimeCalls(module);
+		PacketizedOpenCLDriver::fixFunctionNames(module);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+#endif
+
+		llvm::Function* f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
+		if (!f_wrapper) {
+			errs() << "ERROR: could not find wrapper function in kernel module!\n";
+			*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+			return NULL;
+		}
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  optimizing wrapper... "; );
+		// inline all calls inside wrapper_fn
+		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper);
+
+#ifndef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
+		// replace functions by parameter accesses (has to be done AFTER inlining!
+		// start with second argument (first is void* of argument_struct)
+		llvm::Function::arg_iterator arg = f_wrapper->arg_begin();
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f_wrapper);
+		#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(++arg), f_wrapper);
+		#else
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(++arg), f_wrapper);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(++arg), f_wrapper);
+		#endif
+
+		PacketizedOpenCLDriver::fixFunctionNames(module);
+#endif
+
+		// optimize wrapper with inlined kernel
+		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
+		PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "wrapper.ll"); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "mod.ll"); );
+
+		*f_SIMD_ret = f_SIMD;
+		return f_wrapper;
+	}
+#endif
 
 	inline cl_uint convertLLVMAddressSpace(cl_uint llvm_address_space) {
 		switch (llvm_address_space) {
@@ -2032,155 +2226,29 @@ clCreateKernel(cl_program      program,
 	PacketizedOpenCLDriver::inlineFunctionCalls(f, program->targetData);
 	PacketizedOpenCLDriver::optimizeFunction(f);
 
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "scalar.ll"); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "kernel_orig.ll"); );
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 
-	// eliminate barriers
-	FunctionPassManager FPM(module);
-	LivenessAnalyzer* LA = new LivenessAnalyzer(true);
-	ContinuationGenerator* CG = new ContinuationGenerator(true);
-	FPM.add(LA);
-	FPM.add(CG);
-	FPM.run(*f);
-
-	Function* f_nobarriers = CG->getBarrierFreeFunction();
-	if (f_nobarriers) f = f_nobarriers;
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
-
-
-	#ifdef PACKETIZED_OPENCL_DRIVER_USE_CLC_WRAPPER
-	// USE CLC-GENERATED WRAPPER
-	//
-	std::stringstream strs2;
-	strs2 << "__OpenCL_" << kernel_name << "_stub";
-	const std::string wrapper_name = strs2.str();
-	#else
-	// USE AUTO-GENERATED WRAPPER
-	//
-	std::stringstream strs2;
-	strs2 << kernel_name << "_wrapper";
-	const std::string wrapper_name = strs2.str();
-
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
-	PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f, module);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
-	#endif
-
-#else
-
-	// PACKETIZATION ENABLED
-	// USE AUTO-GENERATED PACKET WRAPPER
-	//
-	// save SIMD function for argument checking (uniform vs. varying)
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating OpenCL-specific functions etc... "; );
-
-	std::stringstream strs2;
-	strs2 << kernel_name << "_SIMD";
-	const std::string kernel_simd_name = strs2.str();
-	llvm::Function* f_SIMD = PacketizedOpenCLDriver::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module, simdWidth);
-
-	PacketizedOpenCLDriver::generateOpenCLFunctions(module, simdWidth);
-
-	llvm::Function* gid = PacketizedOpenCLDriver::getFunction("get_global_id", module);
-	llvm::Function* gid_split = PacketizedOpenCLDriver::getFunction("get_global_id_split", module);
-	if (!gid) {
-		errs() << "\nERROR: could not find function 'get_global_id' in module!\n";
-		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
-		return NULL;
-	}
-	if (!gid_split) {
-		errs() << "\nERROR: could not find function 'get_global_id_split' in module!\n";
-		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
-		return NULL;
-	}
-	PacketizedOpenCLDriver::replaceNonContiguousIndexUsage(f, gid, gid_split);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
-
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
-
-	// packetize scalar function into SIMD function
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "prepared.ll"); );
-	__packetizeKernelFunction(new_kernel_name, kernel_simd_name, module, simdWidth, true, false);
-	f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "packetized.ll"); );
-
-	// eliminate barriers
-	FunctionPassManager FPM(module);
-	LivenessAnalyzer* LA = new LivenessAnalyzer(true);
-	ContinuationGenerator* CG = new ContinuationGenerator(true);
-	FPM.add(LA);
-	FPM.add(CG);
-	FPM.run(*f_SIMD);
-	Function* f_SIMD_nobarriers = CG->getBarrierFreeFunction();
-	if (f_SIMD_nobarriers) f_SIMD = f_SIMD_nobarriers;
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
-
-	strs2 << "_wrapper";
-	const std::string wrapper_name = strs2.str();
-
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
-	PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f_SIMD, module);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
-	
-	PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), simdWidth);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
-#endif
-
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-	// link runtime calls (e.g. get_global_id()) to Packetized OpenCL Runtime
-	PacketizedOpenCLDriver::resolveRuntimeCalls(module);
-	PacketizedOpenCLDriver::fixFunctionNames(module);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
-#endif
-
-	llvm::Function* f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
+	llvm::Function* f_wrapper = PacketizedOpenCLDriver::createKernelSequential(f, kernel_name, module, program->targetData, errcode_ret);
 	if (!f_wrapper) {
-		errs() << "ERROR: could not find wrapper function in kernel module!\n";
-		*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+		errs() << "ERROR: kernel generation failed!\n";
 		return NULL;
 	}
 
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  optimizing wrapper... "; );
-	// inline all calls inside wrapper_fn
-	PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper);
-
-#ifndef PACKETIZED_OPENCL_DRIVER_USE_CALLBACKS
-	// replace functions by parameter accesses (has to be done AFTER inlining!
-	// start with second argument (first is void* of argument_struct)
-	llvm::Function::arg_iterator arg = f_wrapper->arg_begin(); 
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(++arg), f_wrapper);
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(++arg), f_wrapper);
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(++arg), f_wrapper);
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(++arg), f_wrapper);
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(++arg), f_wrapper);
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f_wrapper);
-	#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(++arg), f_wrapper);
-	#else
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(++arg), f_wrapper);
-	PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(++arg), f_wrapper);
-	#endif
-
-	PacketizedOpenCLDriver::fixFunctionNames(module);
-#endif
-
-	// optimize wrapper with inlined kernel
-	PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, program->targetData);
-	PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "wrapper.ll"); );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "mod.ll"); );
-
-
-	// create kernel object
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	_cl_kernel* kernel = new _cl_kernel(program->context, program, f, f_wrapper);
+
 #else
+
+	llvm::Function* f_SIMD = NULL;
+	llvm::Function* f_wrapper = PacketizedOpenCLDriver::createKernelPacketized(f, kernel_name, module, program->targetData, errcode_ret, &f_SIMD);
+	if (!f_wrapper || !f_SIMD) {
+		errs() << "ERROR: kernel generation failed!\n";
+		return NULL;
+	}
+
 	_cl_kernel* kernel = new _cl_kernel(program->context, program, f, f_wrapper, f_SIMD);
+
 #endif
 
 	if (!kernel->get_compiled_function()) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }

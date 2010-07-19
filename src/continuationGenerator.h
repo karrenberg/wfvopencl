@@ -311,7 +311,7 @@ private:
 		Argument* newDataPtr = --(f->arg_end());
 		DEBUG_PKT( outs() << "pointer to union: " << *newDataPtr << "\n"; );
 
-		// bitcast data pointer to correct struct type for GEP below // TODO: HERE!!!
+		// bitcast data pointer to correct struct type for GEP below
 		BitCastInst* bc = new BitCastInst(newDataPtr, PointerType::getUnqual(sType), "", barrier);
 
 		// store values
@@ -550,8 +550,6 @@ private:
 
 			newLiveVal->replaceAllUsesWith(A2);
 		}
-
-		// TODO: erase dummy values from value map?
 
 		DEBUG_PKT( outs() << *continuation << "\n"; );
 		DEBUG_PKT( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
