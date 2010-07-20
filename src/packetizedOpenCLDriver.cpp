@@ -740,28 +740,34 @@ namespace PacketizedOpenCLDriver {
 		outs() << "  local_size arg : " << *arg_local_size << "\n";
 		outs() << "  group_id arg   : " << *arg_group_id << "\n";
 
+		// allocate array of size 'num_dimensions' for special parameter num_groups
+		Value* arraySize = ConstantInt::get(context,  APInt(32, num_dimensions));
+		AllocaInst* param_num_groups = new AllocaInst(Type::getInt32Ty(context), arraySize, "", insertBefore);
+
+		// load/compute special values for each dimension
 		LoadInst** global_sizes = new LoadInst*[num_dimensions]();
 		LoadInst** local_sizes = new LoadInst*[num_dimensions]();
 		LoadInst** group_ids = new LoadInst*[num_dimensions]();
 		Instruction** num_groupss = new Instruction*[num_dimensions]();
-		// load/compute special values for each dimension
+
 		for (unsigned i=0; i<num_dimensions; ++i) {
+			Value* dimIdx = ConstantInt::get(context, APInt(32, i));
 			// "0123456789ABCDEF"[i] only works as long as we do not have more than 10 dimensions :P
 			// TODO: somehow it doesn't and just screws the names...
 
 			std::stringstream sstr;
 			sstr << "global_size_" << i;
-			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_size, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
+			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_size, dimIdx, "", insertBefore);
 			global_sizes[i] = new LoadInst(gep, sstr.str(), false, insertBefore);
 
 			std::stringstream sstr2;
 			sstr2 << "local_size_" << i;
-			gep = GetElementPtrInst::Create(arg_local_size, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
+			gep = GetElementPtrInst::Create(arg_local_size, dimIdx, "", insertBefore);
 			local_sizes[i] = new LoadInst(gep, sstr2.str(), false, insertBefore);
 
 			std::stringstream sstr3;
 			sstr3 << "group_id_" << i;
-			gep = GetElementPtrInst::Create(arg_group_id, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
+			gep = GetElementPtrInst::Create(arg_group_id, dimIdx, "", insertBefore);
 			group_ids[i] = new LoadInst(gep, sstr3.str(), false, insertBefore);
 
 			std::stringstream sstr4;
@@ -772,6 +778,10 @@ namespace PacketizedOpenCLDriver {
 			outs() << "  local_sizes[" << i << "] : " << *(local_sizes[i]) << "\n";
 			outs() << "  group_ids[" << i << "]   : " << *(group_ids[i]) << "\n";
 			outs() << "  num_groups[" << i << "]  : " << *(num_groupss[i]) << "\n";
+
+			// store num_groups into array
+			gep = GetElementPtrInst::Create(param_num_groups, dimIdx, "", insertBefore);
+			new StoreInst(num_groupss[i], gep, false, insertBefore);
 		}
 
 
@@ -791,6 +801,9 @@ namespace PacketizedOpenCLDriver {
 
 				outs() << "    call: " << *call << "\n";
 
+				// allocate array of size 'num_dimensions' for special parameter num_groups
+				AllocaInst* param_global_ids = new AllocaInst(num_groupss[0]->getType(), arraySize, "", insertBefore);
+				AllocaInst* param_local_ids  = new AllocaInst(num_groupss[0]->getType(), arraySize, "", insertBefore);
 				
 				// generate loop(s)
 				// iterate backwards in order to have loops ordered by dimension
@@ -813,10 +826,10 @@ namespace PacketizedOpenCLDriver {
 
 					// Block headerBB
 					Argument* fwdref = new Argument(IntegerType::get(context, 32));
-					PHINode* blockIdPhi = PHINode::Create(IntegerType::get(context, 32), "blockID", headerBB->getFirstNonPHI());
-					blockIdPhi->reserveOperandSpace(2);
-					blockIdPhi->addIncoming(fwdref, latchBB);
-					blockIdPhi->addIncoming(ConstantInt::get(context, APInt(32, 0)), entryBB);
+					PHINode* local_id = PHINode::Create(IntegerType::get(context, 32), "localID", headerBB->getFirstNonPHI());
+					local_id->reserveOperandSpace(2);
+					local_id->addIncoming(fwdref, latchBB);
+					local_id->addIncoming(ConstantInt::get(context, APInt(32, 0)), entryBB);
 
 					// Block loopBB
 					// holds live value extraction and continuation-call
@@ -824,14 +837,15 @@ namespace PacketizedOpenCLDriver {
 					BranchInst::Create(latchBB, loopBB);
 
 					// Block latchBB
-					BinaryOperator* blockIdInc = BinaryOperator::Create(Instruction::Add, blockIdPhi, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
-					ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, blockIdInc, local_size, "exitcond");
+					BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, local_id, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
+					ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, localIdInc, local_size, "exitcond");
 					BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
 					// Resolve Forward References
-					fwdref->replaceAllUsesWith(blockIdInc); delete fwdref;
+					fwdref->replaceAllUsesWith(localIdInc); delete fwdref;
 
-					if (i == num_dimensions-1) {
+					assert (num_dimensions > 0);
+					if (i == (int)num_dimensions-1) {
 						// replace uses of loopBB in phis of exitBB with outermost latchBB
 						for (BasicBlock::iterator I=exitBB->begin(), IE=exitBB->end(); I!=IE; ++I) {
 							if (exitBB->getFirstNonPHI() == I) break;
@@ -843,10 +857,52 @@ namespace PacketizedOpenCLDriver {
 						}
 					}
 
+					// generate special parameter global_id right before call
+					Value* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
+					global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, "", call);
+
+					// save special parameters global_id, local_id to arrays
+					GetElementPtrInst* gep = GetElementPtrInst::Create(param_global_ids, ConstantInt::get(context, APInt(32, 1)), "", insertBefore);
+					new StoreInst(global_id, gep, false, call);
+					gep = GetElementPtrInst::Create(param_local_ids, ConstantInt::get(context, APInt(32, 1)), "", insertBefore);
+					new StoreInst(local_id, gep, false, call);
 				}
 
-				// TODO: adjust GEP-instructions to point to current blockID's live value struct,
+
+				// replace undef arguments to function call by special parameters
+				std::vector<Value*> params;
+				params.push_back(param_global_ids);
+				params.push_back(param_local_ids);
+				params.push_back(param_num_groups);
+				params.push_back(arg_work_dim);
+				params.push_back(arg_global_size);
+				params.push_back(arg_local_size);
+				params.push_back(arg_group_id);
+				outs() << "\n  params for new call:\n";
+				outs() << "   * " << *param_global_ids << "\n";
+				outs() << "   * " << *param_local_ids << "\n";
+				outs() << "   * " << *param_num_groups << "\n";
+				outs() << "   * " << *arg_work_dim << "\n";
+				outs() << "   * " << *arg_global_size << "\n";
+				outs() << "   * " << *arg_local_size << "\n";
+				outs() << "   * " << *arg_group_id << "\n";
+				// add normal parameters and live value struct param
+				//(= start at last special param idx +1 for callee)
+				for (unsigned i=8; i<call->getNumOperands(); ++i) {
+					Value* opV = call->getOperand(i);
+					params.push_back(opV);
+					outs() << "   * " << *opV << "\n";
+				}
+				outs() << "  original call: " << *call << "\n";
+				CallInst* newCall = CallInst::Create(call->getCalledFunction(), params.begin(), params.end(), "", call);
+				outs() << "  new call: " << *newCall << "\n";
+				call->replaceAllUsesWith(newCall);
+				call->eraseFromParent();
+
+
+				// TODO: adjust GEP-instructions to point to current localID's live value struct,
 				// e.g. GEP liveValueUnion, i32 i*j*k, i32 elementindex
+
 
 
 				break; // there is exactly one use of interest
@@ -871,10 +927,10 @@ namespace PacketizedOpenCLDriver {
 		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
 		ContinuationGenerator* CG = new ContinuationGenerator(true);
 		// set "special" parameter types that are generated for each continuation
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_id");   // generated inside switch
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_id");    // generated inside switch
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_num_groups");  // generated inside switch
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_work_dim");    // supplied from outside
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_id");   // generated inside switch (group_id * loc_size + loc_id)
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_id");    // generated inside switch (loop induction variables)
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_num_groups");  // generated inside switch (glob_size / loc_size)
+		CG->addSpecialParam(Type::getInt32Ty(context),       "get_work_dim");    // supplied from outside
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_size"); // supplied from outside
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_size");  // supplied from outside
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_group_id");    // supplied from outside
@@ -1002,6 +1058,7 @@ namespace PacketizedOpenCLDriver {
 	}
 #else
 	inline Function* createKernelPacketized(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
+		assert (false && "NOT IMPLEMENTED WITH NEW SCHEME!");
 		// PACKETIZATION ENABLED
 		// USE AUTO-GENERATED PACKET WRAPPER
 		//

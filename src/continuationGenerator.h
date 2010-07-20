@@ -379,6 +379,11 @@ private:
 		FunctionType* fType = FunctionType::get(returnType, params, false);
 
 		Function* continuation = Function::Create(fType, Function::ExternalLinkage, newFunName, mod); // TODO: check linkage type
+
+		Function::arg_iterator CA=continuation->arg_begin();
+		for (unsigned i=0, e=specialParamNames.size(); i<e; ++i, ++CA) {
+			CA->setName(specialParamNames[i]);
+		}
 		DEBUG_PKT( outs() << "\nnew continuation declaration: " << *continuation << "\n"; );
 
 		//--------------------------------------------------------------------//
@@ -388,17 +393,16 @@ private:
 		DEBUG_PKT( outs() << "\nlive value mappings:\n"; );
 		DenseMap<const Value*, Value*> valueMap;
 		DenseMap<const Value*, Value*> liveValueToArgMap;
-		//Function::arg_iterator A = continuation->arg_begin();
-		// A has to point to first live value parameter of continuation
-		Function::arg_iterator A = --continuation->arg_end();
+		// CA has to point to first live value parameter of continuation
+		CA = --continuation->arg_end();
 		for (unsigned i=0, e=sType->getNumContainedTypes(); i<e; ++i) {
-			--A;
+			--CA;
 		}
-		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A) {
+		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++CA) {
 			Value* liveVal = *it;
-			valueMap[liveVal] = A;
-			liveValueToArgMap[liveVal] = A;
-			DEBUG_PKT( outs() << " * " << *liveVal << " -> " << *A << "\n"; );
+			valueMap[liveVal] = CA;
+			liveValueToArgMap[liveVal] = CA;
+			DEBUG_PKT( outs() << " * " << *liveVal << " -> " << *CA << "\n"; );
 		}
 
 
@@ -657,29 +661,37 @@ private:
 		//--------------------------------------------------------------------//
 		const FunctionType* fTypeOld = f->getFunctionType();
 		std::vector<const Type*> params;
-		params.insert(params.end(), fTypeOld->param_begin(), fTypeOld->param_end()); // parameters of original kernel
 		params.insert(params.end(), specialParams.begin(), specialParams.end()); // "special" parameters
+		params.insert(params.end(), fTypeOld->param_begin(), fTypeOld->param_end()); // parameters of original kernel
 		params.push_back(Type::getInt8PtrTy(context)); // void*-parameter (= live value struct return param)
 		const FunctionType* fTypeNew = FunctionType::get(Type::getInt32Ty(context), params, false);
 		Function* newF = Function::Create(fTypeNew, Function::ExternalLinkage, functionName+"_begin", mod); // TODO: check linkage type
 
-		// set names of parameters
-		Function::arg_iterator A = --newF->arg_end();
-		SpecialParamNameVecType::const_iterator N = --specialParamNames.end();
-		A->setName("nextContLiveVals");
-		--A;
-		for (unsigned i=0, e=specialParams.size(); i<e; ++i, --A, --N) {
-			A->setName(*N);
+		// set names of special parameters
+		unsigned paramIdx = 0;
+		for (Function::arg_iterator A=newF->arg_begin(); paramIdx < specialParamNames.size(); ++A, ++paramIdx) {
+			A->setName(specialParamNames[paramIdx]);
 		}
+		(--newF->arg_end())->setName("nextContLiveVals");
 
-		// specify mapping of parameters
-		// (original parameters come first, so the iteration should be okay)
+		outs() << "newF: " << *newF << "\n";
+
+		// specify mapping of parameters and set names of original parameters
+		// (special parameters come first, so we have to start at the first original parameter)
+		// NOTE: only iterate to second last param (data ptr was not in original function)
 		DenseMap<const Value*, Value*> valueMap;
-		Function::arg_iterator A2 = newF->arg_begin();
-		for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A, ++A2) {
-			valueMap[A] = A2;
-			A2->takeName(A);
+		unsigned argIdx = 0;
+		for (Function::arg_iterator A2=f->arg_begin(), A=newF->arg_begin(), AE=--newF->arg_end(); A!=AE; ++A, ++argIdx) {
+			if (argIdx < specialParams.size()) continue; // don't increment A2
+			outs() << "  " << *A2 << " -> " << *A << "\n";
+			valueMap[A2] = A;
+			A->takeName(A2);
+			++A2;
 		}
+		//for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A, ++A2) {
+			//valueMap[A] = A2;
+			//A2->takeName(A);
+		//}
 		SmallVector<ReturnInst*, 2> returns;
 
 		CloneAndPruneFunctionInto(newF, f, valueMap, returns, ".");
@@ -914,19 +926,18 @@ private:
 			// All other blocks receive the extracted live-in values plus the data pointer.
 			SmallVector<Value*, 4> args;
 
-			// original parameters (only for begin-fn)
+			// special parameters (insert dummies -> have to be replaced externally after the pass is finished)
+			for (SpecialParamVecType::iterator it=specialParams.begin(), E=specialParams.end(); it!=E; ++it) {
+				args.push_back(UndefValue::get(*it));
+			}
+			// begin-fn: original parameters
+			// others  : live values
 			if (i == 0) {
 				for (Function::arg_iterator A=wrapper->arg_begin(), AE=wrapper->arg_end(); A!=AE; ++A) {
 					assert (isa<Value>(A));
 					args.push_back(cast<Value>(A));
 				}
-			}
-			// special parameters (insert dummies -> have to be replaced externally after the pass is finished)
-			for (SpecialParamVecType::iterator it=specialParams.begin(), E=specialParams.end(); it!=E; ++it) {
-				args.push_back(UndefValue::get(*it));
-			}
-			// live values (not for begin-fn)
-			if (i > 0) {
+			} else {
 				for (unsigned j=0; j<numLiveVals; ++j) {
 					args.push_back(contArgs[j]);
 				}
