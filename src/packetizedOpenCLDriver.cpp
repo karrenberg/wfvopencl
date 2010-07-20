@@ -784,6 +784,10 @@ namespace PacketizedOpenCLDriver {
 			new StoreInst(num_groupss[i], gep, false, insertBefore);
 		}
 
+		Value** global_ids = new Value*[num_dimensions]();
+		Value** local_ids = new Value*[num_dimensions]();
+
+		Value* liveValueStruct = NULL;
 
 		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
 			Function* continuation = *it;
@@ -866,6 +870,9 @@ namespace PacketizedOpenCLDriver {
 					new StoreInst(global_id, gep, false, call);
 					gep = GetElementPtrInst::Create(param_local_ids, ConstantInt::get(context, APInt(32, 1)), "", insertBefore);
 					new StoreInst(local_id, gep, false, call);
+
+					global_ids[i] = global_id;
+					local_ids[i] = local_id;
 				}
 
 
@@ -899,9 +906,52 @@ namespace PacketizedOpenCLDriver {
 				call->replaceAllUsesWith(newCall);
 				call->eraseFromParent();
 
+				// generate computation of "flattened" local id
+				// this is required to access the correct live value struct of each thread
+				// (all dimension's threads of the block are stored flattened in memory)
+				// if iterating 'for all dim0 { for all dim1 { for all dim2 { ... } } }' :
+				// local_flat_id(1d) = loc_id[0]
+				// local_flat_id(2d) = loc_id[0] + loc_id[1] * loc_size[0]
+				// local_flat_id(3d) = loc_id[0] + loc_id[1] * loc_size[0] + loc_id[2] * (loc_size[1] * loc_size[0])
+				BasicBlock* callBB = newCall->getParent();
+				Value* local_id_flat = local_ids[0];
+				Instruction* insertBefore2 = callBB->getFirstNonPHI();
+				for (unsigned i=1; i<num_dimensions; ++i) {
+					Value* tmp = local_ids[i];
+					for (int j=i-1; j>=0; --j) {
+						tmp = BinaryOperator::Create(Instruction::Mul, tmp, local_sizes[j], "", insertBefore2);
+					}
+					local_id_flat = BinaryOperator::Create(Instruction::Add, tmp, local_id_flat, "", insertBefore2);
+				}
 
-				// TODO: adjust GEP-instructions to point to current localID's live value struct,
-				// e.g. GEP liveValueUnion, i32 i*j*k, i32 elementindex
+				// adjust GEP-instructions to point to current localID's live value struct,
+				// e.g. GEP liveValueUnion, i32 0, i32 elementindex
+				// ---> GEP liveValueUnion, i32 local_id_flat, i32 elementindex
+				for (BasicBlock::iterator I=callBB->begin(), IE=callBB->end(); I!=IE; ) {
+					if (!isa<GetElementPtrInst>(I)) { ++I; continue; }
+					GetElementPtrInst* gep = cast<GetElementPtrInst>(I++);
+					std::vector<Value*> params;
+					for (GetElementPtrInst::op_iterator O=gep->idx_begin(), OE=gep->idx_end(); O!=OE; ++O) {
+						if (O == gep->idx_begin()) {
+							// replace first index by correct flat index
+							params.push_back(local_id_flat);
+						} else {
+							// all other indices remain unchanged
+							assert (isa<Value>(O));
+							params.push_back(cast<Value>(O));
+						}
+					}
+					// if not yet set, store liveValueStruct
+					if (!liveValueStruct) {
+						liveValueStruct = gep->getPointerOperand();
+						assert (isa<BitCastInst>(liveValueStruct));
+						liveValueStruct = cast<BitCastInst>(liveValueStruct)->getOperand(0);
+					}
+					// replace gep
+					GetElementPtrInst* newGEP = GetElementPtrInst::Create(gep->getPointerOperand(), params.begin(), params.end(), "", gep);
+					gep->replaceAllUsesWith(newGEP);
+					gep->eraseFromParent();
+				}
 
 
 
@@ -909,15 +959,29 @@ namespace PacketizedOpenCLDriver {
 			}
 		}
 
-		// TODO: adjust alloca of liveValueUnion (reserve sizeof(union)*blocksize[0]*blocksize[1]*... )
-
+		// adjust alloca of liveValueUnion (reserve sizeof(union)*blocksize[0]*blocksize[1]*... )
+		assert (isa<AllocaInst>(liveValueStruct));
+		AllocaInst* alloca = cast<AllocaInst>(liveValueStruct);
+		Value* local_size_flat = local_sizes[0];
+		for (unsigned i=1; i<num_dimensions; ++i) {
+			local_size_flat = BinaryOperator::Create(Instruction::Mul, local_size_flat, local_sizes[i], "", alloca);
+		}
+		Value* newSize = BinaryOperator::Create(Instruction::Mul, alloca->getArraySize(), local_size_flat, "arraySize", alloca);
+		AllocaInst* newAlloca = new AllocaInst(Type::getInt8Ty(context), newSize, "", alloca);
+		alloca->replaceAllUsesWith(newAlloca);
+		newAlloca->takeName(alloca);
+		alloca->eraseFromParent();
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyFunction(*f); );
+
+		outs() << "\n" << *f << "\n";
 
 		delete [] global_sizes;
 		delete [] local_sizes;
 		delete [] group_ids;
 		delete [] num_groupss;
+		delete [] global_ids;
+		delete [] local_ids;
 	}
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
@@ -1051,8 +1115,6 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "wrapper.ll"); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "mod.ll"); );
-
-		exit(0);
 
 		return f_wrapper;
 	}
