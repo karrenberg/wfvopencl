@@ -111,7 +111,8 @@ public:
 	}
 
 	inline Function* getBarrierFreeFunction() const { return barrierFreeFunction; }
-	inline void getContinuations(SmallVector<Function*, 4>& continuations) const {
+	typedef SmallVector<Function*, 4> ContinuationVecType;
+	inline void getContinuations(ContinuationVecType& continuations) const {
 		assert (continuations.empty());
 		continuations.resize(continuationMap.size());
 		assert (continuations.size() == continuationMap.size());

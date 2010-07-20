@@ -181,7 +181,7 @@ namespace PacketizedOpenCLDriver {
 		return wrapper;
 	}
 
-	Function* generateFunctionWrapperWithParams(const std::string& wrapper_name, Function* f, Module* mod, std::vector<const Type*>& additionalParams) {
+	Function* generateFunctionWrapperWithParams(const std::string& wrapper_name, Function* f, Module* mod, std::vector<const Type*>& additionalParams, const bool inlineCall) {
 		assert (f && mod);
 		assert (f->getParent());
 
@@ -275,8 +275,15 @@ namespace PacketizedOpenCLDriver {
 		wrapper->setDoesNotCapture(1, true); // arg ptr does not capture
 		wrapper->setDoesNotAlias(1, true);   // arg ptr does not alias
 
-		//outs() << *argStructType << "\n";
-		//outs() << *wrapper << "\n";
+		// inline call if required
+		if (inlineCall) {
+			InlineFunctionInfo IFI(NULL, new TargetData(mod));
+			const bool success = InlineFunction(call, IFI);
+			if (!success) {
+				errs() << "WARNING: could not inline function call inside wrapper: " << *call << "\n";
+			}
+			assert (success);
+		}
 
 		//verifyFunction(*wrapper, NULL);
 
