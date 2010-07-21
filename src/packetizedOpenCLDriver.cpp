@@ -51,6 +51,7 @@
 #define PACKETIZED_OPENCL_DRIVER_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
 #define PACKETIZED_OPENCL_DRIVER_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128"
 #define PACKETIZED_OPENCL_DRIVER_MAX_WORK_GROUP_SIZE 8192
+#define PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS 3
 
 
 
@@ -679,18 +680,10 @@ namespace PacketizedOpenCLDriver {
 		// collect return types of the callback functions of interest
 		std::vector<const llvm::Type*> additionalParams;
 		additionalParams.push_back(Type::getInt32Ty(context)); // get_work_dim = cl_uint
-
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_global_size = size_t[]
-		//additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_global_id = size_t[]
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_local_size = size_t[]
-		//additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_num_groups = size_t[]
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_group_id = size_t[]
-//#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-//		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_local_id = size_t[]
-//#else
-//		additionalParams.push_back(PointerType::getUnqual(VectorType::get(Type::getInt32Ty(context), simdWidth))); // get_global_id_SIMD = __m128i[]
-//		additionalParams.push_back(PointerType::getUnqual(VectorType::get(Type::getInt32Ty(context), simdWidth))); // get_local_id_SIMD = __m128i[]
-//#endif
+		// other callbacks are resolved inside kernel
 
 		// generate wrapper and inline original function immediately
 		const bool inlineCall = true;
@@ -721,6 +714,37 @@ namespace PacketizedOpenCLDriver {
 		}
 	}
 
+	unsigned determineNumDimensionsUsed(Function* f) {
+		unsigned max_dim = 1;
+		for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
+			for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+				if (!isa<CallInst>(I)) continue;
+				CallInst* call = cast<CallInst>(I);
+
+				const Function* callee = call->getCalledFunction();
+				const StringRef fnName = callee->getName();
+				if (fnName.equals("get_global_id") ||
+						fnName.equals("get_local_id") ||
+						fnName.equals("get_num_groups") ||
+						fnName.equals("get_work_dim") ||
+						fnName.equals("get_global_size") ||
+						fnName.equals("get_local_size") ||
+						fnName.equals("get_group_id")) {
+					// get dimension
+					const Value* dimVal = call->getOperand(1);
+					assert (isa<ConstantInt>(dimVal));
+					const ConstantInt* dimConst = cast<ConstantInt>(dimVal);
+					const uint64_t dimension = *dimConst->getValue().getRawData() +1; // uses count from 0, max_dim from 1
+					
+					assert (dimension <= PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS);
+					if (dimension > max_dim) max_dim = dimension;
+				}
+			}
+		}
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nnumber of dimensions used in kernel: " << max_dim << "\n"; );
+		return max_dim;
+	}
+
 	void mapCallbacksToContinuationArguments(const unsigned num_dimensions, LLVMContext& context, Module* module, ContinuationGenerator::ContinuationVecType& continuations) {
 		typedef ContinuationGenerator::ContinuationVecType ContVecType;
 			
@@ -730,8 +754,8 @@ namespace PacketizedOpenCLDriver {
 			outs() << "\n  mapping callbacks to arguments in continuation '" << continuation->getNameStr() << "'...\n";
 
 			outs() << *continuation << "\n";
-			//i32* %get_global_id, i32* %get_local_id, i32* %get_num_groups, i32 %get_work_dim, i32* %get_global_size, i32* %get_local_size, i32* %get_group_id, float addrspace(1)* %input, float addrspace(1)* %output, i32 %count, i8* %nextContLiveVals
 
+			// correct order is important! (has to match parameter list of continuation)
 			llvm::Function::arg_iterator arg = continuation->arg_begin();
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(arg++), continuation);
 			#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
@@ -752,78 +776,6 @@ namespace PacketizedOpenCLDriver {
 		}
 
 		return;
-
-	#if 0
-		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
-			Function* continuation = *it;
-			assert (continuation);
-			outs() << "\n  mapping callbacks to arguments in continuation '" << continuation->getNameStr() << "'...\n";
-
-			outs() << *continuation << "\n";
-
-			//outs() << "    get_global_id: " << *global_ids << "\n";
-
-			// inside continuation, replace all calls to get_global_id etc.
-			// by parameter accesses
-			for (Function::iterator BB=continuation->begin(), BBE=continuation->end(); BB!=BBE; ++BB) {
-				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
-					if (!isa<CallInst>(I)) continue;
-					CallInst* call = cast<CallInst>(I);
-
-					const Function* callee = call->getCalledFunction();
-					const StringRef calleeName = callee->getName();
-					if (calleeName.equals("get_global_id")) {
-						outs() << "found call to special function: " << *call << "\n";
-						Value* dimVal = call->getOperand(1);
-						assert (isa<ConstantInt>(dimVal));
-						const uint64_t dim = *cast<ConstantInt>(dimVal)->getValue().getRawData();
-						assert (dim < num_dimensions);
-						call->replaceAllUsesWith(global_ids[dim]);
-					} else if (calleeName.equals("get_local_id")) {
-						outs() << "found call to special function: " << *call << "\n";
-						Value* dimVal = call->getOperand(1);
-						assert (isa<ConstantInt>(dimVal));
-						const uint64_t dim = *cast<ConstantInt>(dimVal)->getValue().getRawData();
-						assert (dim < num_dimensions);
-						call->replaceAllUsesWith(local_ids[dim]);
-					} else if (calleeName.equals("get_group_id")) {
-						outs() << "found call to special function: " << *call << "\n";
-						Value* dimVal = call->getOperand(1);
-						assert (isa<ConstantInt>(dimVal));
-						const uint64_t dim = *cast<ConstantInt>(dimVal)->getValue().getRawData();
-						assert (dim < num_dimensions);
-						call->replaceAllUsesWith(group_ids[dim]);
-					} else if (calleeName.equals("get_work_dim")) {
-						outs() << "found call to special function: " << *call << "\n";
-						call->replaceAllUsesWith(arg_work_dim);
-					} else if (calleeName.equals("get_global_size")) {
-						outs() << "found call to special function: " << *call << "\n";
-						Value* dimVal = call->getOperand(1);
-						assert (isa<ConstantInt>(dimVal));
-						const uint64_t dim = *cast<ConstantInt>(dimVal)->getValue().getRawData();
-						assert (dim < num_dimensions);
-						call->replaceAllUsesWith(global_sizes[dim]);
-					} else if (calleeName.equals("get_local_size")) {
-						outs() << "found call to special function: " << *call << "\n";
-						Value* dimVal = call->getOperand(1);
-						assert (isa<ConstantInt>(dimVal));
-						const uint64_t dim = *cast<ConstantInt>(dimVal)->getValue().getRawData();
-						assert (dim < num_dimensions);
-						call->replaceAllUsesWith(local_sizes[dim]);
-					} else if (calleeName.equals("get_num_groups")) {
-						outs() << "found call to special function: " << *call << "\n";
-						Value* dimVal = call->getOperand(1);
-						assert (isa<ConstantInt>(dimVal));
-						const uint64_t dim = *cast<ConstantInt>(dimVal)->getValue().getRawData();
-						assert (dim < num_dimensions);
-						call->replaceAllUsesWith(num_groupss[dim]);
-					}
-				}
-			}
-			outs() << *continuation << "\n";
-
-		} // for each continuation
-	#endif
 	}
 
 	void generateSynchronizationLoopsInContinuations(const unsigned num_dimensions, LLVMContext& context, Function* f, ContinuationGenerator::ContinuationVecType& continuations) {
@@ -920,10 +872,10 @@ namespace PacketizedOpenCLDriver {
 				// iterate backwards in order to have loops ordered by dimension
 				// (highest dimension = innermost loop)
 				for (int i=num_dimensions-1; i>=0; --i) {
-					Value* global_size = global_sizes[i];
 					Value* local_size = local_sizes[i];
 					Value* group_id = group_ids[i];
-					Value* num_groups = num_groupss[i];
+					//Value* global_size = global_sizes[i];
+					//Value* num_groups = num_groupss[i];
 
 					// split parent before first instruction (all liveValueUnion-extraction code has to be inside loop)
 					BasicBlock* headerBB = call->getParent();
@@ -1100,6 +1052,7 @@ namespace PacketizedOpenCLDriver {
 		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
 		ContinuationGenerator* CG = new ContinuationGenerator(true);
 		// set "special" parameter types that are generated for each continuation
+		// order is important!
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_id");   // generated inside switch (group_id * loc_size + loc_id)
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_id");    // generated inside switch (loop induction variables)
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_num_groups");  // generated inside switch (glob_size / loc_size)
@@ -1115,6 +1068,9 @@ namespace PacketizedOpenCLDriver {
 
 		llvm::Function* f_wrapper = NULL;
 
+		// determine number of dimensions required by kernel
+		const unsigned num_dimensions = PacketizedOpenCLDriver::determineNumDimensionsUsed(f);
+
 		if (barrierFreeFunction) {
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( verifyFunction(*barrierFreeFunction); );
@@ -1124,7 +1080,7 @@ namespace PacketizedOpenCLDriver {
 			barrierFreeFunction->takeName(f);
 			f->setName(barrierFreeFunction->getNameStr()+"_orig");
 
-			f = barrierFreeFunction;
+			//f = barrierFreeFunction;
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "nobarriers.mod.ll"); );
 
@@ -1147,7 +1103,7 @@ namespace PacketizedOpenCLDriver {
 			const std::string wrapper_name = strs2.str();
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "generating kernel wrapper... "; );
-			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f, module);
+			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, barrierFreeFunction, module);
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 
 			f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
@@ -1156,10 +1112,6 @@ namespace PacketizedOpenCLDriver {
 				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
 				return NULL;
 			}
-
-
-			// TODO: determine number of dimensions required by kernel
-			const unsigned num_dimensions = 1;
 
 			// - callbacks inside continuations have to be replaced by argument accesses
 			PacketizedOpenCLDriver::mapCallbacksToContinuationArguments(num_dimensions, context, module, continuations);
@@ -3259,7 +3211,7 @@ inline cl_int executeRangeKernel1DNEW(cl_kernel kernel, const size_t global_work
 	const size_t groupnr = global_work_size / local_work_size;
 	const cl_uint argument_get_global_size = global_work_size;
 	const cl_uint argument_get_local_size  = local_work_size;
-	const cl_uint argument_get_num_groups  = groupnr == 0 ? 1 : groupnr;
+	const cl_uint argument_get_num_groups  = groupnr == 0 ? 1 : groupnr; //TODO: do the same inside the kernel!!!!
 	typedef void (*kernelFnPtr)(
 			const void*,
 			const cl_uint,
