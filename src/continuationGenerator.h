@@ -252,10 +252,56 @@ private:
 
 		DEBUG_PKT( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
 
+
+		//--------------------------------------------------------------------//
+		// get live values for this block
+		// NOTE: This only fetches live values of former parent block
+		//       in order to prevent recalculating live value information for
+		//       entire function.
+		// For this, it does not matter if blocks are split already.
+		//--------------------------------------------------------------------//
+		const LivenessAnalyzer::LiveSetType* liveInValuesOrig = livenessAnalyzer->getBlockLiveInValues(parentBlock);
+		const LivenessAnalyzer::LiveSetType* liveOutValuesOrig = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
+		assert (liveInValuesOrig);
+		assert (liveOutValuesOrig);
+
 		// before splitting, get block-internal live values
 		// (values that are defined inside block and live over the barrier)
 		LivenessAnalyzer::LiveSetType internalLiveValues;
+		//LivenessAnalyzer::LiveSetType internalNonLiveValues;
 		livenessAnalyzer->getBlockInternalLiveInValues(barrier, internalLiveValues);
+
+		// we have to copy the live-in value set before modifying it
+		LivenessAnalyzer::LiveSetType* liveInValues = new LivenessAnalyzer::LiveSetType();
+		liveInValues->insert(liveInValuesOrig->begin(), liveInValuesOrig->end());
+
+		// merge block-internal live values with liveInValues
+		liveInValues->insert(internalLiveValues.begin(), internalLiveValues.end());
+		// remove all values that die in same block but above barrier
+		livenessAnalyzer->removeBlockInternalNonLiveInValues(barrier, *liveInValues, *liveOutValuesOrig);
+
+		DEBUG_PKT(
+			outs() << "\n\nFinal Live-In values of block '" << parentBlock->getNameStr() << "':\n";
+			for (std::set<Value*>::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
+				outs() << " * " << **it << "\n";
+			}
+			outs() << "\n\nOriginal Live-In values of block '" << parentBlock->getNameStr() << "':\n";
+			for (std::set<Value*>::iterator it=liveInValuesOrig->begin(), E=liveInValuesOrig->end(); it!=E; ++it) {
+				outs() << " * " << **it << "\n";
+			}
+			outs() << "\nInternal Live-In values of block '" << parentBlock->getNameStr() << "':\n";
+			for (std::set<Value*>::iterator it=internalLiveValues.begin(), E=internalLiveValues.end(); it!=E; ++it) {
+				outs() << " * " << **it << "\n";
+			}
+			outs() << "\nOriginal Live-Out values of block '" << parentBlock->getNameStr() << "':\n";
+			for (std::set<Value*>::iterator it=liveOutValuesOrig->begin(), E=liveOutValuesOrig->end(); it!=E; ++it) {
+				outs() << " * " << **it << "\n";
+			}
+			outs() << "\n";
+		);
+
+
+
 
 		//--------------------------------------------------------------------//
 		// split block at the position of the barrier
@@ -269,37 +315,8 @@ private:
 		}
 		// 'newBlock' is the first of the new continuation, 'parentBlock' the one with the barrier
 		BasicBlock* newBlock = parentBlock->splitBasicBlock(splitInst, parentBlock->getNameStr()+".postbarrier");
-
-		//--------------------------------------------------------------------//
-		// get live values for this block
-		// NOTE: This only fetches live values of former parent block
-		//       in order to prevent recalculating live value information for
-		//       entire function.
-		//--------------------------------------------------------------------//
-		const LivenessAnalyzer::LiveSetType* liveInValuesOrig = livenessAnalyzer->getBlockLiveInValues(parentBlock);
-		const LivenessAnalyzer::LiveSetType* liveOutValuesOrig = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
-		assert (liveInValuesOrig);
-		assert (liveOutValuesOrig);
-
-		// we have to copy the live-in value set before modifying it
-		LivenessAnalyzer::LiveSetType* liveInValues = new LivenessAnalyzer::LiveSetType();
-		liveInValues->insert(liveInValuesOrig->begin(), liveInValuesOrig->end());
 		
-		// merge block-internal live values with liveInValues
-		liveInValues->insert(internalLiveValues.begin(), internalLiveValues.end());
-		// remove all values that die in same block but above barrier
-		livenessAnalyzer->removeBlockInternalNonLiveInValues(barrier, *liveInValues, *liveOutValuesOrig);
-
-
-		DEBUG_PKT(
-			outs() << "\n\nLive-In values of block '" << parentBlock->getNameStr() << "':\n";
-			for (std::set<Value*>::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
-				outs() << " * " << **it << "\n";
-			}
-			outs() << "\n";
-		);
-
-
+		
 		//--------------------------------------------------------------------//
 		// create struct with live-in values of newBlock
 		//--------------------------------------------------------------------//

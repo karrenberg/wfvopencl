@@ -38,8 +38,8 @@
 
 //#include <llvm/Analysis/LoopInfo.h>
 
-//#define DEBUG_PKT(x) do { x } while (false)
-#define DEBUG_PKT(x) ((void)0)
+#define DEBUG_PKT(x) do { x } while (false)
+//#define DEBUG_PKT(x) ((void)0)
 
 using namespace llvm;
 
@@ -206,11 +206,15 @@ namespace {
 			std::map<Instruction*, unsigned> instMap;
 			const unsigned frontierId = createInstructionOrdering(block, inst, instMap);
 
-			for (LiveSetType::iterator it=liveInVals.begin(), E=liveInVals.end(); it!=E; ++it) {
-				Value* liveVal = *it;
+			for (LiveSetType::iterator it=liveInVals.begin(), E=liveInVals.end(); it!=E;) {
+				Value* liveVal = *it++;
+				DEBUG_PKT( outs() << "checking if live value dies before frontier: " << *liveVal << "\n"; );
 				// If the value is also live-out, we know it survives the frontier
 				// and we must not remove it from live values.
-				if (liveOutVals.find(liveVal) != liveOutVals.end()) continue;
+				if (liveOutVals.find(liveVal) != liveOutVals.end()) {
+					DEBUG_PKT( outs() << "  live value survives frontier (is live-out)!\n"; );
+					continue;
+				}
 
 				bool survivesFrontier = false;
 				for (Value::use_iterator U=liveVal->use_begin(), UE=liveVal->use_end(); U!=UE && !survivesFrontier; ++U) {
@@ -223,9 +227,12 @@ namespace {
 
 					const unsigned useId = instMap[useI];
 					if (useId >= frontierId) survivesFrontier = true;
+
+					DEBUG_PKT( outs() << "  use: (" << useId << ") - is " << ((useId >= frontierId) ? "" : "not ") << "live!\n"; );
 				}
 
-				if (survivesFrontier) {
+				if (!survivesFrontier) {
+					DEBUG_PKT( outs() << "  live value does not survive frontier!\n"; );
 					liveInVals.erase(liveVal);
 				}
 			}
