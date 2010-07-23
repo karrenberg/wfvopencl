@@ -3544,7 +3544,7 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 	return CL_SUCCESS;
 }
 inline cl_int executeRangeKernelND(cl_kernel kernel, const cl_uint num_dimensions, const size_t* global_work_sizes, const size_t* local_work_sizes) {
-	errs() << "ERROR: clEnqueueNDRangeKernels with work_dim > 1 currently not supported!\n";
+	errs() << "ERROR: clEnqueueNDRangeKernels with work_dim > 3 currently not supported!\n";
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_INVALID_PROGRAM_EXECUTABLE; // just return something != CL_SUCCESS :P
 }
@@ -3562,7 +3562,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 {
 	const unsigned num_dimensions = work_dim; // rename for better understandability ;)
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nclEnqueueNDRangeKernel(" << kernel->function_wrapper->getNameStr() << ")\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  work_dims: " << num_dimensions << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  num_dimensions: " << num_dimensions << "\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  num_events_in_wait_list: " << num_events_in_wait_list << "\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if (!kernel) return CL_INVALID_KERNEL;
