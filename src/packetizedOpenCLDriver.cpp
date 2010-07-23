@@ -25,7 +25,6 @@
 #include <assert.h>
 #include <sstream>  // std::stringstream
 #include <string.h> // memcpy
-#include <sstream> // stringstream
 
 #include <xmmintrin.h> // test output etc.
 
@@ -600,11 +599,89 @@ namespace PacketizedOpenCLDriver {
 	// LLVM tools
 	//------------------------------------------------------------------------//
 
-	// TODO: This won't handle continuations correctly:
-	//       Uses are in different functions and have to be replaced by different
-	//       values. For the continuations (all except the _begin-function),
-	//       these values are not arguments but computed inside the loop around
-	//       the continuation.
+
+	// insert print statement that prints 'value' preceeded by 'DEBUG: `message`'
+	// example what can be generated:
+	// declare i32 @printf(i8* noalias nocapture, ...) nounwind
+	// @.str1 = private constant [19 x i8] c"DEBUG: indexA: %d\0A\00", align 1 ; <[19 x i8]*> [#uses=1]
+	// %printf1 = tail call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([19 x i8]* @.str1, i64 0, i64 0), i32 %call) ; <i32> [#uses=0]
+	CallInst* insertPrintf(const std::string& message, Value* value, const bool endLine, Instruction* insertBefore) {
+		assert (value && insertBefore);
+		assert (insertBefore->getParent());
+		Function* f = insertBefore->getParent()->getParent();
+		assert (f);
+		Module* mod = f->getParent();
+		assert (mod);
+
+		Function* func_printf =  mod->getFunction("printf");
+
+		if (!func_printf) {
+			PointerType* PointerTy_6 = PointerType::get(IntegerType::get(mod->getContext(), 8), 0);
+
+			std::vector<const Type*>FuncTy_10_args;
+			FuncTy_10_args.push_back(PointerTy_6);
+			FunctionType* FuncTy_10 = FunctionType::get(
+					/*Result=*/IntegerType::get(mod->getContext(), 32),
+					/*Params=*/FuncTy_10_args,
+					/*isVarArg=*/true);
+
+			func_printf = Function::Create(
+					/*Type=*/FuncTy_10,
+					/*Linkage=*/GlobalValue::ExternalLinkage,
+					/*Name=*/"printf", mod); // (external, no body)
+			func_printf->setCallingConv(CallingConv::C);
+			AttrListPtr func_printf_PAL;
+			{
+				SmallVector<AttributeWithIndex, 4> Attrs;
+				AttributeWithIndex PAWI;
+				PAWI.Index = 1U; PAWI.Attrs = 0  | Attribute::NoAlias | Attribute::NoCapture;
+				Attrs.push_back(PAWI);
+				PAWI.Index = 4294967295U; PAWI.Attrs = 0  | Attribute::NoUnwind;
+				Attrs.push_back(PAWI);
+				func_printf_PAL = AttrListPtr::get(Attrs.begin(), Attrs.end());
+
+			}
+			func_printf->setAttributes(func_printf_PAL);
+		}
+
+		ArrayType* ArrayTy_0 = ArrayType::get(IntegerType::get(mod->getContext(), 8), message.length()+9+(endLine ? 2 : 1));
+		GlobalVariable* gvar_array__str = new GlobalVariable(/*Module=*/*mod,
+				/*Type=*/ArrayTy_0,
+				/*isConstant=*/true,
+				/*Linkage=*/GlobalValue::PrivateLinkage,
+				/*Initializer=*/0, // has initializer, specified below
+				/*Name=*/".str");
+		gvar_array__str->setAlignment(1);
+
+		// Constant Definitions
+		std::string str = "";
+		switch (value->getType()->getTypeID()) {
+			case Type::IntegerTyID : str = "%d"; break;
+			case Type::FloatTyID   : str = "%f"; break;
+			case Type::PointerTyID : str = "%x"; break;
+			default                : str = "%x"; break;
+		}
+		std::stringstream sstr;
+		sstr << "DEBUG: " << message << str << (endLine ? "\x0A" : "");
+		Constant* const_array_11 = ConstantArray::get(mod->getContext(), sstr.str(), true);
+		std::vector<Constant*> const_ptr_17_indices;
+		ConstantInt* const_int64_18 = ConstantInt::get(mod->getContext(), APInt(64, StringRef("0"), 10));
+		const_ptr_17_indices.push_back(const_int64_18);
+		const_ptr_17_indices.push_back(const_int64_18);
+		Constant* const_ptr_17 = ConstantExpr::getGetElementPtr(gvar_array__str, &const_ptr_17_indices[0], const_ptr_17_indices.size());
+
+		// Global Variable Definitions
+		gvar_array__str->setInitializer(const_array_11);
+
+
+		std::vector<Value*> int32_51_params;
+		int32_51_params.push_back(const_ptr_17);
+		int32_51_params.push_back(value);
+		CallInst* int32_51 = CallInst::Create(func_printf, int32_51_params.begin(), int32_51_params.end(), "", insertBefore);
+		return int32_51;
+	}
+
+
 	void replaceCallbacksByArgAccess(Function* f, Value* arg, Function* source) {
 		if (!f) return;
 		assert (arg && source);
@@ -745,15 +822,175 @@ namespace PacketizedOpenCLDriver {
 		return max_dim;
 	}
 
+	// not required - each thread has its own live values ;)
+	// not finished anyway
+	//
+	// deprecated:
+	// before replacing calls, make sure we have a call to a callback
+	// function at EVERY USE. This is mandatory if we do not want to copy
+	// entire use-chains into different continuations later.
+	// The reason to do this is that a callback that is defined before but
+	// used after a barrier is considered a live value and thus is passed
+	// to the continuation instead of being "re-requested" per thread.
+	// This results in the first thread of the next continuation receiving
+	// the value of the last thread of the previous continuation instead of
+	// its own.
+	void replaceCallbackUsesByNewCallbacks(Function* f) {
+		for (Function::use_iterator U=f->use_begin(), UE=f->use_end(); U!=UE; ++U) {
+			if (!isa<CallInst>(U)) continue;
+			CallInst* call = cast<CallInst>(U);
+
+			std::vector<Instruction*> useVec;
+			// add all uses that are instructions
+			for (CallInst::use_iterator U2=call->use_begin(), UE2=call->use_end(); U2!=UE2; ++U2) {
+				if (!isa<Instruction>(U2)) continue;
+				useVec.push_back(cast<Instruction>(U2));
+			}
+
+			// add some special cases (e.g. if call result is used in cast operation before barrier
+			// and the cast is then used after barrier)
+			// iterate until fixpoint reached (evaluate useVec.end() each iteration)
+			for (std::vector<Instruction*>::iterator U2=useVec.begin(); U2!=useVec.end(); ++U2) {
+				assert (isa<Instruction>(*U2));
+				Instruction* useInst = cast<Instruction>(*U2);
+				for (Instruction::use_iterator U3=useInst->use_begin(), UE3=useInst->use_end(); U3!=UE3; ++U3) {
+					assert (isa<Instruction>(U3));
+					Instruction* useInst2 = cast<Instruction>(U3);
+					if (isa<CastInst>(useInst2)) useVec.push_back(useInst2);
+					// can we / do we want to support others, e.g. additions ?
+				}
+			}
+
+			// generate call to callback as a replacement for each use
+			for (std::vector<Instruction*>::iterator U2=useVec.begin(); U2!=useVec.end(); ) {
+				assert (isa<Instruction>(*U2));
+				Instruction* useInst = cast<Instruction>(*(U2++));
+
+				std::vector<Value*> args;
+				//for (CallInst::op_iterator OP=) //  unfinished
+				CallInst* newCall = CallInst::Create(f, args.begin(), args.end(), call->getName(), useInst);
+				useInst->replaceAllUsesWith(newCall);
+				useInst->eraseFromParent();
+
+				if (isa<CastInst>(useInst)) {
+					// we also have to copy the cast and use it
+					// (hope that there are no cast-chains that include incompatible types :p)
+					Instruction* newCast = useInst->clone();
+					newCast->moveBefore(newCall); // newCast has no parent
+					newCall->moveBefore(newCast); // move cast behind call
+					newCast->setOperand(0, newCall); // cast is supposed to cast the new value
+					newCall->replaceAllUsesWith(newCast);
+				}
+			}
+
+		}
+	}
+
+	// generate computation of "flattened" local id
+	// this is required to access the correct live value struct of each thread
+	// (all dimension's threads of the block are stored flattened in memory)
+	// if iterating 'for all dim0 { for all dim1 { for all dim2 { ... } } }' :
+	// local_flat_id(1d) = loc_id[0]
+	// local_flat_id(2d) = loc_id[0] + loc_id[1] * loc_size[0]
+	// local_flat_id(3d) = loc_id[0] + loc_id[1] * loc_size[0] + loc_id[2] * (loc_size[1] * loc_size[0])
+	Value* generateLocalFlatIndex(const unsigned num_dimensions, Instruction** local_ids, Instruction** local_sizes, Instruction* insertBefore) {
+		Value* local_id_flat = local_ids[0];
+		for (unsigned i=1; i<num_dimensions; ++i) {
+			Value* tmp = local_ids[i];
+			for (int j=i-1; j>=0; --j) {
+				tmp = BinaryOperator::Create(Instruction::Mul, tmp, local_sizes[j], "", insertBefore);
+			}
+			local_id_flat = BinaryOperator::Create(Instruction::Add, tmp, local_id_flat, "", insertBefore);
+		}
+		return local_id_flat;
+	}
+	void adjustLiveValueStoreGEPs(Function* continuation, const unsigned num_dimensions, LLVMContext& context) {
+		assert (continuation);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "adjustLiveValueStoreGEPs(" << continuation->getNameStr() << ")\n"; );
+		// get the live value union (= last parameter of function)
+		Value* liveValueStruct = --(continuation->arg_end());
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "live value struct: " << *liveValueStruct << "\n"; );
+		if (liveValueStruct->use_empty()) {
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  has no uses -> no adjustment necessary!\n"; );
+			return;
+		}
+
+		// the only use of this argument should be a bitcast to the next continuations live value struct type
+		assert (liveValueStruct->getNumUses() == 1);
+		assert (isa<BitCastInst>(liveValueStruct->use_back()));
+		BitCastInst* liveValueStructBc = cast<BitCastInst>(liveValueStruct->use_back());
+
+		// load local_ids and local_sizes for the next computation
+		Argument* arg_local_id_array = ++continuation->arg_begin(); // 2nd argument
+		Argument* arg_local_size_array = ++(++(++(++(++continuation->arg_begin())))); // 5th argument
+
+		Instruction** local_ids = new Instruction*[num_dimensions]();
+		Instruction** local_sizes = new Instruction*[num_dimensions]();
+
+		for (unsigned i=0; i<num_dimensions; ++i) {
+			Value* dimIdx = ConstantInt::get(context, APInt(32, i));
+
+			std::stringstream sstr;
+			sstr << "local_id_" << i;
+			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_local_id_array, dimIdx, "", liveValueStructBc);
+			local_ids[i] = new LoadInst(gep, sstr.str(), false, liveValueStructBc);
+
+			std::stringstream sstr2;
+			sstr2 << "local_size_" << i;
+			gep = GetElementPtrInst::Create(arg_local_size_array, dimIdx, "", liveValueStructBc);
+			local_sizes[i] = new LoadInst(gep, sstr2.str(), false, liveValueStructBc);
+		}
+
+		// compute the local "flat" index (computation will be redundant after inlining,
+		// but this is easier than introducing another parameter to the function)
+		Value* local_id_flat = generateLocalFlatIndex(num_dimensions, local_ids, local_sizes, liveValueStructBc);
+		if (local_id_flat != local_ids[0]) local_id_flat->setName("local_id_flat");
+
+
+		// Uses of this bitcast are the GEPs for the store operations of the live values.
+		// Replace the first index of each GEP (=0 for pointer-step-through in the standard continuation case)
+		// by the correct local index.
+		for (BitCastInst::use_iterator U=liveValueStructBc->use_begin(), UE=liveValueStructBc->use_end(); U!=UE; ) {
+			if (!isa<GetElementPtrInst>(U)) { ++U; continue; }
+			GetElementPtrInst* gep = cast<GetElementPtrInst>(U++);
+			assert (liveValueStructBc->getParent()->getParent() == gep->getParent()->getParent());
+			std::vector<Value*> params;
+			for (GetElementPtrInst::op_iterator O=gep->idx_begin(), OE=gep->idx_end(); O!=OE; ++O) {
+				if (O == gep->idx_begin()) {
+					// replace first index by correct flat index
+					params.push_back(local_id_flat);
+				} else {
+					// all other indices remain unchanged
+					assert (isa<Value>(O));
+					params.push_back(cast<Value>(O));
+				}
+			}
+
+			// replace gep
+			GetElementPtrInst* newGEP = GetElementPtrInst::Create(gep->getPointerOperand(), params.begin(), params.end(), "", gep);
+			gep->replaceAllUsesWith(newGEP);
+			gep->eraseFromParent();
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG(
+				assert (newGEP->getNumUses() == 1);
+				Value* gepUse = newGEP->use_back();
+				assert (isa<StoreInst>(gepUse));
+				StoreInst* store = cast<StoreInst>(gepUse);
+				Value* storedVal = store->getOperand(0);
+				insertPrintf("live value stored: ", storedVal, true, store->getParent()->getTerminator());
+			);
+		}
+
+		delete [] local_ids;
+		delete [] local_sizes;
+	}
 	void mapCallbacksToContinuationArguments(const unsigned num_dimensions, LLVMContext& context, Module* module, ContinuationGenerator::ContinuationVecType& continuations) {
 		typedef ContinuationGenerator::ContinuationVecType ContVecType;
-			
+
 		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
 			Function* continuation = *it;
 			assert (continuation);
-			outs() << "\n  mapping callbacks to arguments in continuation '" << continuation->getNameStr() << "'...\n";
-
-			outs() << *continuation << "\n";
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nmapping callbacks to arguments in continuation '" << continuation->getNameStr() << "'...\n"; );
 
 			// correct order is important! (has to match parameter list of continuation)
 			llvm::Function::arg_iterator arg = continuation->arg_begin();
@@ -771,8 +1008,6 @@ namespace PacketizedOpenCLDriver {
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(arg++), continuation);
 
 			PacketizedOpenCLDriver::fixFunctionNames(module);
-			
-			outs() << *continuation << "\n";
 		}
 
 		return;
@@ -781,30 +1016,31 @@ namespace PacketizedOpenCLDriver {
 	void generateSynchronizationLoopsInContinuations(const unsigned num_dimensions, LLVMContext& context, Function* f, ContinuationGenerator::ContinuationVecType& continuations) {
 		assert (f);
 		assert (num_dimensions <= 10);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\ngenerating loops over group size(s) around continuations...\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\ngenerating loops over group size(s) around continuations...\n\n"; );
 		typedef ContinuationGenerator::ContinuationVecType ContVecType;
 
 		Instruction* insertBefore = f->begin()->getFirstNonPHI();
 
 		Function::arg_iterator A = f->arg_begin(); // arg_struct
 		Value* arg_work_dim = ++A;
-		Value* arg_global_size = ++A;
-		Value* arg_local_size = ++A;
-		Value* arg_group_id = ++A;
+		Value* arg_global_size_array = ++A;
+		Value* arg_local_size_array = ++A;
+		Value* arg_group_id_array = ++A;
 
-		outs() << "  work_dim arg   : " << *arg_work_dim << "\n";
-		outs() << "  global_size arg: " << *arg_global_size << "\n";
-		outs() << "  local_size arg : " << *arg_local_size << "\n";
-		outs() << "  group_id arg   : " << *arg_group_id << "\n";
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  work_dim arg   : " << *arg_work_dim << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_size arg: " << *arg_global_size_array << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_size arg : " << *arg_local_size_array << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
 
 		// allocate array of size 'num_dimensions' for special parameter num_groups
-		Value* arraySize = ConstantInt::get(context,  APInt(32, num_dimensions));
-		AllocaInst* param_num_groups = new AllocaInst(Type::getInt32Ty(context), arraySize, "", insertBefore);
+		Value* numDimVal = ConstantInt::get(context,  APInt(32, num_dimensions));
+		//Value* arg_num_groups_array = UndefValue::get(ArrayType::get(Type::getInt32Ty(context), num_dimensions)); // TODO: maybe later...
+		AllocaInst* arg_num_groups_array = new AllocaInst(Type::getInt32Ty(context), numDimVal, "num_groups_array", insertBefore);
 
 		// load/compute special values for each dimension
-		LoadInst** global_sizes = new LoadInst*[num_dimensions]();
-		LoadInst** local_sizes = new LoadInst*[num_dimensions]();
-		LoadInst** group_ids = new LoadInst*[num_dimensions]();
+		Instruction** global_sizes = new Instruction*[num_dimensions]();
+		Instruction** local_sizes = new Instruction*[num_dimensions]();
+		Instruction** group_ids = new Instruction*[num_dimensions]();
 		Instruction** num_groupss = new Instruction*[num_dimensions]();
 
 		for (unsigned i=0; i<num_dimensions; ++i) {
@@ -814,45 +1050,63 @@ namespace PacketizedOpenCLDriver {
 
 			std::stringstream sstr;
 			sstr << "global_size_" << i;
-			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_size, dimIdx, "", insertBefore);
+			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_size_array, dimIdx, "", insertBefore);
 			global_sizes[i] = new LoadInst(gep, sstr.str(), false, insertBefore);
 
 			std::stringstream sstr2;
 			sstr2 << "local_size_" << i;
-			gep = GetElementPtrInst::Create(arg_local_size, dimIdx, "", insertBefore);
+			gep = GetElementPtrInst::Create(arg_local_size_array, dimIdx, "", insertBefore);
 			local_sizes[i] = new LoadInst(gep, sstr2.str(), false, insertBefore);
 
 			std::stringstream sstr3;
 			sstr3 << "group_id_" << i;
-			gep = GetElementPtrInst::Create(arg_group_id, dimIdx, "", insertBefore);
+			gep = GetElementPtrInst::Create(arg_group_id_array, dimIdx, "", insertBefore);
 			group_ids[i] = new LoadInst(gep, sstr3.str(), false, insertBefore);
 
 			std::stringstream sstr4;
 			sstr4 << "num_groups_" << i;
-			num_groupss[i] = BinaryOperator::Create(Instruction::UDiv, global_sizes[i], local_sizes[i], sstr4.str(), insertBefore);
+			// we need to make sure that num_groups always returns at least 1
+			// TODO: can't we rely on global_sizes being dividable by local_sizes at this point?
+			Instruction* div = BinaryOperator::Create(Instruction::UDiv, global_sizes[i], local_sizes[i], "", insertBefore);
+			ICmpInst* cmp = new ICmpInst(insertBefore, ICmpInst::ICMP_EQ, div, ConstantInt::get(context, APInt(32, 0)), "");
+			num_groupss[i] = SelectInst::Create(cmp, ConstantInt::get(context, APInt(32, 1)), div, sstr4.str(), insertBefore);
 
-			outs() << "  global_sizes[" << i << "]: " << *(global_sizes[i]) << "\n";
-			outs() << "  local_sizes[" << i << "] : " << *(local_sizes[i]) << "\n";
-			outs() << "  group_ids[" << i << "]   : " << *(group_ids[i]) << "\n";
-			outs() << "  num_groups[" << i << "]  : " << *(num_groupss[i]) << "\n";
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_sizes[" << i << "]: " << *(global_sizes[i]) << "\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_sizes[" << i << "] : " << *(local_sizes[i]) << "\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  group_ids[" << i << "]   : " << *(group_ids[i]) << "\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  num_groups[" << i << "]  : " << *(num_groupss[i]) << "\n"; );
 
 			// store num_groups into array
-			gep = GetElementPtrInst::Create(param_num_groups, dimIdx, "", insertBefore);
+			gep = GetElementPtrInst::Create(arg_num_groups_array, dimIdx, "", insertBefore);
 			new StoreInst(num_groupss[i], gep, false, insertBefore);
+			//InsertValueInst::Create(arg_num_groups_array, num_groupss[i], i, "", insertBefore); // TODO: maybe later...
+
+			//PACKETIZED_OPENCL_DRIVER_DEBUG(
+				//insertPrintf("i = ", dimIdx, true, insertBefore);
+				//insertPrintf("work_dim: ", arg_work_dim, true, insertBefore);
+				//insertPrintf("global_sizes[i]: ", global_sizes[i], true, insertBefore);
+				//insertPrintf("local_sizes[i]: ", local_sizes[i], true, insertBefore);
+				//insertPrintf("group_ids[i]: ", group_ids[i], true, insertBefore);
+				//insertPrintf("num_groups[i]: ", num_groupss[i], true, insertBefore);
+			//);
 		}
 
-		Value** global_ids = new Value*[num_dimensions]();
-		Value** local_ids = new Value*[num_dimensions]();
+		Instruction** global_ids = new Instruction*[num_dimensions](); // not required for anything else but being supplied as parameter
+		Instruction** local_ids = new Instruction*[num_dimensions]();
 
-		Value* liveValueStruct = NULL;
+		// allocate array of size 'num_dimensions' for special parameter num_groups
+		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimVal, "global_id_array", insertBefore);
+		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimVal, "local_id_array", insertBefore);
 
-		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
+
+		unsigned continuation_id = 0;
+		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it, ++continuation_id) {
 			Function* continuation = *it;
 			assert (continuation);
-			outs() << "\n  generating loop(s) for continuation '" << continuation->getNameStr() << "'...\n";
-			outs() << "    has " << continuation->getNumUses() << " uses!\n";
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n  generating loop(s) for continuation " << continuation_id << ": '" << continuation->getNameStr() << "'...\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    has " << continuation->getNumUses() << " uses!\n"; );
 			
-			outs() << "\n" << *continuation << "\n";
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *continuation << "\n"; );
 
 			assert (!continuation->use_empty());
 
@@ -862,12 +1116,8 @@ namespace PacketizedOpenCLDriver {
 				BasicBlock* parentBB = call->getParent();
 				if (parentBB->getParent() != f) continue; // ignore all uses in different functions
 
-				outs() << "    call: " << *call << "\n";
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    generating loop(s) around call: " << *call << "\n"; );
 
-				// allocate array of size 'num_dimensions' for special parameter num_groups
-				AllocaInst* param_global_ids = new AllocaInst(num_groupss[0]->getType(), arraySize, "", insertBefore);
-				AllocaInst* param_local_ids  = new AllocaInst(num_groupss[0]->getType(), arraySize, "", insertBefore);
-				
 				// generate loop(s)
 				// iterate backwards in order to have loops ordered by dimension
 				// (highest dimension = innermost loop)
@@ -889,7 +1139,9 @@ namespace PacketizedOpenCLDriver {
 
 					// Block headerBB
 					Argument* fwdref = new Argument(IntegerType::get(context, 32));
-					PHINode* local_id = PHINode::Create(IntegerType::get(context, 32), "localID", headerBB->getFirstNonPHI());
+					std::stringstream sstr;
+					sstr << "local_id_" << i << "_cont" << continuation_id;
+					PHINode* local_id = PHINode::Create(IntegerType::get(context, 32), sstr.str(), headerBB->getFirstNonPHI());
 					local_id->reserveOperandSpace(2);
 					local_id->addIncoming(fwdref, latchBB);
 					local_id->addIncoming(ConstantInt::get(context, APInt(32, 0)), entryBB);
@@ -921,74 +1173,90 @@ namespace PacketizedOpenCLDriver {
 					}
 
 					// generate special parameter global_id right before call
-					Value* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
-					global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, "", call);
+					std::stringstream sstr2;
+					sstr2 << "global_id_" << i << "_cont" << continuation_id;
+					Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
+					global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, sstr2.str(), call);
 
 					// save special parameters global_id, local_id to arrays
-					GetElementPtrInst* gep = GetElementPtrInst::Create(param_global_ids, ConstantInt::get(context, APInt(32, 1)), "", insertBefore);
+					GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
 					new StoreInst(global_id, gep, false, call);
-					gep = GetElementPtrInst::Create(param_local_ids, ConstantInt::get(context, APInt(32, 1)), "", insertBefore);
+					gep = GetElementPtrInst::Create(arg_local_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
 					new StoreInst(local_id, gep, false, call);
 
-					global_ids[i] = global_id;
+					global_ids[i] = global_id; // not required for anything else but being supplied as parameter
 					local_ids[i] = local_id;
+
+					PACKETIZED_OPENCL_DRIVER_DEBUG(
+						insertPrintf("global_id[i]: ", global_ids[i], true, call);
+						insertPrintf("local_id[i]: ", local_ids[i], true, call);
+					);
 				}
 
 
 				// replace undef arguments to function call by special parameters
 				std::vector<Value*> params;
-				params.push_back(param_global_ids);
-				params.push_back(param_local_ids);
-				params.push_back(param_num_groups);
+				params.push_back(arg_global_id_array);
+				params.push_back(arg_local_id_array);
+				params.push_back(arg_num_groups_array);
 				params.push_back(arg_work_dim);
-				params.push_back(arg_global_size);
-				params.push_back(arg_local_size);
-				params.push_back(arg_group_id);
-				outs() << "\n  params for new call:\n";
-				outs() << "   * " << *param_global_ids << "\n";
-				outs() << "   * " << *param_local_ids << "\n";
-				outs() << "   * " << *param_num_groups << "\n";
-				outs() << "   * " << *arg_work_dim << "\n";
-				outs() << "   * " << *arg_global_size << "\n";
-				outs() << "   * " << *arg_local_size << "\n";
-				outs() << "   * " << *arg_group_id << "\n";
+				params.push_back(arg_global_size_array);
+				params.push_back(arg_local_size_array);
+				params.push_back(arg_group_id_array);
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n    params for new call:\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_global_id_array << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_local_id_array << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_num_groups_array << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_work_dim << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_global_size_array << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_local_size_array << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_group_id_array << "\n"; );
 				// add normal parameters and live value struct param
 				//(= start at last special param idx +1 for callee)
 				for (unsigned i=8; i<call->getNumOperands(); ++i) {
 					Value* opV = call->getOperand(i);
 					params.push_back(opV);
-					outs() << "   * " << *opV << "\n";
+					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *opV << "\n"; );
 				}
-				outs() << "  original call: " << *call << "\n";
 				CallInst* newCall = CallInst::Create(call->getCalledFunction(), params.begin(), params.end(), "", call);
-				outs() << "  new call: " << *newCall << "\n";
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n    new call: " << *newCall << "\n"; );
 				call->replaceAllUsesWith(newCall);
 				call->eraseFromParent();
 
 				// generate computation of "flattened" local id
-				// this is required to access the correct live value struct of each thread
-				// (all dimension's threads of the block are stored flattened in memory)
-				// if iterating 'for all dim0 { for all dim1 { for all dim2 { ... } } }' :
-				// local_flat_id(1d) = loc_id[0]
-				// local_flat_id(2d) = loc_id[0] + loc_id[1] * loc_size[0]
-				// local_flat_id(3d) = loc_id[0] + loc_id[1] * loc_size[0] + loc_id[2] * (loc_size[1] * loc_size[0])
 				BasicBlock* callBB = newCall->getParent();
-				Value* local_id_flat = local_ids[0];
-				Instruction* insertBefore2 = callBB->getFirstNonPHI();
-				for (unsigned i=1; i<num_dimensions; ++i) {
-					Value* tmp = local_ids[i];
-					for (int j=i-1; j>=0; --j) {
-						tmp = BinaryOperator::Create(Instruction::Mul, tmp, local_sizes[j], "", insertBefore2);
-					}
-					local_id_flat = BinaryOperator::Create(Instruction::Add, tmp, local_id_flat, "", insertBefore2);
+				Value* local_id_flat = generateLocalFlatIndex(num_dimensions, local_ids, local_sizes, callBB->getFirstNonPHI());
+				if (local_id_flat != local_ids[0]) {
+					std::stringstream sstr;
+					sstr << "local_id_flat_cont_" << continuation_id;
+					local_id_flat->setName(sstr.str());
 				}
+
+				PACKETIZED_OPENCL_DRIVER_DEBUG( insertPrintf("\ncontinuation ", ConstantInt::get(context, APInt(32, continuation_id)), true, callBB->getFirstNonPHI()); );
 
 				// adjust GEP-instructions to point to current localID's live value struct,
 				// e.g. GEP liveValueUnion, i32 0, i32 elementindex
 				// ---> GEP liveValueUnion, i32 local_id_flat, i32 elementindex
-				for (BasicBlock::iterator I=callBB->begin(), IE=callBB->end(); I!=IE; ) {
-					if (!isa<GetElementPtrInst>(I)) { ++I; continue; }
-					GetElementPtrInst* gep = cast<GetElementPtrInst>(I++);
+				Value* liveValueStruct = newCall->getOperand(newCall->getNumOperands()-1); // live value union is last parameter to call
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "live value struct: " << *liveValueStruct << "\n"; );
+				// now get the bitcast-use of the union in this same block
+				BitCastInst* liveValueStructBc = NULL;
+				for (Value::use_iterator U=liveValueStruct->use_begin(), UE=liveValueStruct->use_end(); U!=UE; ++U) {
+					if (!isa<BitCastInst>(U)) continue;
+					BitCastInst* bc = cast<BitCastInst>(U);
+					if (bc->getParent() != callBB) continue;
+
+					liveValueStructBc = bc;
+					break; // there is exactly one use of interest
+				}
+				assert (liveValueStructBc);
+
+				// Uses of this bitcast are the GEPs for the load operations that extract the live values.
+				// Replace the first index of each GEP (=0 for pointer-step-through in the standard continuation case)
+				// by the correct local index.
+				for (BitCastInst::use_iterator U=liveValueStructBc->use_begin(), UE=liveValueStructBc->use_end(); U!=UE; ) {
+					if (!isa<GetElementPtrInst>(U)) { ++U; continue; }
+					GetElementPtrInst* gep = cast<GetElementPtrInst>(U++);
 					std::vector<Value*> params;
 					for (GetElementPtrInst::op_iterator O=gep->idx_begin(), OE=gep->idx_end(); O!=OE; ++O) {
 						if (O == gep->idx_begin()) {
@@ -1000,29 +1268,40 @@ namespace PacketizedOpenCLDriver {
 							params.push_back(cast<Value>(O));
 						}
 					}
-					// if not yet set, store liveValueStruct
-					if (!liveValueStruct) {
-						liveValueStruct = gep->getPointerOperand();
-						assert (isa<BitCastInst>(liveValueStruct));
-						liveValueStruct = cast<BitCastInst>(liveValueStruct)->getOperand(0);
-					}
+					
 					// replace gep
 					GetElementPtrInst* newGEP = GetElementPtrInst::Create(gep->getPointerOperand(), params.begin(), params.end(), "", gep);
 					gep->replaceAllUsesWith(newGEP);
 					gep->eraseFromParent();
+
+					PACKETIZED_OPENCL_DRIVER_DEBUG(
+						assert (newGEP->getNumUses() == 1);
+						Value* gepUse = newGEP->use_back();
+						insertPrintf("live value loaded: ", gepUse, true, newCall);
+					);
 				}
 
+				// Now do the exact same thing inside the continuation:
+				// Replace the GEPs that are used for storing the live values
+				// of the next continuation.
+				adjustLiveValueStoreGEPs(continuation, num_dimensions, context);
 
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n" << *continuation << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( verifyFunction(*continuation); );
 
-				break; // there is exactly one use of interest
+				break; // there is exactly one use of the continuation of interest
 			}
-
-			outs() << "\n" << *continuation << "\n";
-		}
+		} // for each continuation
 
 		// adjust alloca of liveValueUnion (reserve sizeof(union)*blocksize[0]*blocksize[1]*... )
-		assert (isa<AllocaInst>(liveValueStruct));
-		AllocaInst* alloca = cast<AllocaInst>(liveValueStruct);
+		assert (continuations.back() && continuations.back()->use_back());
+		assert (isa<CallInst>(continuations.back()->use_back()));
+		CallInst* someContinuationCall = cast<CallInst>(continuations.back()->use_back());
+		assert (someContinuationCall->getOperand(someContinuationCall->getNumOperands()-1));
+		Value* liveValueUnion = someContinuationCall->getOperand(someContinuationCall->getNumOperands()-1);
+
+		assert (isa<AllocaInst>(liveValueUnion));
+		AllocaInst* alloca = cast<AllocaInst>(liveValueUnion);
 		Value* local_size_flat = local_sizes[0];
 		for (unsigned i=1; i<num_dimensions; ++i) {
 			local_size_flat = BinaryOperator::Create(Instruction::Mul, local_size_flat, local_sizes[i], "", alloca);
@@ -1033,15 +1312,14 @@ namespace PacketizedOpenCLDriver {
 		newAlloca->takeName(alloca);
 		alloca->eraseFromParent();
 
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n" << *f << "\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyFunction(*f); );
-
-		outs() << "\n" << *f << "\n";
 
 		delete [] global_sizes;
 		delete [] local_sizes;
 		delete [] group_ids;
 		delete [] num_groupss;
-		delete [] global_ids;
+		delete [] global_ids; // not required for anything else but being supplied as parameter
 		delete [] local_ids;
 	}
 
@@ -1088,10 +1366,10 @@ namespace PacketizedOpenCLDriver {
 			CG->getContinuations(continuations);
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG(
-				outs() << "  continuations:\n";
+				outs() << "continuations:\n";
 				for (SmallVector<Function*, 4>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
 					Function* continuation = *it;
-					outs() << "   * " << continuation->getNameStr() << "\n";
+					outs() << " * " << continuation->getNameStr() << "\n";
 				}
 				outs() << "\n";
 			);
@@ -1121,10 +1399,6 @@ namespace PacketizedOpenCLDriver {
 			// - map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
 			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
 			PacketizedOpenCLDriver::generateSynchronizationLoopsInContinuations(num_dimensions, context, f_wrapper, continuations);
-
-			// inline continuation functions & optimize wrapper
-			//PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
-			//PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
 
 		} else {
 
@@ -1172,8 +1446,10 @@ namespace PacketizedOpenCLDriver {
 		assert (f_wrapper);
 
 		// optimize wrapper with inlined kernel
-		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
-		PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing wrapper... "; );
+		//PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
+		//PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "wrapper.ll"); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "mod.ll"); );
@@ -3208,10 +3484,8 @@ inline cl_int executeRangeKernel1DNEW(cl_kernel kernel, const size_t global_work
 	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
 
-	const size_t groupnr = global_work_size / local_work_size;
 	const cl_uint argument_get_global_size = global_work_size;
 	const cl_uint argument_get_local_size  = local_work_size;
-	const cl_uint argument_get_num_groups  = groupnr == 0 ? 1 : groupnr; //TODO: do the same inside the kernel!!!!
 	typedef void (*kernelFnPtr)(
 			const void*,
 			const cl_uint,
@@ -3225,8 +3499,10 @@ inline cl_int executeRangeKernel1DNEW(cl_kernel kernel, const size_t global_work
 	//
 	// execute the kernel
 	//
-	const size_t num_iterations = local_work_size; // = total # threads per block
+	const size_t num_iterations = global_work_size / local_work_size; // = total # threads per block
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
+
+	assert (num_iterations > 0 && "should give error message before executeRangeKernel!");
 
 	unsigned i;
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP

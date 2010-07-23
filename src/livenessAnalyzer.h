@@ -38,8 +38,8 @@
 
 //#include <llvm/Analysis/LoopInfo.h>
 
-#define DEBUG_PKT(x) do { x } while (false)
-//#define DEBUG_PKT(x) ((void)0)
+//#define DEBUG_PKT(x) do { x } while (false)
+#define DEBUG_PKT(x) ((void)0)
 
 using namespace llvm;
 

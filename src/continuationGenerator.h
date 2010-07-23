@@ -40,8 +40,8 @@
 #include "livenessAnalyzer.h"
 #include "llvmTools.hpp"
 
-#define DEBUG_PKT(x) do { x } while (false)
-//#define DEBUG_PKT(x) ((void)0)
+//#define DEBUG_PKT(x) do { x } while (false)
+#define DEBUG_PKT(x) ((void)0)
 
 #define PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER "barrier"
 #define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID -1
@@ -691,8 +691,6 @@ private:
 		}
 		(--newF->arg_end())->setName("nextContLiveVals");
 
-		outs() << "newF: " << *newF << "\n";
-
 		// specify mapping of parameters and set names of original parameters
 		// (special parameters come first, so we have to start at the first original parameter)
 		// NOTE: only iterate to second last param (data ptr was not in original function)
@@ -700,7 +698,7 @@ private:
 		unsigned argIdx = 0;
 		for (Function::arg_iterator A2=f->arg_begin(), A=newF->arg_begin(), AE=--newF->arg_end(); A!=AE; ++A, ++argIdx) {
 			if (argIdx < specialParams.size()) continue; // don't increment A2
-			outs() << "  " << *A2 << " -> " << *A << "\n";
+			//DEBUG_PKT( outs() << "  " << *A2 << " -> " << *A << "\n"; );
 			valueMap[A2] = A;
 			A->takeName(A2);
 			++A2;
@@ -743,6 +741,7 @@ private:
 		DEBUG_PKT( outs() << "  number of barriers in function : " << numBarriers << "\n"; );
 		DEBUG_PKT( outs() << "  maximum block depth of barriers: " << maxBarrierDepth << "\n\n"; );
 
+		// for some reason, we can't put a DEBUG_PKT(); around this:
 		//for (BarrierMapType::iterator it=barriers.begin(), E=barriers.end(); it!=E; ++it) {
 			//const unsigned depth = it->first;
 			//SmallVector<BarrierInfo*, 4>* vec = it->second;
@@ -961,11 +960,13 @@ private:
 			}
 			args.push_back(dataPtr); // data ptr
 
-			outs() << "\narguments for call to continuation '" << binfo->continuation->getNameStr() << "':\n";
-			for (SmallVector<Value*, 4>::iterator it=args.begin(), E=args.end(); it!=E; ++it) {
-				outs() << " * " << **it << "\n";
-			}
-			outs() << "\n";
+			DEBUG_PKT(
+				outs() << "\narguments for call to continuation '" << binfo->continuation->getNameStr() << "':\n";
+				for (SmallVector<Value*, 4>::iterator it=args.begin(), E=args.end(); it!=E; ++it) {
+					outs() << " * " << **it << "\n";
+				}
+				outs() << "\n";
+			);
 
 			std::stringstream sstr;
 			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
