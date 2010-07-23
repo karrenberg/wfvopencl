@@ -51,7 +51,13 @@
 #define PACKETIZED_OPENCL_DRIVER_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128"
 #define PACKETIZED_OPENCL_DRIVER_MAX_WORK_GROUP_SIZE 8192
 #define PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS 3
-
+#define PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH 4
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+	#define PACKETIZED_OPENCL_DRIVER_NUM_CORES 4 // TODO: determine somehow, omp_get_num_threads() is dynamic (=1 here)
+#else
+	#define PACKETIZED_OPENCL_DRIVER_NUM_CORES 1
+#endif
+#define PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS PACKETIZED_OPENCL_DRIVER_NUM_CORES
 
 
 
@@ -120,241 +126,19 @@ extern "C" {
 //                 OpenCL Runtime Implementation                         //
 ///////////////////////////////////////////////////////////////////////////
 
-// a class 'OpenCLRuntime' would be nicer,
-// but we cannot store address of member function to bitcode
-namespace {
-
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	static const cl_uint numCores = 4; // TODO: determine somehow, omp_get_num_threads() is dynamic (=1 here)
-	size_t** currentGlobal; // 0 -> globalThreads[D] -1  (packetized: 0->globalThreads[D]/4 if D == simd dim)
-	size_t** currentGroup;  // 0 -> (globalThreads[D] / localThreads[D]) -1
-#else
-	static const cl_uint numCores = 1;
-	size_t* currentGlobal; // 0 -> globalThreads[D] -1  (packetized: 0->globalThreads[D]/4 if D == simd dim)
-	size_t* currentGroup;  // 0 -> (globalThreads[D] / localThreads[D]) -1
-#endif
-
-	static const cl_uint simdWidth = 4;
-	static const cl_uint maxNumThreads = numCores;
-
-	static const cl_uint maxNumDimensions = 3;
-
+#if 0
 	cl_uint dimensions;
-	size_t* globalThreads; // total # work items per dimension, arbitrary size
-	size_t* localThreads;  // size of each work group per dimension
 
-
-	/* Num. of dimensions in use */
-	inline cl_uint get_work_dim() {
-		return dimensions;
-	}
-
-	/* Num. of global work-items */
-	inline size_t get_global_size(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		return globalThreads[D];
-	}
-
-	/* Global work-item ID value */
-	inline size_t get_global_id(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 0;
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
-		return currentGlobal[thread][D];
-#else
-		return currentGlobal[D];
-#endif
-	}
-
-	/* Num. of local work-items */
-	inline size_t get_local_size(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		return localThreads[D];
-	}
-
-	/* Num. of work-groups */
-	inline size_t get_num_groups(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 1;
-		const size_t num_groups = globalThreads[D] / localThreads[D];
-		return num_groups > 0 ? num_groups : 1; // there is at least one group ;)
-	}
-
-	/* Returns the work-group ID */
-	inline size_t get_group_id(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return CL_SUCCESS;
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
-		return currentGroup[thread][D];
-#else
-		return currentGroup[D];
-#endif
-	}
-
-	inline void setCurrentGlobal(cl_uint D, size_t id) {
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  setCurrentGlobal(" << D << ", " << id << ")  ; (global size = " << get_global_size(D) << ")\n"; );
-		assert (D < dimensions);
-		assert (id < get_global_size(D));
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
-		currentGlobal[thread][D] = id;
-#else
-		currentGlobal[D] = id;
-#endif
-	}
-	inline void setCurrentGroup(cl_uint D, size_t id) {
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  setCurrentGroup(" << D << ", " << id << ")  ; (# groups = " << get_num_groups(D) << ")\n"; );
-		assert (D < dimensions);
-		assert (id < get_num_groups(D));
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
-		currentGroup[thread][D] = id;
-#else
-		currentGroup[D] = id;
-#endif
-	}
-
-	/*
-	 * CLK_LOCAL_MEM_FENCE - The barrier function
-	 * will either flush any variables stored in local memory
-	 * or queue a memory fence to ensure correct ordering of
-	 * memory operations to local memory.
-	 * CLK_GLOBAL_MEM_FENCE – The barrier function
-	 * will queue a memory fence to ensure correct ordering
-	 * of memory operations to global memory. This can be
-	 * useful when work-items, for example, write to buffer or
-	 * image objects and then want to read the updated data.
-	 */
-	// TODO: no idea what the parameters do :P
-	void barrier(unsigned a, unsigned b) {
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		#pragma omp barrier
-		outs() << "#threads: " << omp_get_num_threads() << "\n";
-#else
-		// barrier does not do anything if no openmp is activated :P
-#endif
-	}
-
-
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-
-	// scalar implementation
-	//
-
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	size_t** currentLocal;  // 0 -> SIMD width -1
-#else
-	size_t* currentLocal;  // 0 -> SIMD width -1
-#endif
-
-	/* Local work-item ID */
-	inline size_t get_local_id(cl_uint D) {
-		assert (D < dimensions);
-		if (D >= dimensions) return 0;
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
-		return currentLocal[thread][D];
-#else
-		return currentLocal[D];
-#endif
-	}
-
-	inline void setCurrentLocal(cl_uint D, size_t id) {
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  setCurrentLocal(" << D << ", " << id << ")  ; (local size = " << get_local_size(D) << ")\n"; );
-		assert (D < dimensions);
-		assert (id < get_local_size(D));
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
-		currentLocal[thread][D] = id;
-#else
-		currentLocal[D] = id;
-#endif
-	}
-
-	// called automatically by initializeOpenCL
-	inline cl_uint initializeThreads(const size_t* gThreads, const size_t* lThreads) {
-		for (cl_uint i=0; i<dimensions; ++i) {
-			PACKETIZED_OPENCL_DRIVER_DEBUG(
-				if (lThreads[i] > gThreads[i]) {
-					errs() << "WARNING: local work size is larger than global work size for dimension " << i << "!\n";
-				}
-			);
-
-			globalThreads[i] = gThreads[i];
-			localThreads[i] = lThreads[i];
-		}
-		return CL_SUCCESS;
-	}
-	// simdDim is ignored here
-	cl_uint initializeOpenCL(const cl_uint num_dims, const cl_uint simdDim, const size_t* gThreads, const size_t* lThreads) {
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nAutomatic Packetization disabled!\n"; );
-
-		dimensions = num_dims;
-
-		globalThreads = new size_t[num_dims]();
-		localThreads = new size_t[num_dims]();
-
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
-		currentGlobal = new size_t*[maxNumThreads]();
-		currentLocal = new size_t*[maxNumThreads]();
-		currentGroup = new size_t*[maxNumThreads]();
-
-		for (cl_uint i=0; i<maxNumThreads; ++i) {
-			currentGlobal[i] = new size_t[num_dims]();
-			currentLocal[i] = new size_t[num_dims]();
-			currentGroup[i] = new size_t[num_dims]();
-
-			for (cl_uint j=0; j<num_dims; ++j) {
-				currentGlobal[i][j] = 0;
-				currentLocal[i][j] = 0;
-				currentGroup[i][j] = 0;
-			}
-		}
-#else
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP disabled!\n"; );
-		currentGlobal = new size_t[num_dims]();
-		currentLocal = new size_t[num_dims]();
-		currentGroup = new size_t[num_dims]();
-
-		for (cl_uint i=0; i<num_dims; ++i) {
-			currentGlobal[i] = 0;
-			currentLocal[i] = 0;
-			currentGroup[i] = 0;
-		}
-#endif
-
-		return initializeThreads(gThreads, lThreads);
-	}
-
-#else
 
 	// packetized implementation
 	//
-
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	__m128i** currentLocal;  // 0 -> SIMD width -1 (always 0 for non-simd dims)
-#else
-	__m128i* currentLocal;  // 0 -> SIMD width -1 (always 0 for non-simd dims)
-#endif
-
 	cl_uint simdDimension;
 
 	inline __m128i get_global_id_SIMD(cl_uint D) {
 		assert (D < dimensions);
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
+		assert (thread < PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
 		const size_t simd_id = currentGlobal[thread][D];
 #else
 		const size_t simd_id = currentGlobal[D];
@@ -369,7 +153,7 @@ namespace {
 		assert (D < dimensions);
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
+		assert (thread < PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
 		return currentLocal[thread][D];
 #else
 		return currentLocal[D];
@@ -384,7 +168,7 @@ namespace {
 		assert (((unsigned*)&id)[3] < get_local_size(D));
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 		const unsigned thread = omp_get_thread_num();
-		assert (thread < maxNumThreads);
+		assert (thread < PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
 		currentLocal[thread][D] = id;
 #else
 		currentLocal[D] = id;
@@ -403,7 +187,7 @@ namespace {
 			);
 
 			const size_t globalThreadsDimI = gThreads[i];
-			const size_t localThreadsDimI = lThreads[i] < simdWidth ? simdWidth : lThreads[i];
+			const size_t localThreadsDimI = lThreads[i] < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ? PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : lThreads[i];
 
 			globalThreads[i] = globalThreadsDimI;
 			localThreads[i] = localThreadsDimI;
@@ -419,30 +203,30 @@ namespace {
 			bool error = false;
 			for (cl_uint i=0; i<dimensions; ++i) {
 				const size_t globalThreadsDimI = gThreads[i];
-				const size_t localThreadsDimI = lThreads[i] < simdWidth ? simdWidth : lThreads[i];
+				const size_t localThreadsDimI = lThreads[i] < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ? PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : lThreads[i];
 
 				globalThreadNum += globalThreadsDimI;
-				alignedGlobalDims[i] = (globalThreadsDimI % simdWidth == 0);
+				alignedGlobalDims[i] = (globalThreadsDimI % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
 
 				localThreadNum += localThreadsDimI;
-				alignedLocalDims[i] = (localThreadsDimI % simdWidth == 0);
+				alignedLocalDims[i] = (localThreadsDimI % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
 
-				if (lThreads[i] > simdWidth) errs() << "WARNING: local work size (" << lThreads[i] << ") is larger than " << simdWidth << "!\n";
-				if (lThreads[i] < simdWidth) {
+				if (lThreads[i] > PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) errs() << "WARNING: local work size (" << lThreads[i] << ") is larger than " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << "!\n";
+				if (lThreads[i] < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) {
 					// TODO: fall back to scalar mode instead!
-					errs() << "WARNING: local work size enlarged from " << lThreads[i] << " to " << simdWidth << "!\n";
+					errs() << "WARNING: local work size enlarged from " << lThreads[i] << " to " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << "!\n";
 				}
 
 
 				if (i == simdDimension && !alignedGlobalDims[i]) {
 					errs() << "ERROR: size of chosen SIMD dimension " << i
-							<< " is globally not dividable by " << simdWidth
+							<< " is globally not dividable by " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH
 							<< " (global dimension)!\n";
 					error = true;
 				}
 				if (i == simdDimension && !alignedLocalDims[i]) {
 					errs() << "ERROR: size of chosen SIMD dimension " << i
-							<< " is locally not dividable by " << simdWidth
+							<< " is locally not dividable by " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH
 							<< " (work-group dimension)!\n";
 					error = true;
 				}
@@ -455,14 +239,14 @@ namespace {
 				}
 			}
 
-			if (globalThreadNum % simdWidth != 0) {
+			if (globalThreadNum % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0) {
 				errs() << "ERROR: global number of threads is not dividable by "
-						<< simdWidth << "!\n";
+						<< PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << "!\n";
 				error = true;
 			}
-			if (localThreadNum % simdWidth != 0) {
+			if (localThreadNum % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0) {
 				errs() << "ERROR: number of threads in a group is not dividable by "
-						<< simdWidth << "!\n";
+						<< PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << "!\n";
 				error = true;
 			}
 
@@ -487,11 +271,11 @@ namespace {
 
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
-		currentGlobal = new size_t*[maxNumThreads]();
-		currentLocal = new __m128i*[maxNumThreads]();
-		currentGroup = new size_t*[maxNumThreads]();
+		currentGlobal = new size_t*[PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS]();
+		currentLocal = new __m128i*[PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS]();
+		currentGroup = new size_t*[PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS]();
 
-		for (cl_uint i=0; i<maxNumThreads; ++i) {
+		for (cl_uint i=0; i<PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS; ++i) {
 			currentGlobal[i] = new size_t[num_dims]();
 			currentLocal[i] = new __m128i[num_dims]();
 			currentGroup[i] = new size_t[num_dims]();
@@ -527,12 +311,8 @@ namespace {
 
 		return initializeThreads(gThreads, lThreads);
 	}
-
 #endif
 
-
-
-}
 
 // common functionality, with or without packetization/openmp
 namespace PacketizedOpenCLDriver {
@@ -1672,9 +1452,9 @@ namespace PacketizedOpenCLDriver {
 		std::stringstream strs2;
 		strs2 << kernel_name << "_SIMD";
 		const std::string kernel_simd_name = strs2.str();
-		llvm::Function* f_SIMD = PacketizedOpenCLDriver::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module, simdWidth);
+		llvm::Function* f_SIMD = PacketizedOpenCLDriver::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
 
-		PacketizedOpenCLDriver::generateOpenCLFunctions(module, simdWidth);
+		PacketizedOpenCLDriver::generateOpenCLFunctions(module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
 
 		llvm::Function* gid = PacketizedOpenCLDriver::getFunction("get_global_id", module);
 		llvm::Function* gid_split = PacketizedOpenCLDriver::getFunction("get_global_id_split", module);
@@ -1695,7 +1475,7 @@ namespace PacketizedOpenCLDriver {
 
 		// packetize scalar function into SIMD function
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "prepared.ll"); );
-		PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(), kernel_simd_name, module, simdWidth, true, false);
+		PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(), kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, true, false);
 		f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "packetized.ll"); );
@@ -1734,7 +1514,7 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
-		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), simdWidth);
+		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
 		llvm::Function* f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
@@ -2299,9 +2079,9 @@ clGetDeviceInfo(cl_device_id    device,
 	#endif
 #else
 	#ifndef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-			if (param_value) *(cl_uint*)param_value = simdWidth;
+			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH;
 	#else
-			if (param_value) *(cl_uint*)param_value = numCores*simdWidth;
+			if (param_value) *(cl_uint*)param_value = numCores*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH;
 	#endif
 #endif
 
@@ -2310,18 +2090,18 @@ clGetDeviceInfo(cl_device_id    device,
 		}
 		case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS: {
 			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
-			if (param_value) *(cl_uint*)param_value = maxNumDimensions;
+			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS;
 			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_uint);
 			break;
 		}
 		case CL_DEVICE_MAX_WORK_ITEM_SIZES: {
 			if (param_value_size < sizeof(size_t)) return CL_INVALID_VALUE;
 			if (param_value) {
-				for (unsigned i=0; i<maxNumDimensions; ++i) {
-					((size_t*)param_value)[i] = PacketizedOpenCLDriver::getDeviceMaxMemAllocSize(); // FIXME
+				for (unsigned i=0; i<PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS; ++i) {
+					((size_t*)param_value)[i] = PacketizedOpenCLDriver::getDeviceMaxMemAllocSize(); // TODO: FIXME
 				}
 			}
-			if (param_value_size_ret) *param_value_size_ret = sizeof(size_t)*maxNumDimensions;
+			if (param_value_size_ret) *param_value_size_ret = sizeof(size_t)*PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS;
 			break;
 		}
 		case CL_DEVICE_MAX_WORK_GROUP_SIZE: {
@@ -3393,78 +3173,8 @@ clEnqueueUnmapMemObject(cl_command_queue command_queue,
 }
 
 
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_size, const size_t local_work_size) {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_work_size: " << global_work_size << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_work_size: " << local_work_size << "\n"; );
-	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
-	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
-
-	const size_t groupnr = global_work_size / local_work_size;
-	const cl_uint argument_get_global_size = global_work_size;
-	const cl_uint argument_get_local_size  = local_work_size;
-	const cl_uint argument_get_num_groups  = groupnr == 0 ? 1 : groupnr;
-	typedef void (*kernelFnPtr)(
-			const void*,
-			const cl_uint,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*);
-	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
-
-	const void* argument_struct = kernel->get_argument_struct();
-
-	//
-	// execute the kernel
-	//
-	const size_t num_iterations = global_work_size; // = total # threads
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
-
-	unsigned i;
-	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	omp_set_num_threads(maxNumThreads);
-	#pragma omp parallel for default(none) private(i) shared(argument_struct, typedPtr)
-	#endif
-	for (i=0; i<num_iterations; ++i) {
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << "\n"; );
-
-		// TODO: optimize for constant case where group or local ids do not change?
-		const cl_uint argument_get_global_id   = i;
-		const cl_uint argument_get_group_id    = i / local_work_size;
-		const cl_uint argument_get_local_id    = i % local_work_size;
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			outs() << "  global id: " << argument_get_global_id << "\n";
-			outs() << "  local id: " << argument_get_local_id << "\n";
-			outs() << "  group id: " << argument_get_group_id << "\n";
-			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
-		);
-
-		typedPtr(
-			argument_struct,
-			1U, // get_work_dim
-			&argument_get_global_size,
-			&argument_get_global_id,
-			&argument_get_local_size,
-			&argument_get_num_groups,
-			&argument_get_group_id,
-			&argument_get_local_id
-		);
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			outs() << "iteration " << i << " finished!\n";
-			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
-		);
-	}
-
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
-
-	return CL_SUCCESS;
-}
-inline cl_int executeRangeKernelND(cl_kernel kernel, cl_uint num_dimensions, const size_t* global_work_size, const size_t* local_work_size) {
+#if 0
+inline cl_int executeRangeKernelNDOLD(cl_kernel kernel, cl_uint num_dimensions, const size_t* global_work_size, const size_t* local_work_size) {
 
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	PACKETIZED_OPENCL_DRIVER_DEBUG( errs() << "WARNING: clEnqueueNDRangeKernels with work_dim > 1 currently does not support multithreading - falling back to single-thread mode!\n"; );
@@ -3608,8 +3318,7 @@ inline cl_int executeRangeKernelND(cl_kernel kernel, cl_uint num_dimensions, con
 
 	return CL_SUCCESS;
 }
-#else
-inline cl_int executeRangeKernel1DPacket(cl_kernel kernel, const size_t global_work_size, const size_t local_work_size) {
+inline cl_int executeRangeKernel1DPacketOLD(cl_kernel kernel, const size_t global_work_size, const size_t local_work_size) {
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_work_size: " << global_work_size << "\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_work_size: " << local_work_size << "\n"; );
 	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
@@ -3637,13 +3346,13 @@ inline cl_int executeRangeKernel1DPacket(cl_kernel kernel, const size_t global_w
 	//
 	// execute the kernel
 	//
-	const size_t num_iterations = global_work_size / simdWidth; //local_work_size; // = #groups
+	const size_t num_iterations = global_work_size / PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; //local_work_size; // = #groups
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "global_size(" << 0 << "): " << get_global_size(0) << "\n"; );
 
 	unsigned i;
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	omp_set_num_threads(maxNumThreads);
+	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
 	#pragma omp parallel for default(none) private(i) shared(argument_struct, typedPtr)
 	#endif
 	for (i=0; i<num_iterations; ++i) {
@@ -3676,26 +3385,19 @@ inline cl_int executeRangeKernel1DPacket(cl_kernel kernel, const size_t global_w
 
 	return CL_SUCCESS;
 }
-inline cl_int executeRangeKernelNDPacket(cl_kernel kernel, cl_uint num_dimensions, const size_t* global_work_size, const size_t* local_work_size) {
-	errs() << "ERROR: clEnqueueNDRangeKernels with work_dim > 1 currently does not support packetization!\n";
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_INVALID_PROGRAM_EXECUTABLE; // just return something != CL_SUCCESS :P
-}
 #endif
 
-inline cl_int executeRangeKernel1DNEW(cl_kernel kernel, const size_t global_work_size, const size_t local_work_size) {
+inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_size, const size_t local_work_size) {
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_work_size: " << global_work_size << "\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_work_size: " << local_work_size << "\n"; );
 	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
 
-	const cl_uint argument_get_global_size = global_work_size;
-	const cl_uint argument_get_local_size  = local_work_size;
 	typedef void (*kernelFnPtr)(
 			const void*,
 			const cl_uint,
-			const cl_uint*,
-			const cl_uint*,
+			const size_t*,
+			const size_t*,
 			const cl_uint*);
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
@@ -3711,39 +3413,149 @@ inline cl_int executeRangeKernel1DNEW(cl_kernel kernel, const size_t global_work
 
 	unsigned i;
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	omp_set_num_threads(maxNumThreads);
+	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
 	#pragma omp parallel for default(none) private(i) shared(argument_struct, typedPtr)
 	#endif
 	for (i=0; i<num_iterations; ++i) {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << " (= group id)\n"; );
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
-		);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
 
 		typedPtr(
 			argument_struct,
 			1U, // get_work_dim
-			&argument_get_global_size,
-			&argument_get_local_size,
+			&global_work_size,
+			&local_work_size,
 			&i
 		);
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			outs() << "iteration " << i << " finished!\n";
-			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
-		);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "iteration " << i << " finished!\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
 	}
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
 
 	return CL_SUCCESS;
 }
-inline cl_int executeRangeKernelNDNEW(cl_kernel kernel, const size_t global_work_sizes, const size_t local_work_sizes) {
-	assert (false && "IMPLEMENTATION NOT FINISHED!");
+inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_size, const size_t* local_work_size) {
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_work_sizes: " << global_work_size[0] << ", " << global_work_size[1] << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_work_sizes: " << local_work_size[0] << ", " << local_work_size[1] << "\n"; );
+	if (global_work_size[0] % local_work_size[0] != 0) return CL_INVALID_WORK_GROUP_SIZE;
+	if (global_work_size[1] % local_work_size[1] != 0) return CL_INVALID_WORK_GROUP_SIZE;
+	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
+
+	typedef void (*kernelFnPtr)(
+			const void*,
+			const cl_uint,
+			const size_t*,
+			const size_t*,
+			const size_t*);
+	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
+
+	const void* argument_struct = kernel->get_argument_struct();
+
+	//
+	// execute the kernel
+	//
+	const size_t num_iterations_0 = global_work_size[0] / local_work_size[0]; // = total # threads per block in dim 0
+	const size_t num_iterations_1 = global_work_size[1] / local_work_size[1]; // = total # threads per block in dim 1
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 << ")...\n"; );
+
+	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && "should give error message before executeRangeKernel!");
+
+	unsigned i, j;
+	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
+	#pragma omp parallel for default(none) private(i, j) shared(argument_struct, typedPtr)
+	#endif
+	for (i=0; i<num_iterations_0; ++i) {
+		for (j=0; j<num_iterations_1; ++j) {
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << "/"  << j << " (= group ids)\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+
+			// TODO: unsure whether this really works
+			const size_t group_id[2] = { i, j };
+
+			typedPtr(
+				argument_struct,
+				2U, // get_work_dim
+				global_work_size,
+				local_work_size,
+				group_id
+			);
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "iteration " << i << "/" << j << " finished!\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+		}
+	}
+
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
+
 	return CL_SUCCESS;
 }
+inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_size, const size_t* local_work_size) {
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_work_sizes: " << global_work_size[0] << ", " << global_work_size[1] << ", " << global_work_size[2] << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_work_sizes: " << local_work_size[0] << ", " << local_work_size[1] << ", " << local_work_size[2] << "\n"; );
+	if (global_work_size[0] % local_work_size[0] != 0) return CL_INVALID_WORK_GROUP_SIZE;
+	if (global_work_size[1] % local_work_size[1] != 0) return CL_INVALID_WORK_GROUP_SIZE;
+	if (global_work_size[2] % local_work_size[2] != 0) return CL_INVALID_WORK_GROUP_SIZE;
+	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
 
+	typedef void (*kernelFnPtr)(
+			const void*,
+			const cl_uint,
+			const size_t*,
+			const size_t*,
+			const size_t*);
+	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
+
+	const void* argument_struct = kernel->get_argument_struct();
+
+	//
+	// execute the kernel
+	//
+	const size_t num_iterations_0 = global_work_size[0] / local_work_size[0]; // = total # threads per block in dim 0
+	const size_t num_iterations_1 = global_work_size[1] / local_work_size[1]; // = total # threads per block in dim 1
+	const size_t num_iterations_2 = global_work_size[2] / local_work_size[2]; // = total # threads per block in dim 2
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 * num_iterations_2 << ")...\n"; );
+
+	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && num_iterations_2 && "should give error message before executeRangeKernel!");
+
+	unsigned i, j, k;
+	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
+	#pragma omp parallel for default(none) private(i, j, k) shared(argument_struct, typedPtr)
+	#endif
+	for (i=0; i<num_iterations_0; ++i) {
+		for (j=0; j<num_iterations_1; ++j) {
+			for (k=0; k<num_iterations_2; ++k) {
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << "/"  << j << "/" << k << " (= group ids)\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+
+				const size_t group_id[3] = { i, j, k };
+
+				typedPtr(
+					argument_struct,
+					3U, // get_work_dim
+					global_work_size,
+					local_work_size,
+					group_id
+				);
+
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "iteration " << i << "/" << j << "/" << k << " finished!\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+			}
+		}
+	}
+
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
+
+	return CL_SUCCESS;
+}
+inline cl_int executeRangeKernelND(cl_kernel kernel, const cl_uint num_dimensions, const size_t* global_work_sizes, const size_t* local_work_sizes) {
+	errs() << "ERROR: clEnqueueNDRangeKernels with work_dim > 1 currently not supported!\n";
+	assert (false && "NOT IMPLEMENTED!");
+	return CL_INVALID_PROGRAM_EXECUTABLE; // just return something != CL_SUCCESS :P
+}
 
 CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueNDRangeKernel(cl_command_queue command_queue,
@@ -3764,7 +3576,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (command_queue->context != kernel->get_context()) return CL_INVALID_CONTEXT;
 	//if (command_queue->context != event_wait_list->context) return CL_INVALID_CONTEXT;
-	if (num_dimensions < 1 || num_dimensions > maxNumDimensions) return CL_INVALID_WORK_DIMENSION;
+	if (num_dimensions < 1 || num_dimensions > PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS) return CL_INVALID_WORK_DIMENSION;
 	if (!kernel->get_compiled_function()) return CL_INVALID_PROGRAM_EXECUTABLE; // ?
 	if (!global_work_size) return CL_INVALID_GLOBAL_WORK_SIZE;
 	if (!local_work_size) return CL_INVALID_WORK_GROUP_SIZE;
@@ -3772,44 +3584,20 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	if (!event_wait_list && num_events_in_wait_list > 0) return CL_INVALID_EVENT_WAIT_LIST;
 	if (event_wait_list && num_events_in_wait_list == 0) return CL_INVALID_EVENT_WAIT_LIST;
 
-	//
-	// set up runtime
-	// TODO: try to get rid of this!
-	//
-	const unsigned simd_dim = 0; // ignored if packetization is disabled
-	assert (simd_dim < num_dimensions);
-	initializeOpenCL(num_dimensions, simd_dim, global_work_size, local_work_size);
+	// TODO: compare work_dim and derived dimensions and issue warning/error if not the same
 
-	// DON'T USE local_work_size BELOW UNTIL ISSUE WITH size < 4 IS SOLVED !
-
-	// NEW
-	return executeRangeKernel1DNEW(kernel, globalThreads[0], localThreads[0]);
-
-#ifdef PACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME
-	#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-	return executeRangeKernelND(kernel, num_dimensions, globalThreads, localThreads);
-	#else
-	return executeRangeKernelNDPacket(kernel, num_dimensions, globalThreads, localThreads);
-	#endif
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+	// simd dim = highest dim -> TODO: derive some heuristic to determine best simd dim
+	assert ((local_work_size[num_dimensions-1] % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0) && "group size of simd dimension must be dividable by simdWidth");
 #endif
 
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-
-	if (num_dimensions == 1) {
-		return executeRangeKernel1D(kernel, globalThreads[0], localThreads[0]);
-	} else {
-		return executeRangeKernelND(kernel, num_dimensions, globalThreads, localThreads);
+	switch (num_dimensions) {
+		case 1: return executeRangeKernel1D(kernel, global_work_size[0], local_work_size[0]);
+		case 2: return executeRangeKernel2D(kernel, global_work_size,    local_work_size);
+		case 3: return executeRangeKernel3D(kernel, global_work_size,    local_work_size);
+		default: return executeRangeKernelND(kernel, num_dimensions, global_work_size, local_work_size);
 	}
 
-#else
-
-	if (num_dimensions == 1) {
-		return executeRangeKernel1DPacket(kernel, globalThreads[0], localThreads[0]);
-	} else {
-		return executeRangeKernelNDPacket(kernel, num_dimensions, globalThreads, localThreads);
-	}
-	
-#endif
 }
 
 CL_API_ENTRY cl_int CL_API_CALL
