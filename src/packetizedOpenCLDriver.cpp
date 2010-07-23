@@ -64,7 +64,7 @@
 // these are assumed to be set by build script
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 //#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-//#define PACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME
+//#define PACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME // deprecated
 //#define NDEBUG
 //----------------------------------------------------------------------------//
 
@@ -366,8 +366,7 @@ namespace PacketizedOpenCLDriver {
 		Packetizer::runPacketizer(packetizer, mod);
 
 		if (!PacketizedOpenCLDriver::getFunction(targetKernelName, mod)) {
-			errs() << "ERROR: packetized target function not found in"
-					"module!\n";
+			errs() << "ERROR: packetized target function not found in module!\n";
 			return false;
 		}
 
@@ -786,9 +785,8 @@ namespace PacketizedOpenCLDriver {
 			// correct order is important! (has to match parameter list of continuation)
 			llvm::Function::arg_iterator arg = continuation->arg_begin();
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(arg++), continuation);
-			#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(arg++), continuation);
-			#else
+			#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(arg++), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(arg++), continuation);
 			#endif
@@ -988,9 +986,8 @@ namespace PacketizedOpenCLDriver {
 		// remap calls to parameters that are generated inside loop(s)
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      arg_global_id_array, f);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     arg_num_groups_array, f);
-		#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       arg_local_id_array, f);
-		#else
+		#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		assert (false && "NOT IMPLEMENTED!");
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(++arg), f);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(++arg), f);
@@ -1537,9 +1534,8 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(++arg), f_wrapper);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(++arg), f_wrapper);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f_wrapper);
-		#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(++arg), f_wrapper);
-		#else
+		#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(++arg), f_wrapper);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(++arg), f_wrapper);
 		#endif
@@ -2072,16 +2068,12 @@ clGetDeviceInfo(cl_device_id    device,
 			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
 
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-	#ifndef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-			if (param_value) *(cl_uint*)param_value = 1;
-	#else
-			if (param_value) *(cl_uint*)param_value = numCores;
-	#endif
+			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_DRIVER_NUM_CORES;
 #else
 	#ifndef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH;
 	#else
-			if (param_value) *(cl_uint*)param_value = numCores*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH;
+			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_DRIVER_NUM_CORES*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; // ? :P
 	#endif
 #endif
 
