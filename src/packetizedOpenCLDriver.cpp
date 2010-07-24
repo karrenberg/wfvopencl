@@ -802,7 +802,7 @@ namespace PacketizedOpenCLDriver {
 		return;
 	}
 
-	void generateBlockSizeLoopsForWrapper(Function* f, CallInst* call, const unsigned num_dimensions, LLVMContext& context, Module* module) {
+	void generateBlockSizeLoopsForWrapper(Function* f, CallInst* call, const unsigned num_dimensions, const int simd_dim, LLVMContext& context, Module* module) {
 		assert (f && call);
 		assert (num_dimensions <= PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS);
 		Function* callee = call->getCalledFunction();
@@ -825,9 +825,8 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
 
 		// allocate array of size 'num_dimensions' for special parameter num_groups
-		Value* numDimVal = ConstantInt::get(context,  APInt(32, num_dimensions));
 		//Value* arg_num_groups_array = UndefValue::get(ArrayType::get(Type::getInt32Ty(context), num_dimensions)); // TODO: maybe later...
-		AllocaInst* arg_num_groups_array = new AllocaInst(Type::getInt32Ty(context), numDimVal, "num_groups_array", insertBefore);
+		AllocaInst* arg_num_groups_array = new AllocaInst(Type::getInt32Ty(context), ConstantInt::get(context,  APInt(32, num_dimensions)), "num_groups_array", insertBefore);
 
 		// load/compute special values for each dimension
 		Instruction** global_sizes = new Instruction*[num_dimensions]();
@@ -877,9 +876,19 @@ namespace PacketizedOpenCLDriver {
 		Instruction** global_ids = new Instruction*[num_dimensions](); // not required for anything else but being supplied as parameter
 		Instruction** local_ids = new Instruction*[num_dimensions]();
 
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		// allocate array of size 'num_dimensions' for special parameters global_id, local_id
+		Value* numDimVal = ConstantInt::get(context,  APInt(32, num_dimensions));
 		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimVal, "global_id_array", insertBefore);
 		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimVal, "local_id_array", insertBefore);
+#else
+		// allocate array of size 'num_dimensions'-1 for special parameters global_id, local_id (-1 for simd_dim)
+		Value* numDimWithoutSimdVal = ConstantInt::get(context,  APInt(32, num_dimensions-1));
+		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimWithoutSimdVal, "global_id_array", insertBefore);
+		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimWithoutSimdVal, "local_id_array", insertBefore);
+		Value* arg_global_id_simd = NULL;
+		Value* arg_local_id_simd = NULL;
+#endif
 
 		assert (f->getBasicBlockList().size() == 1);
 
@@ -903,8 +912,6 @@ namespace PacketizedOpenCLDriver {
 		for (int i=num_dimensions-1; i>=0; --i) {
 			Value* local_size = local_sizes[i];
 			Value* group_id = group_ids[i];
-			//Value* global_size = global_sizes[i];
-			//Value* num_groups = num_groupss[i];
 
 			// split parent before first instruction (all liveValueUnion-extraction code has to be inside loop)
 			BasicBlock* headerBB = call->getParent(); // first iteration = tmpHeaderBB
@@ -917,21 +924,35 @@ namespace PacketizedOpenCLDriver {
 			BasicBlock* latchBB  = BasicBlock::Create(context, headerBB->getNameStr()+".loop.end", f, loopBB);
 
 			// Block headerBB
-			Argument* fwdref = new Argument(IntegerType::get(context, 32));
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+			// if we do not packetize, simd_dim is assumed to be -1, so the type would always i32
+			// however, this way, we spare the conditional and possible wrong use of this function ;)
+			const Type* local_id_type = Type::getInt32Ty(context);
+#else
+			// if this dimension is the simd_dim, the local id is an int-vector of simd width elements
+			const Type* local_id_type = NULL;
+			if (i == simd_dim) local_id_type = VectorType::get(IntegerType::get(context, 32), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+			else local_id_type = Type::getInt32Ty(context);
+#endif
+			Argument* fwdref = new Argument(local_id_type);
 			std::stringstream sstr;
 			sstr << "local_id_" << i;
-			PHINode* local_id = PHINode::Create(IntegerType::get(context, 32), sstr.str(), headerBB->getFirstNonPHI());
+			PHINode* local_id = PHINode::Create(local_id_type, sstr.str(), headerBB->getFirstNonPHI());
 			local_id->reserveOperandSpace(2);
 			local_id->addIncoming(fwdref, latchBB);
-			local_id->addIncoming(ConstantInt::get(context, APInt(32, 0)), entryBB);
+			local_id->addIncoming(Constant::getNullValue(local_id_type), entryBB);
 
 			// Block loopBB
-			// holds live value extraction and continuation-call
+			// holds live value extraction and continuation-call and, in case of packetization and the simd_dim, the local_size_simd computation
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+			Value* local_size_orig = local_size;
+			if (i == simd_dim) local_size = BinaryOperator::Create(Instruction::UDiv, local_size, ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH)), "local_size_SIMD", loopBB);
+#endif
 			loopBB->getTerminator()->eraseFromParent();
 			BranchInst::Create(latchBB, loopBB);
 
 			// Block latchBB
-			BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, local_id, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
+			BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, local_id, Constant::getAllOnesValue(local_id_type), "inc", latchBB);
 			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, localIdInc, local_size, "exitcond");
 			BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
@@ -954,9 +975,10 @@ namespace PacketizedOpenCLDriver {
 			// generate special parameter global_id right before call
 			std::stringstream sstr2;
 			sstr2 << "global_id_" << i;
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 			Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
 			global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, sstr2.str(), call);
-
+			
 			// save special parameters global_id, local_id to arrays
 			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
 			new StoreInst(global_id, gep, false, call);
@@ -965,11 +987,48 @@ namespace PacketizedOpenCLDriver {
 
 			global_ids[i] = global_id; // not required for anything else but being supplied as parameter
 			local_ids[i] = local_id;
-
+			
 			PACKETIZED_OPENCL_DRIVER_DEBUG(
 				insertPrintf("global_id[i]: ", global_ids[i], true, call);
 				insertPrintf("local_id[i]: ", local_ids[i], true, call);
 			);
+#else
+			Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size_orig, "", call);
+			if (i == simd_dim) {
+				// the temporary global_id here has to be replicated before adding local_id
+				// (unless llvm is able to generate replication automatically for (add i32 <4 x i32>)
+				for (unsigned i=0; i<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++i) {
+					global_id = InsertElementInst::Create(UndefValue::get(local_id_type), global_id, ConstantInt::get(context, APInt(32, i)), "", call);
+				}
+			}
+			global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, sstr2.str(), call);
+			
+			if (i == simd_dim) {
+				// global/local simd ids are supplied as separate arguments (-> do not store to id arrays)
+				arg_global_id_simd = global_id;
+				arg_local_id_simd = local_id;
+				
+				PACKETIZED_OPENCL_DRIVER_DEBUG(
+					insertPrintf("global_id_simd: ", arg_global_id_simd, true, call);
+					insertPrintf("local_id_simd: ", arg_local_id_simd, true, call);
+				);
+			} else {
+				// save special parameters global_id, local_id to arrays
+				GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
+				new StoreInst(global_id, gep, false, call);
+				gep = GetElementPtrInst::Create(arg_local_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
+				new StoreInst(local_id, gep, false, call);
+
+				global_ids[i] = global_id; // not required for anything else but being supplied as parameter
+				local_ids[i] = local_id;
+				
+				PACKETIZED_OPENCL_DRIVER_DEBUG(
+					insertPrintf("global_id[i]: ", global_ids[i], true, call);
+					insertPrintf("local_id[i]: ", local_ids[i], true, call);
+				);
+			}
+#endif
+
 		}
 
 		// inline all calls inside wrapper
@@ -984,13 +1043,12 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f);
 
 		// remap calls to parameters that are generated inside loop(s)
-		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      arg_global_id_array, f);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     arg_num_groups_array, f);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      arg_global_id_array, f);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       arg_local_id_array, f);
 		#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		assert (false && "NOT IMPLEMENTED!");
-		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(++arg), f);
-		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(++arg), f);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), arg_global_id_simd, f);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  arg_local_id_simd, f);
 		#endif
 
 		PacketizedOpenCLDriver::fixFunctionNames(module);
@@ -1352,8 +1410,6 @@ namespace PacketizedOpenCLDriver {
 			barrierFreeFunction->takeName(f);
 			f->setName(barrierFreeFunction->getNameStr()+"_orig");
 
-			//f = barrierFreeFunction;
-
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "nobarriers.mod.ll"); );
 
 			ContinuationGenerator::ContinuationVecType continuations;
@@ -1419,9 +1475,8 @@ namespace PacketizedOpenCLDriver {
 
 			// generate loop(s) over blocksize(s) (BEFORE inlining!)
 			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f);
-			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, context, module);
-
-			// generate loop(s) over blocksize(s)
+			const int simdDim = -1;
+			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simd_dim, context, module);
 		}
 
 		assert (f_wrapper);
@@ -1439,6 +1494,169 @@ namespace PacketizedOpenCLDriver {
 	}
 #else
 	inline Function* createKernelPacketized(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
+		// PACKETIZATION ENABLED
+		// USE AUTO-GENERATED PACKET WRAPPER
+		//
+		// save SIMD function for argument checking (uniform vs. varying)
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating OpenCL-specific functions etc... "; );
+
+		// generate all necessary function declarations
+		std::stringstream strs;
+		strs << kernel_name << "_SIMD";
+		const std::string kernel_simd_name = strs.str();
+		llvm::Function* f_SIMD = PacketizedOpenCLDriver::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+
+		PacketizedOpenCLDriver::generateOpenCLFunctions(module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+
+		llvm::Function* gid = PacketizedOpenCLDriver::getFunction("get_global_id", module);
+		llvm::Function* gid_split = PacketizedOpenCLDriver::getFunction("get_global_id_split", module);
+		assert (gid && "ERROR: could not find function 'get_global_id' in module!");
+		assert (gid_split && "could not find function 'get_global_id_split' in module!");
+
+		// Analyze all calls to get_global_id and optimize cases where index is used directly or only with linear combinations applied.
+		// Everywhere this is not possible, get_global_id is replaced by get_global_id_split, which forces splitting of the packets (scattered-gather/scattered-store)
+		// TODO: should also analyze get_local_id !!
+		PacketizedOpenCLDriver::replaceNonContiguousIndexUsage(f, gid, gid_split);
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+
+		// packetize scalar function into SIMD function
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "prepared.ll"); );
+		PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(), kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, true, false);
+		f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "packetized.ll"); );
+
+		// eliminate barriers
+		FunctionPassManager FPM(module);
+		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
+		ContinuationGenerator* CG = new ContinuationGenerator(true);
+		// set "special" parameter types that are generated for each continuation
+		// order is important (has to match mapCallbacksToContinuationArguments())!
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_id");   // generated inside switch (group_id * loc_size + loc_id)
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_id");    // generated inside switch (loop induction variables)
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_id_SIMD");   // generated inside switch ()
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_id_SIMD");    // generated inside switch (loop induction variable of innermost loop, replicated induction variable of other loops)
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_num_groups");  // generated inside switch (glob_size / loc_size)
+		CG->addSpecialParam(Type::getInt32Ty(context),       "get_work_dim");    // supplied from outside
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_size"); // supplied from outside
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_size");  // supplied from outside
+		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_group_id");    // supplied from outside
+		FPM.add(LA);
+		FPM.add(CG);
+		FPM.run(*f_SIMD);
+
+		Function* barrierFreeFunction = CG->getBarrierFreeFunction();
+
+		llvm::Function* f_wrapper = NULL;
+
+		// determine number of dimensions required by kernel
+		const unsigned num_dimensions = PacketizedOpenCLDriver::determineNumDimensionsUsed(f);
+
+		// determine best dimension for packetization
+		// TODO: implement some kind of heuristic
+		const int simd_dim = 0;
+
+		if (barrierFreeFunction) {
+			// inline continuation functions & optimize wrapper
+			PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
+			PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG( verifyFunction(*barrierFreeFunction); );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *barrierFreeFunction << "\n"; );
+
+			f_SIMD->replaceAllUsesWith(barrierFreeFunction);
+			barrierFreeFunction->takeName(f_SIMD);
+			f_SIMD->setName(barrierFreeFunction->getNameStr()+"_orig");
+
+			f_SIMD = barrierFreeFunction;
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "barrierwrapper.mod.ll"); );
+			
+			ContinuationGenerator::ContinuationVecType continuations;
+			CG->getContinuations(continuations);
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG(
+				outs() << "continuations:\n";
+				for (SmallVector<Function*, 4>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
+					Function* continuation = *it;
+					outs() << " * " << continuation->getNameStr() << "\n";
+				}
+				outs() << "\n";
+			);
+
+
+			strs << "_wrapper";
+			const std::string wrapper_name = strs.str();
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
+			const bool inlineCall = true; // inline call immediately
+			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f_SIMD, module, inlineCall);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+
+			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+
+			f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
+			if (!f_wrapper) {
+				errs() << "ERROR: could not find wrapper function in kernel module!\n";
+				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+				return NULL;
+			}
+			
+			// - callbacks inside continuations have to be replaced by argument accesses
+			PacketizedOpenCLDriver::mapCallbacksToContinuationArguments(num_dimensions, context, module, continuations);
+
+			// - generate loops
+			// - generate code for 3 generated special parameters in each loop
+			// - map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
+			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
+			PacketizedOpenCLDriver::generateSynchronizationLoopsInContinuations(num_dimensions, context, f_wrapper, continuations);
+
+		} else {
+
+			// no barrier inside function
+
+			// generate wrapper for kernel (= all kernels have same signature)
+			//
+			std::stringstream strs2;
+			strs2 << kernel_name << "_wrapper";
+			const std::string wrapper_name = strs2.str();
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
+			const bool inlineCall = false; // don't inline call immediately (needed for generating loop(s))
+			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f, module, inlineCall);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+
+			f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
+			if (!f_wrapper) {
+				errs() << "ERROR: could not find wrapper function in kernel module!\n";
+				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
+				return NULL;
+			}
+
+			// generate loop(s) over blocksize(s) (BEFORE inlining!)
+			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f);
+			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simd_dim, context, module);
+		}
+
+		assert (f_wrapper);
+
+		// optimize wrapper with inlined kernel
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing wrapper... "; );
+		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
+		PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "wrapper.ll"); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "mod.ll"); );
+
+		*f_SIMD_ret = f_SIMD;
+		return f_wrapper;
+	}
+	inline Function* createKernelPacketizedOLD(Function* f, const std::string& kernel_name, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
 		assert (false && "NOT IMPLEMENTED WITH NEW SCHEME!");
 		// PACKETIZATION ENABLED
 		// USE AUTO-GENERATED PACKET WRAPPER
@@ -1491,8 +1709,8 @@ namespace PacketizedOpenCLDriver {
 			PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
 			PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
 
-			DEBUG_PKT( verifyFunction(*barrierFreeFunction); );
-			DEBUG_PKT( outs() << *barrierFreeFunction << "\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( verifyFunction(*barrierFreeFunction); );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *barrierFreeFunction << "\n"; );
 
 			f_SIMD->replaceAllUsesWith(barrierFreeFunction);
 			barrierFreeFunction->takeName(f_SIMD);
