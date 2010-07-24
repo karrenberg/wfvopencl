@@ -40,8 +40,16 @@
 #include "livenessAnalyzer.h"
 #include "llvmTools.hpp"
 
-//#define DEBUG_PKT(x) do { x } while (false)
-#define DEBUG_PKT(x) ((void)0)
+#ifdef DEBUG
+#define DEBUG_LA(x) do { x } while (false)
+#else
+#define DEBUG_LA(x) ((void)0)
+#endif
+
+#ifdef NDEBUG // force debug output disabled
+#undef DEBUG_LA
+#define DEBUG_LA(x) ((void)0)
+#endif
 
 #define PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER "barrier"
 #define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID -1
@@ -76,23 +84,23 @@ public:
 		// get liveness information
 		livenessAnalyzer = &getAnalysis<LivenessAnalyzer>();
 
-		DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
-		DEBUG_PKT( outs() << "generating continuations...\n"; );
-		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+		DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+		DEBUG_LA( outs() << "generating continuations...\n"; );
+		DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 
-		DEBUG_PKT( PacketizedOpenCLDriver::writeFunctionToFile(&f, "beforeBarriers.ll"); );
+		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(&f, "beforeBarriers.ll"); );
 
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
 
 		barrierFreeFunction = eliminateBarriers(&f, specialParams, specialParamNames, targetData);
 
-		DEBUG_PKT( verifyModule(*f.getParent()); );
+		DEBUG_LA( verifyModule(*f.getParent()); );
 
-		DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
-		DEBUG_PKT( outs() << "generation of continuations finished!\n"; );
-		DEBUG_PKT( print(outs(), NULL); );
-		DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
+		DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+		DEBUG_LA( outs() << "generation of continuations finished!\n"; );
+		DEBUG_LA( print(outs(), NULL); );
+		DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
 		return barrierFreeFunction != NULL; // if barrierFreeFunction does not exist, nothing has changed
 	}
@@ -250,7 +258,7 @@ private:
 
 		LLVMContext& context = mod->getContext();
 
-		DEBUG_PKT( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
+		DEBUG_LA( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
 
 
 		//--------------------------------------------------------------------//
@@ -280,7 +288,7 @@ private:
 		// remove all values that die in same block but above barrier
 		livenessAnalyzer->removeBlockInternalNonLiveInValues(barrier, *liveInValues, *liveOutValuesOrig);
 
-		DEBUG_PKT(
+		DEBUG_LA(
 			outs() << "\n\nFinal Live-In values of block '" << parentBlock->getNameStr() << "':\n";
 			for (std::set<Value*>::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
 				outs() << " * " << **it << "\n";
@@ -325,14 +333,14 @@ private:
 			params.push_back((*it)->getType());
 		}
 		StructType* sType = StructType::get(context, params, false);
-		DEBUG_PKT( outs() << "new struct type: " << *sType << "\n"; );
-		DEBUG_PKT( outs() << "type size in bits : " << targetData->getTypeSizeInBits(sType) << "\n"; );
-		DEBUG_PKT( outs() << "alloc size in bits: " << targetData->getTypeAllocSizeInBits(sType) << "\n"; );
-		DEBUG_PKT( outs() << "alloc size        : " << targetData->getTypeAllocSize(sType) << "\n"; );
+		DEBUG_LA( outs() << "new struct type: " << *sType << "\n"; );
+		DEBUG_LA( outs() << "type size in bits : " << targetData->getTypeSizeInBits(sType) << "\n"; );
+		DEBUG_LA( outs() << "alloc size in bits: " << targetData->getTypeAllocSizeInBits(sType) << "\n"; );
+		DEBUG_LA( outs() << "alloc size        : " << targetData->getTypeAllocSize(sType) << "\n"; );
 
 		// pointer to union for live value struct for next call is the last parameter
 		Argument* nextContLiveValStructPtr = --(f->arg_end());
-		DEBUG_PKT( outs() << "pointer to union: " << *nextContLiveValStructPtr << "\n"; );
+		DEBUG_LA( outs() << "pointer to union: " << *nextContLiveValStructPtr << "\n"; );
 
 		// bitcast data pointer to correct struct type for GEP below
 		BitCastInst* bc = new BitCastInst(nextContLiveValStructPtr, PointerType::getUnqual(sType), "", barrier);
@@ -344,7 +352,7 @@ private:
 			indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
 			indices.push_back(ConstantInt::get(context, APInt(32, i++)));
 			GetElementPtrInst* gep = GetElementPtrInst::Create(bc, indices.begin(), indices.end(), "", barrier);
-			DEBUG_PKT( outs() << "store gep(" << i-1 << "): " << *gep << "\n"; );
+			DEBUG_LA( outs() << "store gep(" << i-1 << "): " << *gep << "\n"; );
 			const unsigned align = 16;
 			new StoreInst(*it, gep, false, align, barrier);
 		}
@@ -401,13 +409,13 @@ private:
 		for (unsigned i=0, e=specialParamNames.size(); i<e; ++i, ++CA) {
 			CA->setName(specialParamNames[i]);
 		}
-		DEBUG_PKT( outs() << "\nnew continuation declaration: " << *continuation << "\n"; );
+		DEBUG_LA( outs() << "\nnew continuation declaration: " << *continuation << "\n"; );
 
 		//--------------------------------------------------------------------//
 		// create mappings of values
 		//--------------------------------------------------------------------//
 		// create mappings of live-in values to arguments for copying of blocks
-		DEBUG_PKT( outs() << "\nlive value mappings:\n"; );
+		DEBUG_LA( outs() << "\nlive value mappings:\n"; );
 		DenseMap<const Value*, Value*> valueMap;
 		DenseMap<const Value*, Value*> liveValueToArgMap;
 		// CA has to point to first live value parameter of continuation
@@ -419,7 +427,7 @@ private:
 			Value* liveVal = *it;
 			valueMap[liveVal] = CA;
 			liveValueToArgMap[liveVal] = CA;
-			DEBUG_PKT( outs() << " * " << *liveVal << " -> " << *CA << "\n"; );
+			DEBUG_LA( outs() << " * " << *liveVal << " -> " << *CA << "\n"; );
 		}
 
 
@@ -431,7 +439,7 @@ private:
 		std::set<const BasicBlock*> visitedBlocks;
 		findContinuationBlocksDFS(newBlock, copyBlocks, visitedBlocks);
 
-		DEBUG_PKT(
+		DEBUG_LA(
 			outs() << "\ncloning blocks into continuation...\n";
 			for (std::set<const BasicBlock*>::iterator it=copyBlocks.begin(), E=copyBlocks.end(); it!=E; ++it) {
 				outs() << " * " << (*it)->getNameStr() << "\n";
@@ -489,9 +497,9 @@ private:
 			// or arguments in case of live values...
 			BasicBlock::iterator IO=blockOrig->begin(); // mapping uses values from old function...
 			for (BasicBlock::iterator I=blockCopy->begin(), IE=blockCopy->end(); I!=IE; ++I, ++IO) {
-				DEBUG_PKT( outs() << "replacing uses of inst: " << *I << "\n"; );
+				DEBUG_LA( outs() << "replacing uses of inst: " << *I << "\n"; );
 				if (liveInValues->find(IO) != liveInValues->end()) {
-					DEBUG_PKT( outs() << "  is a live value, replaced with argument: " << *liveValueToArgMap[IO] << "\n"; );
+					DEBUG_LA( outs() << "  is a live value, replaced with argument: " << *liveValueToArgMap[IO] << "\n"; );
 					I->replaceAllUsesWith(liveValueToArgMap[IO]);
 				} else {
 					I->replaceAllUsesWith(UndefValue::get(I->getType()));
@@ -505,11 +513,11 @@ private:
 			valueMap.erase(blockOrig);
 
 			// remove all incoming values from this block to phis
-			DEBUG_PKT( outs() << "block: " << blockCopy->getNameStr() << "\n"; );
+			DEBUG_LA( outs() << "block: " << blockCopy->getNameStr() << "\n"; );
 			for (BasicBlock::use_iterator U=blockCopy->use_begin(), UE=blockCopy->use_end(); U!=UE; ++U) {
 				if (!isa<PHINode>(U)) continue;
 				PHINode* phi = cast<PHINode>(U);
-				DEBUG_PKT( outs() << "phi: " << *phi << "\n"; );
+				DEBUG_LA( outs() << "phi: " << *phi << "\n"; );
 				if (phi->getBasicBlockIndex(blockCopy) != -1) phi->removeIncomingValue(blockCopy, false);
 			}
 
@@ -517,7 +525,7 @@ private:
 			blockCopy->eraseFromParent();
 		}
 
-		DEBUG_PKT( outs() << "\n"; );
+		DEBUG_LA( outs() << "\n"; );
 
 		// erase dummy block
 		assert (dummyBB->use_empty());
@@ -539,40 +547,40 @@ private:
 		// compute dominator tree (somehow does not work with functionpassmanager)
 		DominatorTree* domTree = new DominatorTree();
 		domTree->runOnFunction(*continuation);
-		DEBUG_PKT( domTree->print(outs(), mod); );
+		DEBUG_LA( domTree->print(outs(), mod); );
 #endif
 
 		Function::arg_iterator A2 = continuation->arg_begin();
 		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A2) {
 			Value* liveVal = *it;
-			DEBUG_PKT( outs() << "live value: " << *liveVal << "\n"; );
+			DEBUG_LA( outs() << "live value: " << *liveVal << "\n"; );
 			if (isa<Argument>(liveVal)) continue;
 
 			// if all uses already replaced above, skip this value
 			if (valueMap.find(liveVal) == valueMap.end()) {
-				DEBUG_PKT( outs() << "  all uses already replaced!\n"; );
+				DEBUG_LA( outs() << "  all uses already replaced!\n"; );
 				continue;
 			}
 
 			Value* newLiveVal = valueMap[liveVal];
-			DEBUG_PKT( outs() << "new live value: " << *newLiveVal << "\n"; );
+			DEBUG_LA( outs() << "new live value: " << *newLiveVal << "\n"; );
 
 			// if the value is defined in one of the copied blocks, we must only
 			// replace those uses that are not dominated by their definition anymore
 			if (Instruction* inst = dyn_cast<Instruction>(liveVal)) {
 				if (copyBlocks.find(inst->getParent()) != copyBlocks.end()) {
 					Instruction* newInst = cast<Instruction>(newLiveVal);
-					DEBUG_PKT( outs() << "live value is defined in copied block: " << (*copyBlocks.find(inst->getParent()))->getNameStr() << "\n"; );
+					DEBUG_LA( outs() << "live value is defined in copied block: " << (*copyBlocks.find(inst->getParent()))->getNameStr() << "\n"; );
 					for (Instruction::use_iterator U=newInst->use_begin(), UE=newInst->use_end(); U!=UE; ) {
 						assert (isa<Instruction>(U));
 						Instruction* useI = cast<Instruction>(U++);
-						DEBUG_PKT( outs() << "  testing use: " << *useI << "\n"; );
+						DEBUG_LA( outs() << "  testing use: " << *useI << "\n"; );
 #ifdef USE_LLVM_DOMTREE_PASS
 						if (domTree->dominates(newInst, useI)) continue;
 #else
 						if (isDominatedBy(useI, newInst)) continue;
 #endif
-						DEBUG_PKT( outs() << "    is not dominated, will be replaced by argument!\n"; );
+						DEBUG_LA( outs() << "    is not dominated, will be replaced by argument!\n"; );
 						useI->replaceUsesOfWith(newInst, A2);
 					}
 					continue;
@@ -582,10 +590,10 @@ private:
 			newLiveVal->replaceAllUsesWith(A2);
 		}
 
-		DEBUG_PKT( outs() << *continuation << "\n"; );
-		DEBUG_PKT( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
+		DEBUG_LA( outs() << *continuation << "\n"; );
+		DEBUG_LA( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
 
-		DEBUG_PKT(
+		DEBUG_LA(
 			PacketizedOpenCLDriver::writeModuleToFile(mod, "ffff.ll");
 			//f->viewCFG();
 			//continuation->viewCFG();
@@ -663,7 +671,7 @@ private:
 		LLVMContext& context = mod->getContext();
 
 		const std::string& functionName = f->getNameStr();
-		DEBUG_PKT( outs() << "\neliminateBarriers(" << functionName << ")\n"; );
+		DEBUG_LA( outs() << "\neliminateBarriers(" << functionName << ")\n"; );
 
 		//--------------------------------------------------------------------//
 		// change return value of f to return unsigned (barrier id)
@@ -698,7 +706,7 @@ private:
 		unsigned argIdx = 0;
 		for (Function::arg_iterator A2=f->arg_begin(), A=newF->arg_begin(), AE=--newF->arg_end(); A!=AE; ++A, ++argIdx) {
 			if (argIdx < specialParams.size()) continue; // don't increment A2
-			//DEBUG_PKT( outs() << "  " << *A2 << " -> " << *A << "\n"; );
+			//DEBUG_LA( outs() << "  " << *A2 << " -> " << *A << "\n"; );
 			valueMap[A2] = A;
 			A->takeName(A2);
 			++A2;
@@ -717,7 +725,7 @@ private:
 			ReturnInst::Create(context, ConstantInt::get(fTypeNew->getReturnType(), PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID, true), retBlock);
 		}
 
-		DEBUG_PKT( PacketizedOpenCLDriver::writeFunctionToFile(newF, "cont_begin_beforesplitting.ll"); );
+		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(newF, "cont_begin_beforesplitting.ll"); );
 
 		// map the live values of the original function to the new one
 		livenessAnalyzer->mapLiveValues(f, newF, valueMap);
@@ -733,15 +741,15 @@ private:
 		const unsigned numBarriers = collectBarriersDFS(&newF->getEntryBlock(), 0, barriers, maxBarrierDepth, visitedBlocks);
 
 		if (numBarriers == 0) {
-			DEBUG_PKT( outs() << "  no barriers found in function!\n"; );
+			DEBUG_LA( outs() << "  no barriers found in function!\n"; );
 			newF->eraseFromParent();
 			return NULL;
 		}
 
-		DEBUG_PKT( outs() << "  number of barriers in function : " << numBarriers << "\n"; );
-		DEBUG_PKT( outs() << "  maximum block depth of barriers: " << maxBarrierDepth << "\n\n"; );
+		DEBUG_LA( outs() << "  number of barriers in function : " << numBarriers << "\n"; );
+		DEBUG_LA( outs() << "  maximum block depth of barriers: " << maxBarrierDepth << "\n\n"; );
 
-		// for some reason, we can't put a DEBUG_PKT(); around this:
+		// for some reason, we can't put a DEBUG_LA(); around this:
 		//for (BarrierMapType::iterator it=barriers.begin(), E=barriers.end(); it!=E; ++it) {
 			//const unsigned depth = it->first;
 			//SmallVector<BarrierInfo*, 4>* vec = it->second;
@@ -752,7 +760,7 @@ private:
 			//}
 		//}
 
-		DEBUG_PKT( outs() << "\n" << *newF << "\n"; );
+		DEBUG_LA( outs() << "\n" << *newF << "\n"; );
 
 		//--------------------------------------------------------------------//
 		// Generate order in which barriers should be replaced:
@@ -766,7 +774,7 @@ private:
 		// 0 is reserved for 'start'-function, so the last index is numBarriers and 0 is not used
 		unsigned barrierIndex = numBarriers; 
 		for (int depth=maxBarrierDepth; depth >= 0; --depth) {
-			DEBUG_PKT( outs() << "sorting barriers of block depth " << depth << "...\n"; );
+			DEBUG_LA( outs() << "sorting barriers of block depth " << depth << "...\n"; );
 			BarrierMapType::iterator it = barriers.find(depth);
 			if (it == barriers.end()) continue; // no barriers at this depth
 
@@ -782,7 +790,7 @@ private:
 				orderedBarriers.push_back(binfo);
 				binfo->id = barrierIndex; // set id
 				barrierIndices[binfo->barrier] = barrierIndex--; // save barrier -> id mapping
-				DEBUG_PKT( outs() << "  added barrier " << i << " with id " << barrierIndex+1 << ": " << *binfo->barrier << "\n"; );
+				DEBUG_LA( outs() << "  added barrier " << i << " with id " << barrierIndex+1 << ": " << *binfo->barrier << "\n"; );
 			}
 		}
 
@@ -820,7 +828,7 @@ private:
 		//--------------------------------------------------------------------//
 		// Check if all barriers in all functions (original and continuations) were eliminated.
 		//--------------------------------------------------------------------//
-		DEBUG_PKT(
+		DEBUG_LA(
 			for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 				BarrierInfo* binfo = it->second;
 				Function* continuation = binfo->continuation;
@@ -888,7 +896,7 @@ private:
 			const unsigned typeSize = targetData->getTypeAllocSize(liveValueStructType);
 			if (unionSize < typeSize) unionSize = typeSize;
 		}
-		DEBUG_PKT( outs() << "union size for live value structs: " << unionSize << "\n"; );
+		DEBUG_LA( outs() << "union size for live value structs: " << unionSize << "\n"; );
 		// allocate memory for union
 		Value* allocSize = ConstantInt::get(context, APInt(32, unionSize));
 		Value* dataPtr = builder.CreateAlloca(Type::getInt8Ty(context), allocSize, "liveValueUnion");
@@ -930,7 +938,7 @@ private:
 				indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
 				indices.push_back(ConstantInt::get(context, APInt(32, j)));
 				Value* gep = builder.CreateGEP(bc, indices.begin(), indices.end(), "");
-				DEBUG_PKT( outs() << "load gep(" << j << "): " << *gep << "\n"; );
+				DEBUG_LA( outs() << "load gep(" << j << "): " << *gep << "\n"; );
 				LoadInst* load = builder.CreateLoad(gep, false, "");
 				contArgs[j] = load;
 			}
@@ -960,7 +968,7 @@ private:
 			}
 			args.push_back(dataPtr); // data ptr
 
-			DEBUG_PKT(
+			DEBUG_LA(
 				outs() << "\narguments for call to continuation '" << binfo->continuation->getNameStr() << "':\n";
 				for (SmallVector<Value*, 4>::iterator it=args.begin(), E=args.end(); it!=E; ++it) {
 					outs() << " * " << **it << "\n";
@@ -971,7 +979,7 @@ private:
 			std::stringstream sstr;
 			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
 			calls[i] = builder.CreateCall(continuationMap[i]->continuation, args.begin(), args.end(), sstr.str());
-			DEBUG_PKT( outs() << "created call for continuation '" << continuationMap[i]->continuation->getNameStr() << "':" << *calls[i] << "\n"; );
+			DEBUG_LA( outs() << "created call for continuation '" << continuationMap[i]->continuation->getNameStr() << "':" << *calls[i] << "\n"; );
 
 			builder.CreateBr(latchBB);
 
@@ -1008,7 +1016,7 @@ private:
 		delete [] calls;
 		delete [] callBBs;
 
-		DEBUG_PKT( outs() << "replaced all barriers by continuations!\n"; );
+		DEBUG_LA( outs() << "replaced all barriers by continuations!\n"; );
 
 		return wrapper;
 	}

@@ -36,10 +36,18 @@
 #include <llvm/Function.h>
 #include <llvm/Module.h>
 
-//#include <llvm/Analysis/LoopInfo.h>
 
-//#define DEBUG_PKT(x) do { x } while (false)
-#define DEBUG_PKT(x) ((void)0)
+#ifdef DEBUG
+#define DEBUG_LA(x) do { x } while (false)
+#else
+#define DEBUG_LA(x) ((void)0)
+#endif
+
+#ifdef NDEBUG // force debug output disabled
+#undef DEBUG_LA
+#define DEBUG_LA(x) ((void)0)
+#endif
+
 
 using namespace llvm;
 
@@ -54,11 +62,11 @@ namespace {
 
             // get loop info
             //loopInfo = &getAnalysis<LoopInfo>();
-			//DEBUG_PKT( print(outs(), f.getParent()); );
+			//DEBUG_LA( print(outs(), f.getParent()); );
 			
-            DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
-            DEBUG_PKT( outs() << "analyzing liveness of blocks in function '" << f.getNameStr() << "'...\n"; );
-            DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+            DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+            DEBUG_LA( outs() << "analyzing liveness of blocks in function '" << f.getNameStr() << "'...\n"; );
+            DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 
 			// initialize map
 			for (Function::iterator BB=f.begin(), BBE=f.end(); BB!=BBE; ++BB) {
@@ -69,11 +77,11 @@ namespace {
 
 			computeLiveValues(&f);
 
-			DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
-			DEBUG_PKT( print(outs()); );
-			DEBUG_PKT( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
-			DEBUG_PKT( outs() << "liveness analysis of function '" << f.getNameStr() << "' finished!\n"; );
-			DEBUG_PKT( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
+			DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+			DEBUG_LA( print(outs()); );
+			DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+			DEBUG_LA( outs() << "liveness analysis of function '" << f.getNameStr() << "' finished!\n"; );
+			DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
 			return false;
         }
@@ -137,20 +145,20 @@ namespace {
 		unsigned createInstructionOrdering(BasicBlock* block, Instruction* frontier, std::map<Instruction*, unsigned>& instMap) const {
 			unsigned frontierId = 0;
 			unsigned i=0;
-			DEBUG_PKT( outs() << "instructions:\n"; );
+			DEBUG_LA( outs() << "instructions:\n"; );
 			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
 				if (frontier == I) frontierId = i;
 				instMap[I] = i++;
-				DEBUG_PKT( outs() << " (" << i-1 << ")" << (frontier == I ? "*" : " ") << *I << "\n"; );
+				DEBUG_LA( outs() << " (" << i-1 << ")" << (frontier == I ? "*" : " ") << *I << "\n"; );
 			}
-			DEBUG_PKT( outs() << "\n"; );
+			DEBUG_LA( outs() << "\n"; );
 
 			return frontierId;
 		}
 		void getBlockInternalLiveInValues(Instruction* inst, LiveSetType& liveVals) {
 			assert (inst && inst->getParent());
 			BasicBlock* block = inst->getParent();
-			DEBUG_PKT( outs() << "\ngetBlockInternalLiveValues(" << block->getNameStr() << ")\n"; );
+			DEBUG_LA( outs() << "\ngetBlockInternalLiveValues(" << block->getNameStr() << ")\n"; );
 
 			// create map which holds order of instructions
 			std::map<Instruction*, unsigned> instMap;
@@ -161,7 +169,7 @@ namespace {
 			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
 				const unsigned instId = instMap[I];
 				if (instId >= frontierId) break;
-				DEBUG_PKT( outs() << "checking uses of instruction " << instId << "\n"; );
+				DEBUG_LA( outs() << "checking uses of instruction " << instId << "\n"; );
 				for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
 					assert (isa<Instruction>(U));
 					Instruction* useI = cast<Instruction>(U);
@@ -174,7 +182,7 @@ namespace {
 					if (isLive) {
 						liveVals.insert(I);
 					}
-					DEBUG_PKT( outs() << "  use: (" << useId << ") - is " << (isLive ? "" : "not ") << "live!\n"; );
+					DEBUG_LA( outs() << "  use: (" << useId << ") - is " << (isLive ? "" : "not ") << "live!\n"; );
 				}
 			}
 		}
@@ -208,11 +216,11 @@ namespace {
 
 			for (LiveSetType::iterator it=liveInVals.begin(), E=liveInVals.end(); it!=E;) {
 				Value* liveVal = *it++;
-				DEBUG_PKT( outs() << "checking if live value dies before frontier: " << *liveVal << "\n"; );
+				DEBUG_LA( outs() << "checking if live value dies before frontier: " << *liveVal << "\n"; );
 				// If the value is also live-out, we know it survives the frontier
 				// and we must not remove it from live values.
 				if (liveOutVals.find(liveVal) != liveOutVals.end()) {
-					DEBUG_PKT( outs() << "  live value survives frontier (is live-out)!\n"; );
+					DEBUG_LA( outs() << "  live value survives frontier (is live-out)!\n"; );
 					continue;
 				}
 
@@ -228,11 +236,11 @@ namespace {
 					const unsigned useId = instMap[useI];
 					if (useId >= frontierId) survivesFrontier = true;
 
-					DEBUG_PKT( outs() << "  use: (" << useId << ") - is " << ((useId >= frontierId) ? "" : "not ") << "live!\n"; );
+					DEBUG_LA( outs() << "  use: (" << useId << ") - is " << ((useId >= frontierId) ? "" : "not ") << "live!\n"; );
 				}
 
 				if (!survivesFrontier) {
-					DEBUG_PKT( outs() << "  live value does not survive frontier!\n"; );
+					DEBUG_LA( outs() << "  live value does not survive frontier!\n"; );
 					liveInVals.erase(liveVal);
 				}
 			}
@@ -244,10 +252,10 @@ namespace {
 		void mapLiveValues(Function* f, Function* newF, DenseMap<const Value*, Value*>& valueMap) {
 			assert (f && newF);
 			assert (!valueMap.empty());
-			DEBUG_PKT( outs() << "\nmapping live values from function '" << f->getNameStr() << "' to new function '" << newF->getNameStr() << "'...\n"; );
+			DEBUG_LA( outs() << "\nmapping live values from function '" << f->getNameStr() << "' to new function '" << newF->getNameStr() << "'...\n"; );
 
 			for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
-				DEBUG_PKT( outs() << "mapping live values of basic block '" << BB->getNameStr() << "'...\n"; );
+				DEBUG_LA( outs() << "mapping live values of basic block '" << BB->getNameStr() << "'...\n"; );
 				LiveSetType* liveInSet = getBlockLiveInValues(BB);
 				LiveSetType* liveOutSet = getBlockLiveOutValues(BB);
 
@@ -261,8 +269,8 @@ namespace {
 					--i;
 					for ( ; i>=0; --i) {
 						Value* val = tmpVals[i];
-						DEBUG_PKT( if (!isa<BasicBlock>(val)) outs() << "  mapped live-in value: " << *val << " -> " << *(valueMap[val]) << "\n"; );
-						DEBUG_PKT( if (isa<BasicBlock>(val)) outs() << "  mapped live-in value: " << val->getNameStr() << " -> " << (valueMap[val])->getNameStr() << "\n"; );
+						DEBUG_LA( if (!isa<BasicBlock>(val)) outs() << "  mapped live-in value: " << *val << " -> " << *(valueMap[val]) << "\n"; );
+						DEBUG_LA( if (isa<BasicBlock>(val)) outs() << "  mapped live-in value: " << val->getNameStr() << " -> " << (valueMap[val])->getNameStr() << "\n"; );
 						liveInSet->insert(valueMap[val]);
 					}
 					delete [] tmpVals;
@@ -283,8 +291,8 @@ namespace {
 					--i;
 					for ( ; i>=0; --i) {
 						Value* val = tmpVals[i];
-						//DEBUG_PKT( if (!isa<BasicBlock>(val)) outs() << "mapped live-out value: " << *val << " -> " << *(valueMap[val]) << "\n"; );
-						//DEBUG_PKT( if (isa<BasicBlock>(val)) outs() << "mapped live-out value: " << val->getNameStr() << " -> " << (valueMap[val])->getNameStr() << "\n"; );
+						//DEBUG_LA( if (!isa<BasicBlock>(val)) outs() << "mapped live-out value: " << *val << " -> " << *(valueMap[val]) << "\n"; );
+						//DEBUG_LA( if (isa<BasicBlock>(val)) outs() << "mapped live-out value: " << val->getNameStr() << " -> " << (valueMap[val])->getNameStr() << "\n"; );
 						liveOutSet->insert(valueMap[val]);
 					}
 					delete [] tmpVals;
@@ -307,7 +315,7 @@ namespace {
 				liveValueMap[newBlock] = tmpSets[i];
 			}
 
-			DEBUG_PKT( outs() << "\n"; );
+			DEBUG_LA( outs() << "\n"; );
 		}
 
     private:
@@ -322,7 +330,7 @@ namespace {
 
 			// compute liveness of arguments
 			for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A) {
-				DEBUG_PKT( outs() << "computing live values for argument: " << *A << "\n"; );
+				DEBUG_LA( outs() << "computing live values for argument: " << *A << "\n"; );
 				for (Instruction::use_iterator U=A->use_begin(), UE=A->use_end(); U!=UE; ++U) {
 					assert (isa<Instruction>(U));
 					Instruction* useI = cast<Instruction>(U);
@@ -334,15 +342,15 @@ namespace {
 
 			// compute liveness of all instructions
 			for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
-				DEBUG_PKT( outs() << "computing live values for block: " << BB->getNameStr() << "\n"; );
+				DEBUG_LA( outs() << "computing live values for block: " << BB->getNameStr() << "\n"; );
 				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
-					DEBUG_PKT( outs() << "  computing live values for instruction: " << *I << "\n"; );
+					DEBUG_LA( outs() << "  computing live values for instruction: " << *I << "\n"; );
 					for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
 						assert (isa<Instruction>(U));
 						Instruction* useI = cast<Instruction>(U);
 
 						if (useI->getParent() == BB) continue; // def-use chain inside same block -> ignore
-						DEBUG_PKT( outs() << "    checking use: " << *useI << "\n"; );
+						DEBUG_LA( outs() << "    checking use: " << *useI << "\n"; );
 
 						std::set<BasicBlock*> visitedBlocks;
 						computeLivenessInformation(useI->getParent(), I, useI, visitedBlocks);
@@ -354,11 +362,11 @@ namespace {
 
 
 		void computeLivenessInformation(BasicBlock* block, Value* def, Instruction* use, std::set<BasicBlock*>& visitedBlocks) {
-			//DEBUG_PKT( outs() << "computeLivenessInformation(" << block->getNameStr() << ")\n"; );
+			//DEBUG_LA( outs() << "computeLivenessInformation(" << block->getNameStr() << ")\n"; );
 
 			// if we see a block again, make sure the value is live-out there
 			if (visitedBlocks.find(block) != visitedBlocks.end()) {
-				DEBUG_PKT( outs() << "      is live-out value of block '" << block->getNameStr() << "' (loop)\n"; );
+				DEBUG_LA( outs() << "      is live-out value of block '" << block->getNameStr() << "' (loop)\n"; );
 				liveValueMap[block].second->insert(def);
 				return;
 			}
@@ -368,13 +376,13 @@ namespace {
 
 			// if def and use are in the same block, there is no live information to be added anywhere
 			if (defI && defI->getParent() == use->getParent()) {
-				DEBUG_PKT( outs() << "      is used and defined in same block '" << block->getNameStr() << "' (neither live-in nor live-out of any block)\n"; );
+				DEBUG_LA( outs() << "      is used and defined in same block '" << block->getNameStr() << "' (neither live-in nor live-out of any block)\n"; );
 				return;
 			}
 
 			// if we have reached the definition, the value is live-out only
 			if (defI && defI->getParent() == block) {
-				DEBUG_PKT( outs() << "      is live-out value of block '" << block->getNameStr() << "' (defined here)\n"; );
+				DEBUG_LA( outs() << "      is live-out value of block '" << block->getNameStr() << "' (defined here)\n"; );
 				liveValueMap[block].second->insert(def);
 				return;
 			}
@@ -384,7 +392,7 @@ namespace {
 			// live-out (handled above by visitedBlocks).
 			// If the use is a PHI, the value is neither live-in, nor live-out.
 			if (use->getParent() == block && !isa<PHINode>(use)) {
-				DEBUG_PKT( outs() << "      is live-in value of block '" << block->getNameStr() << "' (used here)\n"; );
+				DEBUG_LA( outs() << "      is live-in value of block '" << block->getNameStr() << "' (used here)\n"; );
 				liveValueMap[block].first->insert(def);
 			}
 
@@ -392,7 +400,7 @@ namespace {
 			// this block is somewhere in between the two and thus the value
 			// is live-in and live-out
 			if (use->getParent() != block) {
-				DEBUG_PKT( outs() << "      is live-through value of block '" << block->getNameStr() << "'\n"; );
+				DEBUG_LA( outs() << "      is live-through value of block '" << block->getNameStr() << "'\n"; );
 				liveValueMap[block].first->insert(def);
 				liveValueMap[block].second->insert(def);
 			}
