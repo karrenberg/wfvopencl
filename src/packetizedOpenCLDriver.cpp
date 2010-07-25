@@ -924,35 +924,47 @@ namespace PacketizedOpenCLDriver {
 			BasicBlock* latchBB  = BasicBlock::Create(context, headerBB->getNameStr()+".loop.end", f, loopBB);
 
 			// Block headerBB
-#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-			// if we do not packetize, simd_dim is assumed to be -1, so the type would always i32
-			// however, this way, we spare the conditional and possible wrong use of this function ;)
-			const Type* local_id_type = Type::getInt32Ty(context);
-#else
-			// if this dimension is the simd_dim, the local id is an int-vector of simd width elements
+			const Type* counterType = Type::getInt32Ty(context);
+			Argument* fwdref = new Argument(counterType);
+			PHINode* loopCounterPhi = PHINode::Create(counterType, "", headerBB->getFirstNonPHI());
+			loopCounterPhi->reserveOperandSpace(2);
+			loopCounterPhi->addIncoming(fwdref, latchBB);
+			loopCounterPhi->addIncoming(Constant::getNullValue(counterType), entryBB);
+
+			Instruction* local_id = loopCounterPhi;
+
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+			ConstantInt* simdWidthVal = ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH));
+			// in packetized mode, if this is the simd dim, we loop over local_size/4 (see below), but the local_id is reconstructed as a vector
 			const Type* local_id_type = NULL;
-			if (i == simd_dim) local_id_type = VectorType::get(IntegerType::get(context, 32), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
-			else local_id_type = Type::getInt32Ty(context);
+			if (i == simd_dim) local_id_type = VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+			else local_id_type = counterType;
+			
+			if (i == simd_dim) {
+				Value* nextElem = BinaryOperator::Create(Instruction::Mul, loopCounterPhi, simdWidthVal, "local_id_simd_0", call);
+				local_id = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
+				for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
+					nextElem = BinaryOperator::Create(Instruction::Add, nextElem, Constant::getAllOnesValue(counterType), "", call);
+					local_id = InsertElementInst::Create(local_id, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
+					
+				}
+			}
 #endif
-			Argument* fwdref = new Argument(local_id_type);
 			std::stringstream sstr;
 			sstr << "local_id_" << i;
-			PHINode* local_id = PHINode::Create(local_id_type, sstr.str(), headerBB->getFirstNonPHI());
-			local_id->reserveOperandSpace(2);
-			local_id->addIncoming(fwdref, latchBB);
-			local_id->addIncoming(Constant::getNullValue(local_id_type), entryBB);
+			local_id->setName(sstr.str());
 
 			// Block loopBB
 			// holds live value extraction and continuation-call and, in case of packetization and the simd_dim, the local_size_simd computation
 #ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 			Value* local_size_orig = local_size;
-			if (i == simd_dim) local_size = BinaryOperator::Create(Instruction::UDiv, local_size, ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH)), "local_size_SIMD", loopBB);
+			if (i == simd_dim) local_size = BinaryOperator::Create(Instruction::UDiv, local_size, simdWidthVal, "local_size_SIMD", call);
 #endif
 			loopBB->getTerminator()->eraseFromParent();
 			BranchInst::Create(latchBB, loopBB);
 
 			// Block latchBB
-			BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, local_id, Constant::getAllOnesValue(local_id_type), "inc", latchBB);
+			BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, Constant::getAllOnesValue(counterType), "inc", latchBB);
 			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, localIdInc, local_size, "exitcond");
 			BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
@@ -997,8 +1009,12 @@ namespace PacketizedOpenCLDriver {
 			if (i == simd_dim) {
 				// the temporary global_id here has to be replicated before adding local_id
 				// (unless llvm is able to generate replication automatically for (add i32 <4 x i32>)
-				for (unsigned i=0; i<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++i) {
-					global_id = InsertElementInst::Create(UndefValue::get(local_id_type), global_id, ConstantInt::get(context, APInt(32, i)), "", call);
+				Value* nextElem = global_id;
+				global_id = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
+				for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
+					nextElem = BinaryOperator::Create(Instruction::Add, nextElem, Constant::getAllOnesValue(counterType), "", call);
+					global_id = InsertElementInst::Create(global_id, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
+					
 				}
 			}
 			global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, sstr2.str(), call);
@@ -1476,7 +1492,7 @@ namespace PacketizedOpenCLDriver {
 			// generate loop(s) over blocksize(s) (BEFORE inlining!)
 			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f);
 			const int simdDim = -1;
-			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simd_dim, context, module);
+			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simdDim, context, module);
 		}
 
 		assert (f_wrapper);
