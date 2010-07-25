@@ -1,9 +1,9 @@
 #home
-#export PACKETIZER_INSTALL_DIR=/home/ralf/Projekte/proj_anysl/install/build-gcc-debug/packetizer
-#export LLVM_INSTALL_DIR=/home/ralf/Projekte/proj_anysl/install/build-gcc-debug/llvm
+export PACKETIZER_INSTALL_DIR=/home/ralf/proj/anysl/install/build-gcc-debug/packetizer
+export LLVM_INSTALL_DIR=/home/ralf/proj/anysl/install/build-gcc-debug/llvm
 #uni
-export PACKETIZER_INSTALL_DIR=/local/karrenberg/proj/anysl/install/build-gcc-debug/packetizer
-export LLVM_INSTALL_DIR=/local/karrenberg/proj/anysl/install/build-gcc-debug/llvm
+#export PACKETIZER_INSTALL_DIR=/local/karrenberg/proj/anysl/install/build-gcc-debug/packetizer
+#export LLVM_INSTALL_DIR=/local/karrenberg/proj/anysl/install/build-gcc-debug/llvm
 
 export PATH=$PATH:./include
 export PATH=$PATH:$LLVM_INSTALL_DIR/bin
