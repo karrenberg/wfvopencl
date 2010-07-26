@@ -303,25 +303,35 @@ namespace PacketizedOpenCLDriver {
 			Function::Create(fType0, Function::ExternalLinkage, "get_global_id", mod);
 		}
 
+		// generate 'unsigned get_local_id(unsigned)' if not already there
+		if (!mod->getFunction("get_local_id")) {
+			const FunctionType* fType0 = FunctionType::get(Type::getInt32Ty(context), params, false);
+			Function::Create(fType0, Function::ExternalLinkage, "get_local_id", mod);
+		}
+
 		// generate 'unsigned get_global_id_split(unsigned)'
 		const FunctionType* fType1 = FunctionType::get(Type::getInt32Ty(context), params, false);
 		Function::Create(fType1, Function::ExternalLinkage, "get_global_id_split", mod);
 
+		// generate 'unsigned get_local_id_split(unsigned)'
+		const FunctionType* fType2 = FunctionType::get(Type::getInt32Ty(context), params, false);
+		Function::Create(fType2, Function::ExternalLinkage, "get_local_id_split", mod);
+
 		// generate '__m128i get_global_id_SIMD(unsigned)'
-		const FunctionType* fType2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
-		Function::Create(fType2, Function::ExternalLinkage, "get_global_id_SIMD", mod);
+		const FunctionType* fType3 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
+		Function::Create(fType3, Function::ExternalLinkage, "get_global_id_SIMD", mod);
 
 		// generate '__m128i get_local_id_SIMD(unsigned)'
-		const FunctionType* fType3 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
-		Function::Create(fType3, Function::ExternalLinkage, "get_local_id_SIMD", mod);
+		const FunctionType* fType4 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
+		Function::Create(fType4, Function::ExternalLinkage, "get_local_id_SIMD", mod);
 
-		// generate 'void barrier(unsigned, unsigned)'
-		params.push_back(Type::getInt32Ty(context)); // receives 2 ints
-		const FunctionType* fType4 = FunctionType::get(Type::getInt32Ty(context), params, false);
-		Function::Create(fType4, Function::ExternalLinkage, "barrier", mod);
+		// generate 'void barrier(unsigned, unsigned)' if not already there
+		if (!mod->getFunction("barrier")) {
+			params.push_back(Type::getInt32Ty(context)); // receives 2 ints
+			const FunctionType* fType4 = FunctionType::get(Type::getInt32Ty(context), params, false);
+			Function::Create(fType4, Function::ExternalLinkage, "barrier", mod);
+		}
 	}
-
-	//return Intrinsic::getDeclaration(mod, Intrinsic::x86_sse2_cvttps2dq);
 
 
 	// taken from sdr2bc
@@ -454,19 +464,38 @@ namespace PacketizedOpenCLDriver {
 		if (safePathVec.find(I) != safePathVec.end()) return true;
 
 		// check for safe operations (rest of path still has to be checked)
-		// TODO: other cases? ZExt?
+		// TODO: other cases? ZExt? FPExt? Trunc? FPTrunc?
 		bool useIsBad = true;
 
-		// add/sub is okay if other operand is constant
-		// TODO: uniform is also okay
-		if (I->getOpcode() == Instruction::Add || I->getOpcode() == Instruction::Sub) {
-			// get other operand
-			Value* op = I->getOperand(0) == parent ? I->getOperand(1) : I->getOperand(0);
-			// if operand is constant, the use is okay :)
-			if (isa<Constant>(op)) useIsBad = false;
+		switch (I->getOpcode()) {
+			case Instruction::Add : //fallthrough
+			case Instruction::Sub : {
+				// add/sub is okay if other operand is constant
+				// TODO: uniform is also okay
+
+				// get other operand
+				Value* op = I->getOperand(0) == parent ? I->getOperand(1) : I->getOperand(0);
+				// if operand is constant, the use is okay :)
+				if (isa<Constant>(op)) useIsBad = false;
+				break;
+			}
+
+			case Instruction::SExt    : useIsBad = false; break; // SExt is okay
+			case Instruction::ICmp    : useIsBad = false; break; // ICmp is okay
+			case Instruction::FCmp    : useIsBad = false; break; // FCmp is okay
+			case Instruction::FPToUI  : useIsBad = false; break; // FPToUI is okay
+			case Instruction::FPToSI  : useIsBad = false; break; // FPToSI is okay
+			case Instruction::UIToFP  : useIsBad = false; break; // UIToFP is okay
+			case Instruction::SIToFP  : useIsBad = false; break; // SIToFP is okay
+			case Instruction::FPExt   : useIsBad = false; break; // FPExt is okay
+			case Instruction::BitCast : useIsBad = false; break; // BitCast is okay
+
+			case Instruction::Ret     : useIsBad = false; break; // Ret is okay
+			case Instruction::Br      : useIsBad = false; break; // Br is okay
+			case Instruction::Switch  : useIsBad = false; break; // Switch is okay
+
+			case Instruction::PHI     : useIsBad = false; break; // PHI is okay
 		}
-		// SExt is okay
-		if (I->getOpcode() == Instruction::SExt) useIsBad  = false;
 
 		if (useIsBad) return false;
 

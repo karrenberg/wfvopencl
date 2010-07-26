@@ -362,6 +362,12 @@ namespace PacketizedOpenCLDriver {
 				-1,
 				PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", mod),
 				true); // packetization is mandatory
+		Packetizer::addNativeFunctionToPacketizer(
+				packetizer,
+				"get_local_id_split",
+				-1,
+				PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", mod),
+				true); // packetization is mandatory
 
 		Packetizer::runPacketizer(packetizer, mod);
 
@@ -783,11 +789,14 @@ namespace PacketizedOpenCLDriver {
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nmapping callbacks to arguments in continuation '" << continuation->getNameStr() << "'...\n"; );
 
 			// correct order is important! (has to match parameter list of continuation)
+			// NOTE: _split functions can remain instead of being replaced by _SIMD function if only used on uniform path!
 			llvm::Function::arg_iterator arg = continuation->arg_begin();
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(arg++), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(arg++), continuation);
 			#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_split"), cast<Value>(arg), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_split"),  cast<Value>(arg), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(arg++), continuation);
 			#endif
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(arg++), continuation);
@@ -796,8 +805,9 @@ namespace PacketizedOpenCLDriver {
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(arg++), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(arg++), continuation);
 
-			PacketizedOpenCLDriver::fixFunctionNames(module);
 		}
+
+		PacketizedOpenCLDriver::fixFunctionNames(module);
 
 		return;
 	}
@@ -944,7 +954,7 @@ namespace PacketizedOpenCLDriver {
 				Value* nextElem = BinaryOperator::Create(Instruction::Mul, loopCounterPhi, simdWidthVal, "local_id_simd_0", call);
 				local_id = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
 				for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
-					nextElem = BinaryOperator::Create(Instruction::Add, nextElem, Constant::getAllOnesValue(counterType), "", call);
+					nextElem = BinaryOperator::Create(Instruction::Add, nextElem, ConstantInt::get(context, APInt(32, 1)), "", call);
 					local_id = InsertElementInst::Create(local_id, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
 					
 				}
@@ -964,7 +974,7 @@ namespace PacketizedOpenCLDriver {
 			BranchInst::Create(latchBB, loopBB);
 
 			// Block latchBB
-			BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, Constant::getAllOnesValue(counterType), "inc", latchBB);
+			BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
 			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, localIdInc, local_size, "exitcond");
 			BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
@@ -1012,10 +1022,10 @@ namespace PacketizedOpenCLDriver {
 				Value* nextElem = global_id;
 				global_id = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
 				for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
-					nextElem = BinaryOperator::Create(Instruction::Add, nextElem, Constant::getAllOnesValue(counterType), "", call);
+					nextElem = BinaryOperator::Create(Instruction::Add, nextElem, ConstantInt::get(context, APInt(32, 1)), "", call);
 					global_id = InsertElementInst::Create(global_id, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
-					
 				}
+				global_id->setName("get_global_id_SIMD");
 			}
 			global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, sstr2.str(), call);
 			
@@ -1059,9 +1069,12 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f);
 
 		// remap calls to parameters that are generated inside loop(s)
+		// NOTE: _split functions can remain instead of being replaced by _SIMD function if only used on uniform path!
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     arg_num_groups_array, f);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      arg_global_id_array, f);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       arg_local_id_array, f);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_split"),arg_global_id_array, f);
+		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_split"), arg_local_id_array, f);
 		#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), arg_global_id_simd, f);
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  arg_local_id_simd, f);
@@ -1526,13 +1539,21 @@ namespace PacketizedOpenCLDriver {
 
 		llvm::Function* gid = PacketizedOpenCLDriver::getFunction("get_global_id", module);
 		llvm::Function* gid_split = PacketizedOpenCLDriver::getFunction("get_global_id_split", module);
-		assert (gid && "ERROR: could not find function 'get_global_id' in module!");
+		llvm::Function* lid = PacketizedOpenCLDriver::getFunction("get_local_id", module);
+		llvm::Function* lid_split = PacketizedOpenCLDriver::getFunction("get_local_id_split", module);
+		assert (gid && "could not find function 'get_global_id' in module!");
 		assert (gid_split && "could not find function 'get_global_id_split' in module!");
+		assert (lid && "could not find function 'get_local_id' in module!");
+		assert (lid_split && "could not find function 'get_local_id_split' in module!");
 
-		// Analyze all calls to get_global_id and optimize cases where index is used directly or only with linear combinations applied.
-		// Everywhere this is not possible, get_global_id is replaced by get_global_id_split, which forces splitting of the packets (scattered-gather/scattered-store)
-		// TODO: should also analyze get_local_id !!
+		// Analyze all calls to get_global_id and optimize cases where index is
+		// used directly or only with linear combinations applied.
+		// Everywhere this is not possible, get_global_id is replaced by
+		// get_global_id_split, which forces splitting of the packets
+		// (scattered-gather/scattered-store)
 		PacketizedOpenCLDriver::replaceNonContiguousIndexUsage(f, gid, gid_split);
+		PacketizedOpenCLDriver::replaceNonContiguousIndexUsage(f, lid, lid_split);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
@@ -1613,6 +1634,7 @@ namespace PacketizedOpenCLDriver {
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
 			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
 			f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
@@ -1645,6 +1667,11 @@ namespace PacketizedOpenCLDriver {
 			const bool inlineCall = false; // don't inline call immediately (needed for generating loop(s))
 			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f, module, inlineCall);
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+
+			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
 			f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
 			if (!f_wrapper) {
@@ -1668,6 +1695,9 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "wrapper.ll"); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "mod.ll"); );
+
+		outs() << *f_SIMD << "\n";
+		exit(0);
 
 		*f_SIMD_ret = f_SIMD;
 		return f_wrapper;
