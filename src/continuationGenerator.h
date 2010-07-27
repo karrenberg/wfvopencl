@@ -88,7 +88,7 @@ public:
 		DEBUG_LA( outs() << "generating continuations...\n"; );
 		DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 
-		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(&f, "beforeBarriers.ll"); );
+		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(&f, "debug_before_barriers.ll"); );
 
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
@@ -594,9 +594,6 @@ private:
 		DEBUG_LA( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
 
 		DEBUG_LA(
-			PacketizedOpenCLDriver::writeModuleToFile(mod, "ffff.ll");
-			//f->viewCFG();
-			//continuation->viewCFG();
 			outs() << "verifying function '" << f->getNameStr() << "'... ";
 			verifyFunction(*f);
 			outs() << "done.\nverifying function '" << continuation->getNameStr() << "'... ";
@@ -725,7 +722,7 @@ private:
 			ReturnInst::Create(context, ConstantInt::get(fTypeNew->getReturnType(), PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID, true), retBlock);
 		}
 
-		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(newF, "cont_begin_beforesplitting.ll"); );
+		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(newF, "debug_cont_begin_beforesplitting.ll"); );
 
 		// map the live values of the original function to the new one
 		livenessAnalyzer->mapLiveValues(f, newF, valueMap);

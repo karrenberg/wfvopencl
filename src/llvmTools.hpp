@@ -298,38 +298,52 @@ namespace PacketizedOpenCLDriver {
 		params.push_back(Type::getInt32Ty(context));
 
 		// generate 'unsigned get_global_id(unsigned)' if not already there
+		// represents uniform accesses to global id (e.g. of other dimensions than simd_dim)
 		if (!mod->getFunction("get_global_id")) {
-			const FunctionType* fType0 = FunctionType::get(Type::getInt32Ty(context), params, false);
-			Function::Create(fType0, Function::ExternalLinkage, "get_global_id", mod);
+			const FunctionType* fTypeG0 = FunctionType::get(Type::getInt32Ty(context), params, false);
+			Function::Create(fTypeG0, Function::ExternalLinkage, "get_global_id", mod);
 		}
+		// generate 'unsigned get_global_id_split(unsigned)'
+		// is replaced by get_global_id_split_SIMD during packetization
+		const FunctionType* fTypeG1 = FunctionType::get(Type::getInt32Ty(context), params, false);
+		Function::Create(fTypeG1, Function::ExternalLinkage, "get_global_id_split", mod);
+		// generate '__m128i get_global_id_split_SIMD(unsigned)'
+		// returns a vector to force splitting during packetization
+		const FunctionType* fTypeG2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
+		Function::Create(fTypeG2, Function::ExternalLinkage, "get_global_id_split_SIMD", mod);
+		// generate 'unsigned get_global_id_SIMD(unsigned)'
+		// does not return a vector because the simd value is loaded from the
+		// begin-index of the four consecutive values
+		const FunctionType* fTypeG3 = FunctionType::get(Type::getInt32Ty(context), params, false);
+		Function::Create(fTypeG3, Function::ExternalLinkage, "get_global_id_SIMD", mod);
+
 
 		// generate 'unsigned get_local_id(unsigned)' if not already there
+		// represents uniform accesses to local id (e.g. of other dimensions than simd_dim)
 		if (!mod->getFunction("get_local_id")) {
-			const FunctionType* fType0 = FunctionType::get(Type::getInt32Ty(context), params, false);
-			Function::Create(fType0, Function::ExternalLinkage, "get_local_id", mod);
+			const FunctionType* fTypeL0 = FunctionType::get(Type::getInt32Ty(context), params, false);
+			Function::Create(fTypeL0, Function::ExternalLinkage, "get_local_id", mod);
 		}
-
-		// generate 'unsigned get_global_id_split(unsigned)'
-		const FunctionType* fType1 = FunctionType::get(Type::getInt32Ty(context), params, false);
-		Function::Create(fType1, Function::ExternalLinkage, "get_global_id_split", mod);
-
 		// generate 'unsigned get_local_id_split(unsigned)'
-		const FunctionType* fType2 = FunctionType::get(Type::getInt32Ty(context), params, false);
-		Function::Create(fType2, Function::ExternalLinkage, "get_local_id_split", mod);
+		// is replaced by get_local_id_split_SIMD during packetization
+		const FunctionType* fTypeL1 = FunctionType::get(Type::getInt32Ty(context), params, false);
+		Function::Create(fTypeL1, Function::ExternalLinkage, "get_local_id_split", mod);
+		// generate '__m128i get_local_id_split_SIMD(unsigned)'
+		// returns a vector to force splitting during packetization
+		const FunctionType* fTypeL2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
+		Function::Create(fTypeL2, Function::ExternalLinkage, "get_local_id_split_SIMD", mod);
+		// generate 'unsigned get_local_id_SIMD(unsigned)'
+		// does not return a vector because the simd value is loaded from the
+		// begin-index of the four consecutive values
+		const FunctionType* fTypeL3 = FunctionType::get(Type::getInt32Ty(context), params, false);
+		Function::Create(fTypeL3, Function::ExternalLinkage, "get_local_id_SIMD", mod);
 
-		// generate '__m128i get_global_id_SIMD(unsigned)'
-		const FunctionType* fType3 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
-		Function::Create(fType3, Function::ExternalLinkage, "get_global_id_SIMD", mod);
-
-		// generate '__m128i get_local_id_SIMD(unsigned)'
-		const FunctionType* fType4 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
-		Function::Create(fType4, Function::ExternalLinkage, "get_local_id_SIMD", mod);
 
 		// generate 'void barrier(unsigned, unsigned)' if not already there
 		if (!mod->getFunction("barrier")) {
 			params.push_back(Type::getInt32Ty(context)); // receives 2 ints
-			const FunctionType* fType4 = FunctionType::get(Type::getInt32Ty(context), params, false);
-			Function::Create(fType4, Function::ExternalLinkage, "barrier", mod);
+			const FunctionType* fTypeB = FunctionType::get(Type::getInt32Ty(context), params, false);
+			Function::Create(fTypeB, Function::ExternalLinkage, "barrier", mod);
 		}
 	}
 
@@ -481,8 +495,8 @@ namespace PacketizedOpenCLDriver {
 			}
 
 			case Instruction::SExt    : useIsBad = false; break; // SExt is okay
-			case Instruction::ICmp    : useIsBad = false; break; // ICmp is okay
-			case Instruction::FCmp    : useIsBad = false; break; // FCmp is okay
+			//case Instruction::ICmp    : useIsBad = false; break; // ICmp is NOT okay! (can jump to different targets)
+			//case Instruction::FCmp    : useIsBad = false; break; // FCmp is NOT okay! (can jump to different targets)
 			case Instruction::FPToUI  : useIsBad = false; break; // FPToUI is okay
 			case Instruction::FPToSI  : useIsBad = false; break; // FPToSI is okay
 			case Instruction::UIToFP  : useIsBad = false; break; // UIToFP is okay
@@ -490,9 +504,9 @@ namespace PacketizedOpenCLDriver {
 			case Instruction::FPExt   : useIsBad = false; break; // FPExt is okay
 			case Instruction::BitCast : useIsBad = false; break; // BitCast is okay
 
-			case Instruction::Ret     : useIsBad = false; break; // Ret is okay
-			case Instruction::Br      : useIsBad = false; break; // Br is okay
-			case Instruction::Switch  : useIsBad = false; break; // Switch is okay
+			//case Instruction::Ret     : useIsBad = false; break; // Ret is NOT okay! (can return different results)
+			//case Instruction::Br      : useIsBad = false; break; // Br is NOT okay! (can jump to different targets)
+			//case Instruction::Switch  : useIsBad = false; break; // Switch NOT okay! (can jump to different targets)
 
 			case Instruction::PHI     : useIsBad = false; break; // PHI is okay
 		}
@@ -510,38 +524,54 @@ namespace PacketizedOpenCLDriver {
 		return true;
 	}
 
-	// Replace calls to oldF by newF in function f
+	// Replace calls to oldF with index 'simdDim' by splitF in function f
 	// wherever the result of the call is not used directly in a load or store (via GEP),
 	// e.g. as part of some index arithmetic accessing array[i*4+1]
+	// Replace contiguous accesses to oldF with index 'simdDim' by simdFn (which
+	// is only a placeholder (with same scalar type as oldFn but different name)
+	// for the instruction inserted during packetization).
+	// Leave uses with indices other than 'simdDim' untouched.
 	// Effectively, this is an optimization of array accesses that load or store
 	// contiguous indices.
-	void replaceNonContiguousIndexUsage(Function* f, Function* oldF, Function* newF) {
-		assert (f && oldF && newF);
-		assert (oldF->getReturnType()->isIntegerTy());
-		assert (newF->getReturnType()->isIntegerTy());
-		// TODO: check if signature matches (we are replacing oldF by newF...)
+	void setupIndexUsages(Function* parent, Function* oldFn, Function* simdFn, Function* splitFn, const unsigned simdDim) {
+		assert (parent && oldFn && simdFn && splitFn);
+		assert (oldFn->getReturnType()->isIntegerTy());
+		assert (splitFn->getReturnType()->isIntegerTy());
+		// TODO: check if signature matches (we are replacing oldF by splitFn...)
 
 		std::vector<CallInst*> deleteVec;
 		std::set<Instruction*> safePathVec; // marks instructions whose use-subtrees are entirely safe
 
-		for (Function::use_iterator U=oldF->use_begin(), UE=oldF->use_end(); U!=UE; ++U) {
+		for (Function::use_iterator U=oldFn->use_begin(), UE=oldFn->use_end(); U!=UE; ++U) {
 			if (!isa<CallInst>(U)) continue;
 			CallInst* call = cast<CallInst>(U);
-			if (call->getParent()->getParent() != f) continue; // ignore uses in other functions
+			if (call->getParent()->getParent() != parent) continue; // ignore uses in other functions
 
-			// generate new call (we might still need the old one) to newF
+			// calls with other indices than 'simdDim' are not touched (they are
+			// uniform for the N threads of 'simdDim'.
+			// They will be replicated by packetizer if required.
+			const Value* dimVal = call->getOperand(1);
+			assert (isa<ConstantInt>(dimVal));
+			const ConstantInt* dimConst = cast<ConstantInt>(dimVal);
+			const uint64_t dimension = *(dimConst->getValue().getRawData());
+			if (dimension != simdDim) continue;
+
+			// generate calls (we might still need the old one) to splitFn and simdFn
+			// TODO: where to place the new calls? maybe directly in front of use?
+			//       for now, place them at the same spot as the old call
+			//CallInst* splitCall = CallInst::Create(splitFn, call->op_begin()+1, call->op_end(), call->getName()+"_split", call);
 			std::vector<Value*> args;
 			for (CallInst::op_iterator OP=call->op_begin()+1, OPE=call->op_end(); OP!=OPE; ++OP) {
 				args.push_back(*OP);
 			}
-			// TODO: where to place the new call? maybe directly in front of use?
-			//       for now, place it at the same spot as the old call
-			CallInst* newCall = CallInst::Create(newF, args.begin(), args.end(), call->getName(), call);
-			//CallInst* newCall = CallInst::Create(newF, call->op_begin()+1, call->op_end(), call->getName(), call);
-			newCall->setTailCall(true);
+			CallInst* splitCall = CallInst::Create(splitFn, args.begin(), args.end(), call->getName()+"_split", call);
+			splitCall->setTailCall(true);
+
+			CallInst* simdCall = CallInst::Create(simdFn, args.begin(), args.end(), call->getName()+"_simd_tmp", call);
+			simdCall->setTailCall(true);
 
 
-			// iterate over uses of the call's result
+			// iterate over uses of the original call
 			for (CallInst::use_iterator U2=call->use_begin(), UE2=call->use_end(); U2!=UE2; ) {
 				assert (isa<Instruction>(U2));
 				Instruction* useI = cast<Instruction>(U2++);
@@ -549,16 +579,20 @@ namespace PacketizedOpenCLDriver {
 				// attempt to analyze path
 				// TODO: entirely uniform paths are okay as well
 				std::set<Instruction*> visited;
-				if (indexIsOnlyUsedWithLinearModifications(useI, call, safePathVec, visited)) continue;
+				if (indexIsOnlyUsedWithLinearModifications(useI, call, safePathVec, visited)) {
+					useI->replaceUsesOfWith(call, simdCall);
+					continue;
+				}
 
 				// otherwise, we have a use that (conservatively) has to be split
-				// ( = replaced with newF)
+				// ( = replaced with call to splitFn)
 				// -> replace call by new call in this use
-				useI->replaceUsesOfWith(call, newCall);
+				useI->replaceUsesOfWith(call, splitCall);
 			}
 
 			if (call->use_empty()) deleteVec.push_back(call); // still iterating over calls, postpone deletion
-			if (newCall->use_empty()) newCall->eraseFromParent(); // can erase directly
+			if (splitCall->use_empty()) splitCall->eraseFromParent(); // can erase directly
+			if (simdCall->use_empty()) simdCall->eraseFromParent(); // can erase directly
 		}
 		// delete dead calls
 		for (std::vector<CallInst*>::iterator it=deleteVec.begin(), E=deleteVec.end(); it!=E; ++it) {
@@ -1124,9 +1158,11 @@ namespace PacketizedOpenCLDriver {
 		DebugFlag = true;
 #endif
 
+
 		//PassManager Passes;
 		FunctionPassManager Passes(mod);
 		Passes.add(targetData);
+//		createStandardFunctionPasses(&Passes, 3);
 		Passes.add(createScalarReplAggregatesPass(2048)); // Break up allocas, override default threshold of maximum struct size of 128 bytes
 		Passes.add(createInstructionCombiningPass());
 		Passes.add(createJumpThreadingPass());        // Thread jumps.
