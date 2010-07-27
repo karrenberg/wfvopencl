@@ -3734,10 +3734,17 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	// In any case, changing the local work size can introduce arbitrary problems
 	// except for the case where it is 1.
 
+	assert (global_work_size >= PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+	const size_t modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
+		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : local_work_size;
+#else
 	//const size_t modified_local_work_size = local_work_size == 1 ? global_work_size :
 		//local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ? PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : local_work_size;
 	const size_t modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
 		global_work_size : local_work_size;
+#endif
 
 	//
 	// execute the kernel
