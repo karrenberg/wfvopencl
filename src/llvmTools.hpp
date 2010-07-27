@@ -423,36 +423,38 @@ namespace PacketizedOpenCLDriver {
 
 			switch (pType->getAddressSpace()) {
 				case 0: // CL_PRIVATE
-					{
-						params.push_back(pType);
-						break;
-					}
-				case 1: // CL_GLOBAL
-					{
-						// generate packet type if possible
-						const Type* contType = pType->getContainedType(0);
-						if (!contType->isIntegerTy() && !contType->isFloatTy()) {
-							errs() << "ERROR: bad __global parameter type found: " << *contType << " (can only handle int/float)!\n";
-							return NULL;
-						}
-						TargetData* td = new TargetData(mod);
-						if (td->getTypeSizeInBits(contType) > 32) {
-							errs() << "ERROR: bad __global parameter type found: " << *contType << " (can not handle data types with precision > 32bit)!\n";
-							return NULL;
-						}
-						const VectorType* vType = contType->isIntegerTy()
-							? VectorType::get(Type::getInt32Ty(context), simdWidth) //make i32 out of any integer type
-							: VectorType::get(contType, simdWidth);
-						params.push_back(PointerType::get(vType, pType->getAddressSpace()));
-
-						delete td;
-						break;
-					}
-				default:
-					{
-						errs() << "ERROR: bad address space for OpenCL found: " << pType->getAddressSpace() << "\n";
+				{
+					params.push_back(pType);
+					break;
+				}
+				case 1: // CL_GLOBAL, fall through
+				case 3: // CL_LOCAL
+				{
+					// generate packet type if possible
+					const Type* contType = pType->getContainedType(0);
+					if (!contType->isIntegerTy() && !contType->isFloatTy()) {
+						errs() << "ERROR: bad __global/__local parameter type found: " << *contType << " (can only handle int/float)!\n";
 						return NULL;
 					}
+					TargetData* td = new TargetData(mod);
+					if (td->getTypeSizeInBits(contType) > 32) {
+						errs() << "ERROR: bad __global/__local parameter type found: " << *contType << " (can not handle data types with precision > 32bit)!\n";
+						return NULL;
+					}
+					//const VectorType* vType = contType->isIntegerTy()
+						//? VectorType::get(Type::getInt32Ty(context), simdWidth) // make i32 out of any integer type
+						//: VectorType::get(contType, simdWidth);
+					const VectorType* vType = VectorType::get(contType, simdWidth);
+					params.push_back(PointerType::get(vType, pType->getAddressSpace()));
+
+					delete td;
+					break;
+				}
+				default:
+				{
+					errs() << "ERROR: bad address space for OpenCL found: " << pType->getAddressSpace() << "\n";
+					return NULL;
+				}
 			}
 
 		}
@@ -659,7 +661,7 @@ namespace PacketizedOpenCLDriver {
 	// %gep1 = GEP %array, %idx1.d, %idx1.r              ; <float> // scalar element 0+2=2
 	// %gep2 = GEP %array, %idx2.d, %idx2.r              ; <float> // scalar element 1+0=4
 	// %gep3 = GEP %array, %idx3.d, %idx3.r              ; <float> // scalar element 1+2=6
-	void fixUniformPacketizedArrayAccesses(Function* f, Function* splitF, const unsigned simdWidth) {
+	void fixUniformPacketizedArrayAccesses(Function* f, Function* splitF, const unsigned simdWidth, std::set<GetElementPtrInst*>& fixedGEPs) {
 		assert (f && splitF);
 
 		// first walk the dependency-graph top-down to find GEPs that use (modified) indices
@@ -679,6 +681,7 @@ namespace PacketizedOpenCLDriver {
 		std::vector<GetElementPtrInst*> deleteVec;
 		for (std::vector<GetElementPtrInst*>::iterator it=gepVec.begin(), E=gepVec.end(); it!=E; ++it) {
 			GetElementPtrInst* gep = *it;
+			if (fixedGEPs.find(gep) != fixedGEPs.end()) continue;
 
 			assert (gep->getNumIndices() == 2);
 
@@ -686,6 +689,9 @@ namespace PacketizedOpenCLDriver {
 			Value* idx = *gep->idx_begin();
 			// get instance index (= constant)
 			//Value* instance = *(gep->idx_begin()+1);
+			
+			//outs () << "gep: " << *gep << "\n";
+			//outs () << "gep-idx_begin+1: " << **(gep->idx_begin()+1) << "\n";
 
 			assert (isa<Constant>(*(gep->idx_begin()+1)));
 			assert (idx->getType()->isIntegerTy());
@@ -712,6 +718,7 @@ namespace PacketizedOpenCLDriver {
 			// mark old GEP to be deleted
 			assert (gep->use_empty());
 			deleteVec.push_back(gep);
+			fixedGEPs.insert(newGEP);
 		}
 		// delete dead GEPs
 		for (std::vector<GetElementPtrInst*>::iterator it=deleteVec.begin(), E=deleteVec.end(); it!=E; ++it) {
