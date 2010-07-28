@@ -1,5 +1,5 @@
 
-__kernel void square(
+__kernel void TestBarrier(
    __global float* input,
    __global float* output,
    const unsigned int count)
