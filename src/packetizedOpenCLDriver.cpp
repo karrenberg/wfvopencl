@@ -746,7 +746,11 @@ namespace PacketizedOpenCLDriver {
 
 		// load local_ids and local_sizes for the next computation
 		Argument* arg_local_id_array = ++continuation->arg_begin(); // 2nd argument
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		Argument* arg_local_size_array = ++(++(++(++(++continuation->arg_begin())))); // 5th argument
+#else
+		Argument* arg_local_size_array = ++(++(++(++(++(++(++continuation->arg_begin())))))); // 7th argument
+#endif
 
 		Instruction** local_ids = new Instruction*[num_dimensions]();
 		Instruction** local_sizes = new Instruction*[num_dimensions]();
@@ -795,14 +799,14 @@ namespace PacketizedOpenCLDriver {
 			gep->replaceAllUsesWith(newGEP);
 			gep->eraseFromParent();
 
-			PACKETIZED_OPENCL_DRIVER_DEBUG(
-				assert (newGEP->getNumUses() == 1);
-				Value* gepUse = newGEP->use_back();
-				assert (isa<StoreInst>(gepUse));
-				StoreInst* store = cast<StoreInst>(gepUse);
-				Value* storedVal = store->getOperand(0);
-				insertPrintf("live value stored: ", storedVal, true, store->getParent()->getTerminator());
-			);
+			//PACKETIZED_OPENCL_DRIVER_DEBUG(
+				//assert (newGEP->getNumUses() == 1);
+				//Value* gepUse = newGEP->use_back();
+				//assert (isa<StoreInst>(gepUse));
+				//StoreInst* store = cast<StoreInst>(gepUse);
+				//Value* storedVal = store->getOperand(0);
+				//insertPrintf("live value stored: ", storedVal, true, store->getParent()->getTerminator());
+			//);
 		}
 
 		delete [] local_ids;
@@ -817,22 +821,29 @@ namespace PacketizedOpenCLDriver {
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nmapping callbacks to arguments in continuation '" << continuation->getNameStr() << "'...\n"; );
 
 			// correct order is important! (has to match parameter list of continuation)
-			// NOTE: _split functions can remain instead of being replaced by _SIMD function if only used on uniform path!
 			llvm::Function::arg_iterator arg = continuation->arg_begin();
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(arg++), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(arg++), continuation);
-			#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_split_SIMD"), cast<Value>(arg), continuation);
-			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(arg++), continuation);
-			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_split_SIMD"),  cast<Value>(arg), continuation);
-			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(arg++), continuation);
-			#endif
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(arg++), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(arg++), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(arg++), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(arg++), continuation);
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(arg++), continuation);
-
+#else
+			// NOTE: _split functions can remain instead of being replaced by _SIMD function if only used on uniform path!
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(arg), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(arg), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_SIMD"),  cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_id_split_SIMD"), cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_split_SIMD"),  cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(arg++), continuation);
+			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(arg++), continuation);
+#endif
 		}
 
 		PacketizedOpenCLDriver::fixFunctionNames(module);
@@ -996,18 +1007,16 @@ namespace PacketizedOpenCLDriver {
 			
 			// Block loopBB
 			// holds live value extraction and continuation-call and, in case of packetization and the simd_dim, the local_size_simd computation
-#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-#endif
 			loopBB->getTerminator()->eraseFromParent();
 			BranchInst::Create(latchBB, loopBB);
 
 			// Block latchBB
-			BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
-			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, localIdInc, local_size, "exitcond");
+			BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
+			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, loopCounterInc, local_size, "exitcond");
 			BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
 			// Resolve Forward References
-			fwdref->replaceAllUsesWith(localIdInc); delete fwdref;
+			fwdref->replaceAllUsesWith(loopCounterInc); delete fwdref;
 
 			assert (num_dimensions > 0);
 			if (i == (int)num_dimensions-1) {
@@ -1039,10 +1048,10 @@ namespace PacketizedOpenCLDriver {
 			global_ids[i] = global_id; // not required for anything else but being supplied as parameter
 			local_ids[i] = local_id;
 			
-			PACKETIZED_OPENCL_DRIVER_DEBUG(
-				insertPrintf("global_id[i]: ", global_ids[i], true, call);
-				insertPrintf("local_id[i]: ", local_ids[i], true, call);
-			);
+			//PACKETIZED_OPENCL_DRIVER_DEBUG(
+				//insertPrintf("global_id[i]: ", global_ids[i], true, call);
+				//insertPrintf("local_id[i]: ", local_ids[i], true, call);
+			//);
 #else
 			// compute global id for consecutive access
 			Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
@@ -1154,7 +1163,10 @@ namespace PacketizedOpenCLDriver {
 		delete [] global_ids;
 		delete [] local_ids;
 	}
-	void generateSynchronizationLoopsInContinuations(const unsigned num_dimensions, LLVMContext& context, Function* f, ContinuationGenerator::ContinuationVecType& continuations) {
+	// NOTE: This function relies on the switch-wrapper function (the one calling
+	//       the continuations) being untouched (no optimization/inlining) after
+	//       its generation!
+	void generateSynchronizationLoopsInContinuations(const unsigned num_dimensions, const int simd_dim, LLVMContext& context, Function* f, ContinuationGenerator::ContinuationVecType& continuations) {
 		assert (f);
 		assert (num_dimensions <= PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\ngenerating loops over group size(s) around continuations...\n\n"; );
@@ -1238,6 +1250,10 @@ namespace PacketizedOpenCLDriver {
 		// allocate array of size 'num_dimensions' for special parameters global_id, local_id
 		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimVal, "global_id_array", insertBefore);
 		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimVal, "local_id_array", insertBefore);
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+		Value* arg_global_id_split_simd = NULL;
+		Value* arg_local_id_split_simd = NULL;
+#endif
 
 
 		unsigned continuation_id = 0;
@@ -1279,13 +1295,43 @@ namespace PacketizedOpenCLDriver {
 					BasicBlock* latchBB  = BasicBlock::Create(context, headerBB->getNameStr()+".loop.end", f, loopBB);
 
 					// Block headerBB
-					Argument* fwdref = new Argument(IntegerType::get(context, 32));
-					std::stringstream sstr;
-					sstr << "local_id_" << i << "_cont" << continuation_id;
-					PHINode* local_id = PHINode::Create(IntegerType::get(context, 32), sstr.str(), headerBB->getFirstNonPHI());
-					local_id->reserveOperandSpace(2);
-					local_id->addIncoming(fwdref, latchBB);
-					local_id->addIncoming(ConstantInt::get(context, APInt(32, 0)), entryBB);
+					const Type* counterType = Type::getInt32Ty(context);
+					Argument* fwdref = new Argument(counterType);
+					PHINode* loopCounterPhi = PHINode::Create(counterType, "", headerBB->getFirstNonPHI());
+					loopCounterPhi->reserveOperandSpace(2);
+					loopCounterPhi->addIncoming(fwdref, latchBB);
+					loopCounterPhi->addIncoming(Constant::getNullValue(counterType), entryBB);
+
+					Instruction* local_id = loopCounterPhi;
+
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+					ConstantInt* simdWidthVal = ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH));
+
+					// reconstruct local ids of scalar instances and put into vector for scattered access
+					const Type* local_id_type = NULL;
+					if (i == simd_dim) local_id_type = VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+					else local_id_type = counterType;
+
+					Instruction* local_id_split_SIMD = NULL;
+					if (i == simd_dim) {
+						Value* nextElem = BinaryOperator::Create(Instruction::Mul, local_id, simdWidthVal, "", call); // name = local_id_simd_0
+						local_id_split_SIMD = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
+						std::vector<Constant*> consts;
+						consts.push_back(ConstantInt::get(context, APInt(32, 0)));
+						for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
+							local_id_split_SIMD = InsertElementInst::Create(local_id_split_SIMD, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
+							consts.push_back(ConstantInt::get(context, APInt(32, j)));
+						}
+						// use vector-add with <0, 1, 2, 3> instead of 4 scalar additions
+						Constant* addVec = ConstantVector::get(VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH), consts);
+						local_id_split_SIMD = BinaryOperator::Create(Instruction::Add, local_id_split_SIMD, addVec, "", call);
+						local_id_split_SIMD->setName("get_local_id_split_SIMD");
+					}
+
+					// compute number of iterations for the simd dim (= local_size / 4)
+					//Value* local_size_orig = local_size;
+					if (i == simd_dim) local_size = BinaryOperator::Create(Instruction::UDiv, local_size, simdWidthVal, "local_size_SIMD", call);
+#endif
 
 					// Block loopBB
 					// holds live value extraction and continuation-call
@@ -1293,12 +1339,12 @@ namespace PacketizedOpenCLDriver {
 					BranchInst::Create(latchBB, loopBB);
 
 					// Block latchBB
-					BinaryOperator* localIdInc = BinaryOperator::Create(Instruction::Add, local_id, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
-					ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, localIdInc, local_size, "exitcond");
+					BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
+					ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, loopCounterInc, local_size, "exitcond");
 					BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
 					// Resolve Forward References
-					fwdref->replaceAllUsesWith(localIdInc); delete fwdref;
+					fwdref->replaceAllUsesWith(loopCounterInc); delete fwdref;
 
 					assert (num_dimensions > 0);
 					if (i == (int)num_dimensions-1) {
@@ -1314,6 +1360,7 @@ namespace PacketizedOpenCLDriver {
 					}
 
 					// generate special parameter global_id right before call
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 					std::stringstream sstr2;
 					sstr2 << "global_id_" << i << "_cont" << continuation_id;
 					Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
@@ -1328,10 +1375,76 @@ namespace PacketizedOpenCLDriver {
 					global_ids[i] = global_id; // not required for anything else but being supplied as parameter
 					local_ids[i] = local_id;
 
-					PACKETIZED_OPENCL_DRIVER_DEBUG(
-						insertPrintf("global_id[i]: ", global_ids[i], true, call);
-						insertPrintf("local_id[i]: ", local_ids[i], true, call);
-					);
+					//PACKETIZED_OPENCL_DRIVER_DEBUG(
+						//insertPrintf("global_id[i]: ", global_ids[i], true, call);
+						//insertPrintf("local_id[i]: ", local_ids[i], true, call);
+					//);
+#else
+					// compute global id for consecutive access
+					Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
+					global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, "", call);
+
+					// save special parameters global_id, local_id to arrays
+					GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
+					new StoreInst(global_id, gep, false, call);
+					gep = GetElementPtrInst::Create(arg_local_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
+					new StoreInst(local_id, gep, false, call);
+
+					// reconstruct global ids of scalar instances and put into vector for scattered access
+					Instruction* global_id_split_SIMD = NULL;
+					if (i == simd_dim) {
+						// global_id_split_SIMD = global_id * 4 + <0, 1, 2, 3>
+						Value* nextElem = BinaryOperator::Create(Instruction::Mul, global_id, ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH)), "", call);
+						global_id_split_SIMD = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
+						std::vector<Constant*> consts;
+						consts.push_back(ConstantInt::get(context, APInt(32, 0)));
+						// replicate
+						for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
+							global_id_split_SIMD = InsertElementInst::Create(global_id_split_SIMD, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
+							consts.push_back(ConstantInt::get(context, APInt(32, j)));
+						}
+						// use vector-add with <0, 1, 2, 3> instead of 4 scalar additions
+						Constant* addVec = ConstantVector::get(VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH), consts);
+						global_id_split_SIMD = BinaryOperator::Create(Instruction::Add, global_id_split_SIMD, addVec, "", call);
+						global_id_split_SIMD->setName("get_global_id_split_SIMD");
+					}
+
+					// set names and store values
+					if (i == simd_dim) {
+						global_id->setName("get_global_id_SIMD");
+						local_id->setName("get_local_id_SIMD");
+
+						// global/local split simd ids are supplied as separate arguments (-> do not store to id arrays / can not because of vector type)
+						arg_global_id_split_simd = global_id_split_SIMD;
+						arg_local_id_split_simd = local_id_split_SIMD;
+
+						global_ids[i] = global_id;
+						local_ids[i] = local_id;
+
+						//PACKETIZED_OPENCL_DRIVER_DEBUG(
+							//insertPrintf("global_id[i]: ", global_ids[i], true, call);
+							//insertPrintf("local_id[i]: ", local_ids[i], true, call);
+							//insertPrintf("global_id_split_simd: ", arg_global_id_split_simd, true, call);
+							//insertPrintf("local_id_split_simd: ", arg_local_id_split_simd, true, call);
+						//);
+					} else {
+						std::stringstream sstr2;
+						sstr2 << "global_id_" << i;
+						global_id->setName(sstr2.str());
+
+						std::stringstream sstr;
+						sstr << "local_id_" << i;
+						local_id->setName(sstr.str());
+
+						global_ids[i] = global_id; // not required for anything else but being supplied as parameter
+						local_ids[i] = local_id;
+
+						//PACKETIZED_OPENCL_DRIVER_DEBUG(
+							//insertPrintf("global_id[i]: ", global_ids[i], true, call);
+							//insertPrintf("local_id[i]: ", local_ids[i], true, call);
+						//);
+					}
+#endif
 				}
 
 
@@ -1339,6 +1452,10 @@ namespace PacketizedOpenCLDriver {
 				std::vector<Value*> params;
 				params.push_back(arg_global_id_array);
 				params.push_back(arg_local_id_array);
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+				params.push_back(arg_global_id_split_simd);
+				params.push_back(arg_local_id_split_simd);
+#endif
 				params.push_back(arg_num_groups_array);
 				params.push_back(arg_work_dim);
 				params.push_back(arg_global_size_array);
@@ -1347,6 +1464,10 @@ namespace PacketizedOpenCLDriver {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n    params for new call:\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_global_id_array << "\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_local_id_array << "\n"; );
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_global_id_split_simd << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_local_id_split_simd << "\n"; );
+#endif
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_num_groups_array << "\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_work_dim << "\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_global_size_array << "\n"; );
@@ -1354,13 +1475,13 @@ namespace PacketizedOpenCLDriver {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_group_id_array << "\n"; );
 				// add normal parameters and live value struct param
 				//(= start at last special param idx +1 for callee)
-				for (unsigned i=8; i<call->getNumOperands(); ++i) {
+				for (unsigned i=10; i<call->getNumOperands(); ++i) {
 					Value* opV = call->getOperand(i);
 					params.push_back(opV);
 					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *opV << "\n"; );
 				}
 				CallInst* newCall = CallInst::Create(call->getCalledFunction(), params.begin(), params.end(), "", call);
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n    new call: " << *newCall << "\n"; );
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n    new call: " << *newCall << "\n\n"; );
 				call->replaceAllUsesWith(newCall);
 				call->eraseFromParent();
 
@@ -1373,7 +1494,7 @@ namespace PacketizedOpenCLDriver {
 					local_id_flat->setName(sstr.str());
 				}
 
-				PACKETIZED_OPENCL_DRIVER_DEBUG( insertPrintf("\ncontinuation ", ConstantInt::get(context, APInt(32, continuation_id)), true, callBB->getFirstNonPHI()); );
+				//PACKETIZED_OPENCL_DRIVER_DEBUG( insertPrintf("\ncontinuation ", ConstantInt::get(context, APInt(32, continuation_id)), true, callBB->getFirstNonPHI()); );
 
 				// adjust GEP-instructions to point to current localID's live value struct,
 				// e.g. GEP liveValueUnion, i32 0, i32 elementindex
@@ -1416,11 +1537,11 @@ namespace PacketizedOpenCLDriver {
 					gep->replaceAllUsesWith(newGEP);
 					gep->eraseFromParent();
 
-					PACKETIZED_OPENCL_DRIVER_DEBUG(
-						assert (newGEP->getNumUses() == 1);
-						Value* gepUse = newGEP->use_back();
-						insertPrintf("live value loaded: ", gepUse, true, newCall);
-					);
+					//PACKETIZED_OPENCL_DRIVER_DEBUG(
+						//assert (newGEP->getNumUses() == 1);
+						//Value* gepUse = newGEP->use_back();
+						//insertPrintf("live value loaded: ", gepUse, true, newCall);
+					//);
 				}
 
 				// Now do the exact same thing inside the continuation:
@@ -1441,6 +1562,7 @@ namespace PacketizedOpenCLDriver {
 		CallInst* someContinuationCall = cast<CallInst>(continuations.back()->use_back());
 		assert (someContinuationCall->getOperand(someContinuationCall->getNumOperands()-1));
 		Value* liveValueUnion = someContinuationCall->getOperand(someContinuationCall->getNumOperands()-1);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "liveValueUnion: " << *liveValueUnion << "\n"; );
 
 		assert (isa<AllocaInst>(liveValueUnion));
 		AllocaInst* alloca = cast<AllocaInst>(liveValueUnion);
@@ -1653,12 +1775,11 @@ namespace PacketizedOpenCLDriver {
 		llvm::Function* f_wrapper = NULL;
 
 		if (barrierFreeFunction) {
-			// inline continuation functions & optimize wrapper
-			PacketizedOpenCLDriver::inlineFunctionCalls(barrierFreeFunction, targetData);
-			PacketizedOpenCLDriver::optimizeFunction(barrierFreeFunction);
+			// NOTE: We must not optimize or inline anything yet,
+			// the wrapper is required as generated for loop generation!
 
-			PACKETIZED_OPENCL_DRIVER_DEBUG( verifyFunction(*barrierFreeFunction); );
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *barrierFreeFunction << "\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( verifyFunction(*barrierFreeFunction); );
 
 			f_SIMD->replaceAllUsesWith(barrierFreeFunction);
 			barrierFreeFunction->takeName(f_SIMD);
@@ -1685,7 +1806,7 @@ namespace PacketizedOpenCLDriver {
 			const std::string wrapper_name = strs.str();
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
-			const bool inlineCall = true; // inline call immediately
+			const bool inlineCall = true; // inline call immediately (and only this call)
 			f_wrapper = PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f_SIMD, module, inlineCall);
 			if (!f_wrapper) {
 				errs() << "FAILED!\nERROR: wrapper generation for kernel module failed!\n";
@@ -1708,7 +1829,7 @@ namespace PacketizedOpenCLDriver {
 			// - generate code for 3 generated special parameters in each loop
 			// - map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
 			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
-			PacketizedOpenCLDriver::generateSynchronizationLoopsInContinuations(num_dimensions, context, f_wrapper, continuations);
+			PacketizedOpenCLDriver::generateSynchronizationLoopsInContinuations(num_dimensions, simd_dim, context, f_wrapper, continuations);
 
 		} else {
 
