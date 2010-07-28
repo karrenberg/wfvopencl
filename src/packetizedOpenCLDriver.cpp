@@ -1658,7 +1658,8 @@ namespace PacketizedOpenCLDriver {
 			// - generate code for 3 generated special parameters in each loop
 			// - map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
 			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
-			PacketizedOpenCLDriver::generateSynchronizationLoopsInContinuations(num_dimensions, context, f_wrapper, continuations);
+			const int simd_dim = -1;
+			PacketizedOpenCLDriver::generateSynchronizationLoopsInContinuations(num_dimensions, simd_dim, context, f_wrapper, continuations);
 
 		} else {
 
