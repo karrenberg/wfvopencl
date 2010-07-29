@@ -550,7 +550,9 @@ private:
 		DEBUG_LA( domTree->print(outs(), mod); );
 #endif
 
+		// set arg_iterator to first live value arg (first args are special values
 		Function::arg_iterator A2 = continuation->arg_begin();
+		std::advance(A2, specialParams.size());
 		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A2) {
 			Value* liveVal = *it;
 			DEBUG_LA( outs() << "live value: " << *liveVal << "\n"; );
@@ -580,7 +582,7 @@ private:
 #else
 						if (isDominatedBy(useI, newInst)) continue;
 #endif
-						DEBUG_LA( outs() << "    is not dominated, will be replaced by argument!\n"; );
+						DEBUG_LA( outs() << "    is not dominated, will be replaced by argument: " << *A2 << "\n"; );
 						useI->replaceUsesOfWith(newInst, A2);
 					}
 					continue;

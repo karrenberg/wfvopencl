@@ -646,70 +646,6 @@ namespace PacketizedOpenCLDriver {
 		return max_dim;
 	}
 
-	// not required - each thread has its own live values ;)
-	// not finished anyway
-	//
-	// deprecated:
-	// before replacing calls, make sure we have a call to a callback
-	// function at EVERY USE. This is mandatory if we do not want to copy
-	// entire use-chains into different continuations later.
-	// The reason to do this is that a callback that is defined before but
-	// used after a barrier is considered a live value and thus is passed
-	// to the continuation instead of being "re-requested" per thread.
-	// This results in the first thread of the next continuation receiving
-	// the value of the last thread of the previous continuation instead of
-	// its own.
-	void replaceCallbackUsesByNewCallbacks(Function* f) {
-		for (Function::use_iterator U=f->use_begin(), UE=f->use_end(); U!=UE; ++U) {
-			if (!isa<CallInst>(U)) continue;
-			CallInst* call = cast<CallInst>(U);
-
-			std::vector<Instruction*> useVec;
-			// add all uses that are instructions
-			for (CallInst::use_iterator U2=call->use_begin(), UE2=call->use_end(); U2!=UE2; ++U2) {
-				if (!isa<Instruction>(U2)) continue;
-				useVec.push_back(cast<Instruction>(U2));
-			}
-
-			// add some special cases (e.g. if call result is used in cast operation before barrier
-			// and the cast is then used after barrier)
-			// iterate until fixpoint reached (evaluate useVec.end() each iteration)
-			for (std::vector<Instruction*>::iterator U2=useVec.begin(); U2!=useVec.end(); ++U2) {
-				assert (isa<Instruction>(*U2));
-				Instruction* useInst = cast<Instruction>(*U2);
-				for (Instruction::use_iterator U3=useInst->use_begin(), UE3=useInst->use_end(); U3!=UE3; ++U3) {
-					assert (isa<Instruction>(U3));
-					Instruction* useInst2 = cast<Instruction>(U3);
-					if (isa<CastInst>(useInst2)) useVec.push_back(useInst2);
-					// can we / do we want to support others, e.g. additions ?
-				}
-			}
-
-			// generate call to callback as a replacement for each use
-			for (std::vector<Instruction*>::iterator U2=useVec.begin(); U2!=useVec.end(); ) {
-				assert (isa<Instruction>(*U2));
-				Instruction* useInst = cast<Instruction>(*(U2++));
-
-				std::vector<Value*> args;
-				//for (CallInst::op_iterator OP=) //  unfinished
-				CallInst* newCall = CallInst::Create(f, args.begin(), args.end(), call->getName(), useInst);
-				useInst->replaceAllUsesWith(newCall);
-				useInst->eraseFromParent();
-
-				if (isa<CastInst>(useInst)) {
-					// we also have to copy the cast and use it
-					// (hope that there are no cast-chains that include incompatible types :p)
-					Instruction* newCast = useInst->clone();
-					newCast->moveBefore(newCall); // newCast has no parent
-					newCall->moveBefore(newCast); // move cast behind call
-					newCast->setOperand(0, newCall); // cast is supposed to cast the new value
-					newCall->replaceAllUsesWith(newCast);
-				}
-			}
-
-		}
-	}
-
 	// generate computation of "flattened" local id
 	// this is required to access the correct live value struct of each thread
 	// (all dimension's threads of the block are stored flattened in memory)
@@ -805,10 +741,13 @@ namespace PacketizedOpenCLDriver {
 
 		// load local_ids and local_sizes for the next computation
 		Argument* arg_local_id_array = ++continuation->arg_begin(); // 2nd argument
+		Function::arg_iterator tmpA = continuation->arg_begin();
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		Argument* arg_local_size_array = ++(++(++(++(++continuation->arg_begin())))); // 5th argument
+		std::advance(tmpA, 5); // 5th argument
+		Argument* arg_local_size_array = tmpA;
 #else
-		Argument* arg_local_size_array = ++(++(++(++(++(++(++continuation->arg_begin())))))); // 7th argument
+		std::advance(tmpA, 7); // 7th argument
+		Argument* arg_local_size_array = tmpA;
 #endif
 
 		Instruction** local_ids = new Instruction*[num_dimensions]();
@@ -1372,10 +1311,6 @@ namespace PacketizedOpenCLDriver {
 		// allocate array of size 'num_dimensions' for special parameters global_id, local_id
 		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimVal, "global_id_array", insertBefore);
 		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimVal, "local_id_array", insertBefore);
-#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		Value* arg_global_id_split_simd = NULL;
-		Value* arg_local_id_split_simd = NULL;
-#endif
 
 		unsigned continuation_id = 0;
 		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it, ++continuation_id) {
@@ -1408,6 +1343,8 @@ namespace PacketizedOpenCLDriver {
 						global_ids,
 						local_ids);
 #else
+				Value* arg_global_id_split_simd = NULL;
+				Value* arg_local_id_split_simd = NULL;
 				generateLoopsAroundCall(
 						call,
 						num_dimensions,
@@ -1436,18 +1373,22 @@ namespace PacketizedOpenCLDriver {
 				params.push_back(arg_global_size_array);
 				params.push_back(arg_local_size_array);
 				params.push_back(arg_group_id_array);
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n    params for new call:\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_global_id_array << "\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_local_id_array << "\n"; );
+
+				PACKETIZED_OPENCL_DRIVER_DEBUG(
+					outs() << "\n    params for new call:\n";
+					outs() << "     * " << *arg_global_id_array << "\n";
+					outs() << "     * " << *arg_local_id_array << "\n";
 #ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_global_id_split_simd << "\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_local_id_split_simd << "\n"; );
+					outs() << "     * " << *arg_global_id_split_simd << "\n";
+					outs() << "     * " << *arg_local_id_split_simd << "\n";
 #endif
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_num_groups_array << "\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_work_dim << "\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_global_size_array << "\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_local_size_array << "\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *arg_group_id_array << "\n"; );
+					outs() << "     * " << *arg_num_groups_array << "\n";
+					outs() << "     * " << *arg_work_dim << "\n";
+					outs() << "     * " << *arg_global_size_array << "\n";
+					outs() << "     * " << *arg_local_size_array << "\n";
+					outs() << "     * " << *arg_group_id_array << "\n";
+				);
+
 				// add normal parameters and live value struct param
 				//(= start at last special param idx +1 for callee)
 				for (unsigned i=params.size()+1; i<call->getNumOperands(); ++i) {
@@ -1456,10 +1397,10 @@ namespace PacketizedOpenCLDriver {
 					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *opV << "\n"; );
 				}
 				CallInst* newCall = CallInst::Create(call->getCalledFunction(), params.begin(), params.end(), "", call);
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n    new call: " << *newCall << "\n\n"; );
 				call->replaceAllUsesWith(newCall);
 				call->eraseFromParent();
 
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n    new call: " << *newCall << "\n\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n" << *continuation << "\n"; );
 
 				// adjust GEP-instructions to point to current localID's live value struct,
