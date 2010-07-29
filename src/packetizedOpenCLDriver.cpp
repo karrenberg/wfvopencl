@@ -982,83 +982,28 @@ namespace PacketizedOpenCLDriver {
 			//);
 		}
 	}
-
-	void generateBlockSizeLoopsForWrapper(Function* f, CallInst* call, const unsigned num_dimensions, const int simd_dim, LLVMContext& context, Module* module) {
-		assert (f && call);
-		assert (num_dimensions <= PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\ngenerating loop(s) over group size(s) in function '"
-				<< f->getNameStr() << "' around call to '" << call->getCalledFunction()->getNameStr() << "'...\n\n"; );
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
-
+	inline void generateLoopsAroundCall(
+			CallInst* call,
+			const unsigned num_dimensions,
+			const int simd_dim,
+			Instruction** local_sizes,
+			Instruction** group_ids,
+			Value* arg_global_id_array,
+			Value* arg_local_id_array,
+			LLVMContext& context,
+			Instruction** global_ids,
+			Instruction** local_ids,
+			Value** arg_global_id_split_simd=NULL,
+			Value** arg_local_id_split_simd=NULL
+	) {
+		assert (call && local_sizes && group_ids && global_ids && local_ids);
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+		assert (arg_global_id_split_simd && arg_local_id_split_simd);
+#endif
+		
+		Function* f = call->getParent()->getParent();
 		Instruction* insertBefore = call;
 
-		Function::arg_iterator A = f->arg_begin(); // arg_struct
-		Value* arg_work_dim = ++A;
-		Value* arg_global_size_array = ++A;
-		Value* arg_local_size_array = ++A;
-		Value* arg_group_id_array = ++A;
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  work_dim arg   : " << *arg_work_dim << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_size arg: " << *arg_global_size_array << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_size arg : " << *arg_local_size_array << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
-
-		// allocate array of size 'num_dimensions' for special parameter num_groups
-		//Value* arg_num_groups_array = UndefValue::get(ArrayType::get(Type::getInt32Ty(context), num_dimensions)); // TODO: maybe later...
-		AllocaInst* arg_num_groups_array = new AllocaInst(Type::getInt32Ty(context), ConstantInt::get(context,  APInt(32, num_dimensions)), "num_groups_array", insertBefore);
-
-		// load/compute special values for each dimension
-		Instruction** global_sizes = new Instruction*[num_dimensions]();
-		Instruction** local_sizes = new Instruction*[num_dimensions]();
-		Instruction** group_ids = new Instruction*[num_dimensions]();
-		Instruction** num_groupss = new Instruction*[num_dimensions]();
-
-		createGroupConstantSpecialParamLoads(
-				num_dimensions,
-				context,
-				arg_work_dim,
-				arg_global_size_array,
-				arg_local_size_array,
-				arg_group_id_array,
-				arg_num_groups_array,
-				global_sizes,
-				local_sizes,
-				group_ids,
-				num_groupss,
-				insertBefore);
-
-		Instruction** global_ids = new Instruction*[num_dimensions](); // not required for anything else but being supplied as parameter
-		Instruction** local_ids = new Instruction*[num_dimensions]();
-
-		// allocate array of size 'num_dimensions' for special parameters global_id, local_id
-		Value* numDimVal = ConstantInt::get(context,  APInt(32, num_dimensions));
-		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimVal, "global_id_array", insertBefore);
-		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimVal, "local_id_array", insertBefore);
-#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-		Value* arg_global_id_split_simd = NULL;
-		Value* arg_local_id_split_simd = NULL;
-#endif
-
-		assert (f->getBasicBlockList().size() == 1);
-
-		// split parent at call
-		BasicBlock* tmpEntryBB = call->getParent();
-		BasicBlock* tmpExitBB = BasicBlock::Create(context, "exit", f);
-		ReturnInst::Create(context, tmpExitBB);
-		assert (isa<ReturnInst>(tmpEntryBB->getTerminator()));
-		assert (cast<ReturnInst>(tmpEntryBB->getTerminator())->getReturnValue() == NULL);
-		tmpEntryBB->getTerminator()->eraseFromParent();
-		BranchInst::Create(tmpExitBB, tmpEntryBB); // create new terminator for entry block
-
-		tmpEntryBB->splitBasicBlock(call, tmpEntryBB->getNameStr()+".header"); // res = tmpHeaderBB
-
-		// now we have three blocks :)
-
-		// generate loop(s)
-		// iterate backwards in order to have loops ordered by dimension
-		// (highest dimension = innermost loop)
-		// TODO: move this loop to own function?
 		for (int i=num_dimensions-1; i>=0; --i) {
 			Value* local_size = local_sizes[i];
 			Value* group_id = group_ids[i];
@@ -1152,7 +1097,7 @@ namespace PacketizedOpenCLDriver {
 			gep = GetElementPtrInst::Create(arg_local_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
 			new StoreInst(local_id, gep, false, call);
 
-			global_ids[i] = global_id; // not required for anything else but being supplied as parameter
+			global_ids[i] = global_id;
 			local_ids[i] = local_id;
 			
 			//PACKETIZED_OPENCL_DRIVER_DEBUG(
@@ -1195,8 +1140,8 @@ namespace PacketizedOpenCLDriver {
 				local_id->setName("get_local_id_SIMD");
 
 				// global/local split simd ids are supplied as separate arguments (-> do not store to id arrays / can not because of vector type)
-				arg_global_id_split_simd = global_id_split_SIMD;
-				arg_local_id_split_simd = local_id_split_SIMD;
+				*arg_global_id_split_simd = global_id_split_SIMD;
+				*arg_local_id_split_simd = local_id_split_SIMD;
 
 				global_ids[i] = global_id;
 				local_ids[i] = local_id;
@@ -1227,6 +1172,110 @@ namespace PacketizedOpenCLDriver {
 #endif
 
 		}
+	}
+
+	void generateBlockSizeLoopsForWrapper(Function* f, CallInst* call, const unsigned num_dimensions, const int simd_dim, LLVMContext& context, Module* module) {
+		assert (f && call);
+		assert (f == call->getParent()->getParent());
+		assert (num_dimensions <= PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\ngenerating loop(s) over group size(s) in function '"
+				<< f->getNameStr() << "' around call to '" << call->getCalledFunction()->getNameStr() << "'...\n\n"; );
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
+
+		Instruction* insertBefore = call;
+
+		Function::arg_iterator A = f->arg_begin(); // arg_struct
+		Value* arg_work_dim = ++A;
+		Value* arg_global_size_array = ++A;
+		Value* arg_local_size_array = ++A;
+		Value* arg_group_id_array = ++A;
+
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  work_dim arg   : " << *arg_work_dim << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_size arg: " << *arg_global_size_array << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_size arg : " << *arg_local_size_array << "\n"; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
+
+		// allocate array of size 'num_dimensions' for special parameter num_groups
+		//Value* arg_num_groups_array = UndefValue::get(ArrayType::get(Type::getInt32Ty(context), num_dimensions)); // TODO: maybe later...
+		AllocaInst* arg_num_groups_array = new AllocaInst(Type::getInt32Ty(context), ConstantInt::get(context,  APInt(32, num_dimensions)), "num_groups_array", insertBefore);
+
+		// load/compute special values for each dimension
+		Instruction** global_sizes = new Instruction*[num_dimensions]();
+		Instruction** local_sizes = new Instruction*[num_dimensions]();
+		Instruction** group_ids = new Instruction*[num_dimensions]();
+		Instruction** num_groupss = new Instruction*[num_dimensions]();
+
+		createGroupConstantSpecialParamLoads(
+				num_dimensions,
+				context,
+				arg_work_dim,
+				arg_global_size_array,
+				arg_local_size_array,
+				arg_group_id_array,
+				arg_num_groups_array,
+				global_sizes,
+				local_sizes,
+				group_ids,
+				num_groupss,
+				insertBefore);
+
+		Instruction** global_ids = new Instruction*[num_dimensions](); // not required for anything else but being supplied as parameter
+		Instruction** local_ids = new Instruction*[num_dimensions]();
+
+		// allocate array of size 'num_dimensions' for special parameters global_id, local_id
+		Value* numDimVal = ConstantInt::get(context,  APInt(32, num_dimensions));
+		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimVal, "global_id_array", insertBefore);
+		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimVal, "local_id_array", insertBefore);
+
+		assert (f->getBasicBlockList().size() == 1);
+
+		// split parent at call
+		BasicBlock* tmpEntryBB = call->getParent();
+		BasicBlock* tmpExitBB = BasicBlock::Create(context, "exit", f);
+		ReturnInst::Create(context, tmpExitBB);
+		assert (isa<ReturnInst>(tmpEntryBB->getTerminator()));
+		assert (cast<ReturnInst>(tmpEntryBB->getTerminator())->getReturnValue() == NULL);
+		tmpEntryBB->getTerminator()->eraseFromParent();
+		BranchInst::Create(tmpExitBB, tmpEntryBB); // create new terminator for entry block
+
+		tmpEntryBB->splitBasicBlock(call, tmpEntryBB->getNameStr()+".header"); // res = tmpHeaderBB
+
+		// now we have three blocks :)
+
+		// generate loop(s)
+		// iterate backwards in order to have loops ordered by dimension
+		// (highest dimension = innermost loop)
+		// TODO: move this loop to own function?
+#ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+		generateLoopsAroundCall(
+				call,
+				num_dimensions,
+				simd_dim,
+				local_sizes,
+				group_ids,
+				arg_global_id_array,
+				arg_local_id_array,
+				context,
+				global_ids,
+				local_ids);
+#else
+		Value* arg_global_id_split_simd = NULL;
+		Value* arg_local_id_split_simd = NULL;
+		generateLoopsAroundCall(
+				call,
+				num_dimensions,
+				simd_dim,
+				local_sizes,
+				group_ids,
+				arg_global_id_array,
+				arg_local_id_array,
+				context,
+				global_ids,
+				local_ids,
+				&arg_global_id_split_simd,
+				&arg_local_id_split_simd);
+#endif
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "debug_block_wrapper_noinline.ll"); );
 
@@ -1328,7 +1377,6 @@ namespace PacketizedOpenCLDriver {
 		Value* arg_local_id_split_simd = NULL;
 #endif
 
-
 		unsigned continuation_id = 0;
 		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it, ++continuation_id) {
 			Function* continuation = *it;
@@ -1347,179 +1395,33 @@ namespace PacketizedOpenCLDriver {
 
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    generating loop(s) around call: " << *call << "\n"; );
 
-				// generate loop(s)
-				// iterate backwards in order to have loops ordered by dimension
-				// (highest dimension = innermost loop)
-				// TODO: move to own function
-				for (int i=num_dimensions-1; i>=0; --i) {
-					Value* local_size = local_sizes[i];
-					Value* group_id = group_ids[i];
-					//Value* global_size = global_sizes[i];
-					//Value* num_groups = num_groupss[i];
-
-					// split parent before first instruction (all liveValueUnion-extraction code has to be inside loop)
-					BasicBlock* headerBB = call->getParent();
-
-					assert (headerBB->getUniquePredecessor());
-					BasicBlock* entryBB = headerBB->getUniquePredecessor(); // header of while loop (switch) -> header of current innermost loop
-					BasicBlock* exitBB  = *succ_begin(headerBB); // latch of while-loop -> latch of current innermost loop
-
-					BasicBlock* loopBB   = headerBB->splitBasicBlock(headerBB->begin(), headerBB->getNameStr()+".loop");
-					BasicBlock* latchBB  = BasicBlock::Create(context, headerBB->getNameStr()+".loop.end", f, loopBB);
-
-					// Block headerBB
-					const Type* counterType = Type::getInt32Ty(context);
-					Argument* fwdref = new Argument(counterType);
-					PHINode* loopCounterPhi = PHINode::Create(counterType, "", headerBB->getFirstNonPHI());
-					loopCounterPhi->reserveOperandSpace(2);
-					loopCounterPhi->addIncoming(fwdref, latchBB);
-					loopCounterPhi->addIncoming(Constant::getNullValue(counterType), entryBB);
-
-					Instruction* local_id = loopCounterPhi;
-
-#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-					ConstantInt* simdWidthVal = ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH));
-
-					// reconstruct local ids of scalar instances and put into vector for scattered access
-					const Type* local_id_type = NULL;
-					if (i == simd_dim) local_id_type = VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
-					else local_id_type = counterType;
-
-					Instruction* local_id_split_SIMD = NULL;
-					if (i == simd_dim) {
-						Value* nextElem = BinaryOperator::Create(Instruction::Mul, local_id, simdWidthVal, "", call); // name = local_id_simd_0
-						local_id_split_SIMD = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
-						std::vector<Constant*> consts;
-						consts.push_back(ConstantInt::get(context, APInt(32, 0)));
-						for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
-							local_id_split_SIMD = InsertElementInst::Create(local_id_split_SIMD, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
-							consts.push_back(ConstantInt::get(context, APInt(32, j)));
-						}
-						// use vector-add with <0, 1, 2, 3> instead of 4 scalar additions
-						Constant* addVec = ConstantVector::get(VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH), consts);
-						local_id_split_SIMD = BinaryOperator::Create(Instruction::Add, local_id_split_SIMD, addVec, "", call);
-						local_id_split_SIMD->setName("get_local_id_split_SIMD");
-					}
-
-					// compute number of iterations for the simd dim (= local_size / 4)
-					//Value* local_size_orig = local_size;
-					if (i == simd_dim) local_size = BinaryOperator::Create(Instruction::UDiv, local_size, simdWidthVal, "local_size_SIMD", call);
-#endif
-
-					// Block loopBB
-					// holds live value extraction and continuation-call
-					loopBB->getTerminator()->eraseFromParent();
-					BranchInst::Create(latchBB, loopBB);
-
-					// Block latchBB
-					BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
-					ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, loopCounterInc, local_size, "exitcond");
-					BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
-
-					// Resolve Forward References
-					fwdref->replaceAllUsesWith(loopCounterInc); delete fwdref;
-
-					assert (num_dimensions > 0);
-					if (i == (int)num_dimensions-1) {
-						// replace uses of loopBB in phis of exitBB with outermost latchBB
-						for (BasicBlock::iterator I=exitBB->begin(), IE=exitBB->end(); I!=IE; ++I) {
-							if (exitBB->getFirstNonPHI() == I) break;
-							PHINode* phi = cast<PHINode>(I);
-
-							Value* val = phi->getIncomingValueForBlock(loopBB);
-							phi->removeIncomingValue(loopBB, false);
-							phi->addIncoming(val, latchBB);
-						}
-					}
-
-					// generate special parameter global_id right before call
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-					std::stringstream sstr2;
-					sstr2 << "global_id_" << i << "_cont" << continuation_id;
-					Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
-					global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, sstr2.str(), call);
-
-					// save special parameters global_id, local_id to arrays
-					GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
-					new StoreInst(global_id, gep, false, call);
-					gep = GetElementPtrInst::Create(arg_local_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
-					new StoreInst(local_id, gep, false, call);
-
-					global_ids[i] = global_id; // not required for anything else but being supplied as parameter
-					local_ids[i] = local_id;
-
-					//PACKETIZED_OPENCL_DRIVER_DEBUG(
-						//insertPrintf("global_id[i]: ", global_ids[i], true, call);
-						//insertPrintf("local_id[i]: ", local_ids[i], true, call);
-					//);
+				generateLoopsAroundCall(
+						call,
+						num_dimensions,
+						simd_dim,
+						local_sizes,
+						group_ids,
+						arg_global_id_array,
+						arg_local_id_array,
+						context,
+						global_ids,
+						local_ids);
 #else
-					// compute global id for consecutive access
-					Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
-					global_id = BinaryOperator::Create(Instruction::Add, global_id, local_id, "", call);
-
-					// save special parameters global_id, local_id to arrays
-					GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
-					new StoreInst(global_id, gep, false, call);
-					gep = GetElementPtrInst::Create(arg_local_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
-					new StoreInst(local_id, gep, false, call);
-
-					// reconstruct global ids of scalar instances and put into vector for scattered access
-					Instruction* global_id_split_SIMD = NULL;
-					if (i == simd_dim) {
-						// global_id_split_SIMD = global_id * 4 + <0, 1, 2, 3>
-						Value* nextElem = BinaryOperator::Create(Instruction::Mul, global_id, ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH)), "", call);
-						global_id_split_SIMD = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
-						std::vector<Constant*> consts;
-						consts.push_back(ConstantInt::get(context, APInt(32, 0)));
-						// replicate
-						for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
-							global_id_split_SIMD = InsertElementInst::Create(global_id_split_SIMD, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
-							consts.push_back(ConstantInt::get(context, APInt(32, j)));
-						}
-						// use vector-add with <0, 1, 2, 3> instead of 4 scalar additions
-						Constant* addVec = ConstantVector::get(VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH), consts);
-						global_id_split_SIMD = BinaryOperator::Create(Instruction::Add, global_id_split_SIMD, addVec, "", call);
-						global_id_split_SIMD->setName("get_global_id_split_SIMD");
-					}
-
-					// set names and store values
-					if (i == simd_dim) {
-						global_id->setName("get_global_id_SIMD");
-						local_id->setName("get_local_id_SIMD");
-
-						// global/local split simd ids are supplied as separate arguments (-> do not store to id arrays / can not because of vector type)
-						arg_global_id_split_simd = global_id_split_SIMD;
-						arg_local_id_split_simd = local_id_split_SIMD;
-
-						global_ids[i] = global_id;
-						local_ids[i] = local_id;
-
-						//PACKETIZED_OPENCL_DRIVER_DEBUG(
-							//insertPrintf("global_id[i]: ", global_ids[i], true, call);
-							//insertPrintf("local_id[i]: ", local_ids[i], true, call);
-							//insertPrintf("global_id_split_simd: ", arg_global_id_split_simd, true, call);
-							//insertPrintf("local_id_split_simd: ", arg_local_id_split_simd, true, call);
-						//);
-					} else {
-						std::stringstream sstr2;
-						sstr2 << "global_id_" << i;
-						global_id->setName(sstr2.str());
-
-						std::stringstream sstr;
-						sstr << "local_id_" << i;
-						local_id->setName(sstr.str());
-
-						global_ids[i] = global_id; // not required for anything else but being supplied as parameter
-						local_ids[i] = local_id;
-
-						//PACKETIZED_OPENCL_DRIVER_DEBUG(
-							//insertPrintf("global_id[i]: ", global_ids[i], true, call);
-							//insertPrintf("local_id[i]: ", local_ids[i], true, call);
-						//);
-					}
+				generateLoopsAroundCall(
+						call,
+						num_dimensions,
+						simd_dim,
+						local_sizes,
+						group_ids,
+						arg_global_id_array,
+						arg_local_id_array,
+						context,
+						global_ids,
+						local_ids,
+						&arg_global_id_split_simd,
+						&arg_local_id_split_simd);
 #endif
-				}
-
 
 				// replace undef arguments to function call by special parameters
 				std::vector<Value*> params;
