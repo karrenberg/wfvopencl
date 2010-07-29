@@ -810,7 +810,7 @@ private:
 			assert (barrierInfo->parentBlock->getParent() == newF);
 
 			std::stringstream sstr;
-			sstr << functionName << "_cont_" << barrierIndex;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
+			sstr << functionName << "_cont_" << barrierIndex;
 			
 			createContinuation(barrierInfo, sstr.str(), targetData);
 
