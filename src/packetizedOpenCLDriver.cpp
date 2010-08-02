@@ -1120,7 +1120,7 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\ngenerating loop(s) over group size(s) in function '"
 				<< f->getNameStr() << "' around call to '" << call->getCalledFunction()->getNameStr() << "'...\n\n"; );
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
 
 		Instruction* insertBefore = call;
 
@@ -1319,7 +1319,7 @@ namespace PacketizedOpenCLDriver {
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\n  generating loop(s) for continuation " << continuation_id << ": '" << continuation->getNameStr() << "'...\n"; );
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    has " << continuation->getNumUses() << " uses!\n"; );
 			
-			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *continuation << "\n"; );
+			//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *continuation << "\n"; );
 
 			assert (!continuation->use_empty());
 
