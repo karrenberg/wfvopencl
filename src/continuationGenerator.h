@@ -35,7 +35,7 @@
 #include <llvm/Pass.h>
 #include <llvm/Function.h>
 #include <llvm/Module.h>
-#include <llvm/Analysis/Dominators.h>
+#include <llvm/Analysis/LoopInfo.h>
 
 #include "livenessAnalyzer.h"
 #include "llvmTools.hpp"
@@ -81,19 +81,28 @@ public:
 
 	virtual bool runOnFunction(Function &f) {
 
+		// get loop info
+		loopInfo = &getAnalysis<LoopInfo>();
+
 		// get liveness information
 		livenessAnalyzer = &getAnalysis<LivenessAnalyzer>();
 
 		DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 		DEBUG_LA( outs() << "generating continuations...\n"; );
-		DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+		DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
 		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(&f, "debug_before_barriers.ll"); );
 
 		assert (f.getParent() && "function has to have a valid parent module!");
 		TargetData* targetData = new TargetData(f.getParent());
 
-		barrierFreeFunction = eliminateBarriers(&f, specialParams, specialParamNames, targetData);
+		BarrierMapType barriers;
+		unsigned maxBarrierDepth  = 0;
+		const unsigned numBarriers = getBarrierInfo(&f, barriers, maxBarrierDepth);
+		DEBUG_LA( outs() << "  number of barriers in function : " << numBarriers << "\n"; );
+		DEBUG_LA( outs() << "  maximum block depth of barriers: " << maxBarrierDepth << "\n\n"; );
+
+		barrierFreeFunction = eliminateBarriers(&f, barriers, numBarriers, maxBarrierDepth, specialParams, specialParamNames, targetData);
 
 		DEBUG_LA( verifyModule(*f.getParent()); );
 
@@ -105,9 +114,16 @@ public:
 		return barrierFreeFunction != NULL; // if barrierFreeFunction does not exist, nothing has changed
 	}
 
-	void print(raw_ostream& o, const Module *M) const {}
+	void print(raw_ostream& o, const Module *M) const {
+//		ContinuationVecType contVec;
+//		getContinuations(contVec);
+//		for (ContinuationVecType::const_iterator it=contVec.begin(), E=contVec.end(); it!=E; ++it) {
+//			Function* continuation = *it;
+//			continuation->viewCFG();
+//		}
+	}
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-		//AU.addRequired<LoopInfo>();
+		AU.addRequired<LoopInfo>();
 		AU.addRequired<LivenessAnalyzer>();
 	}
 	void releaseMemory() {}
@@ -134,6 +150,7 @@ public:
 
 private:
 	const bool verbose;
+	LoopInfo* loopInfo;
 	LivenessAnalyzer* livenessAnalyzer;
 	Function* barrierFreeFunction;
 
@@ -144,16 +161,63 @@ private:
 
 	DenseMap<unsigned, BarrierInfo*> continuationMap;
 
-	typedef DenseMap<unsigned, SmallVector<BarrierInfo*, 4>* > BarrierMapType;
+	//typedef DenseMap<unsigned, SmallVector<BarrierInfo*, 4>* > BarrierMapType;
+	typedef SmallVector<BarrierInfo*, 4> BarrierMapType;
 
-	unsigned collectBarriersDFS(BasicBlock* block, unsigned depth, BarrierMapType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
+	void mapBarrierInfo(Function* f, Function* newF, DenseMap<const Value*, Value*>& valueMap, BarrierMapType& barriers, const unsigned maxBarrierDepth) {
+		assert (f && newF);
+		assert (!valueMap.empty());
+		DEBUG_LA( outs() << "\nmapping barrier info from function '" << f->getNameStr() << "' to new function '" << newF->getNameStr() << "'...\n"; );
+
+#if 0
+		for (int depth=maxBarrierDepth; depth >= 0; --depth) {
+			DEBUG_LA( outs() << "mapping barriers of block depth " << depth << "...\n"; );
+			BarrierMapType::iterator it = barriers.find(depth);
+			if (it == barriers.end()) continue; // no barriers at this depth
+
+			SmallVector<BarrierInfo*, 4>& depthVector = *(it->second);
+
+			assert (depthVector.size() > 0);
+			assert (depthVector.size() <= barriers.size());
+
+			for (int i=depthVector.size()-1; i >= 0; --i) {
+				BarrierInfo* binfo = depthVector[i];
+				const BasicBlock* oldBB = binfo->parentBlock;
+				binfo->barrier = cast<CallInst>(valueMap[binfo->barrier]);
+				binfo->parentBlock = cast<BasicBlock>(valueMap[oldBB]);
+				DEBUG_LA( outs() << "  mapped barrier: " << *binfo->barrier << "\n"; );
+				DEBUG_LA( outs() << "    parent block: " << oldBB->getNameStr() << " -> " << binfo->parentBlock->getNameStr() << "\n"; );
+			}
+		}
+#else
+		for (BarrierMapType::iterator it=barriers.begin(), E=barriers.end(); it!=E; ++it) {
+			BarrierInfo* binfo = *it;
+			const BasicBlock* oldBB = binfo->parentBlock;
+			binfo->barrier = cast<CallInst>(valueMap[binfo->barrier]);
+			binfo->parentBlock = cast<BasicBlock>(valueMap[oldBB]);
+			DEBUG_LA( outs() << "  mapped barrier: " << *binfo->barrier << "\n"; );
+			DEBUG_LA( outs() << "    parent block: " << oldBB->getNameStr() << " -> " << binfo->parentBlock->getNameStr() << "\n"; );
+		}
+#endif
+	}
+
+#if 0
+	unsigned collectBarriersDFSOLD(BasicBlock* block, unsigned depth, BarrierMapType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
 		assert (block);
 		if (visitedBlocks.find(block) != visitedBlocks.end()) return 0;
 		visitedBlocks.insert(block);
 
 		unsigned numBarriers = 0;
+		DEBUG_LA( outs() << "collectBarriersDFS(" << block->getNameStr() << ", " << depth << ")\n"; );
 
-		
+		for (succ_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
+			BasicBlock* succBB = *S;
+
+			numBarriers += collectBarriersDFS(succBB, depth+1, barriers, maxBarrierDepth, visitedBlocks);
+			if (S == succ_begin(block)) break;
+		}
+		DEBUG_LA( if (numBarriers > 0) outs() << "  successors of " << block->getNameStr() << " have " << numBarriers << " barriers!\n"; );
+
 		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
 			if (!isa<CallInst>(I)) continue;
 			CallInst* call = cast<CallInst>(I);
@@ -179,11 +243,68 @@ private:
 			if (depth > maxBarrierDepth) maxBarrierDepth = depth;
 		}
 
+		DEBUG_LA( outs() << "collectBarriersDFS(" << block->getNameStr() << ", " << depth << ") -> " << numBarriers << "\n"; );
+
+		return numBarriers;
+	}
+#endif
+	unsigned collectBarriersDFS(BasicBlock* block, unsigned depth, BarrierMapType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
+		assert (block);
+		if (visitedBlocks.find(block) != visitedBlocks.end()) return 0;
+		visitedBlocks.insert(block);
+
+		unsigned numBarriers = 0;
+		DEBUG_LA( outs() << "collectBarriersDFS(" << block->getNameStr() << ", " << depth << ")\n"; );
+
+		Loop* loop = loopInfo->getLoopFor(block);
+
+		// if this is the header of a loop, recurse into exit-blocks of loop
+		if (loop && loop->getHeader() == block) {
+			SmallVector<BasicBlock*, 4> exitBlocks;
+			loop->getExitBlocks(exitBlocks);
+
+			for (SmallVector<BasicBlock*, 4>::iterator it=exitBlocks.begin(), E=exitBlocks.end(); it!=E; ++it) {
+				BasicBlock* exitBB = *it;
+				numBarriers += collectBarriersDFS(exitBB, depth+1, barriers, maxBarrierDepth, visitedBlocks);
+			}
+			DEBUG_LA( outs() << "  successors of loop with header " << block->getNameStr() << " have " << numBarriers << " barriers!\n"; );
+		}
+
 		for (succ_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
 			BasicBlock* succBB = *S;
-
 			numBarriers += collectBarriersDFS(succBB, depth+1, barriers, maxBarrierDepth, visitedBlocks);
 		}
+		DEBUG_LA( if (numBarriers > 0) outs() << "  successors of " << block->getNameStr() << " have " << numBarriers << " barriers!\n"; );
+
+		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+			if (!isa<CallInst>(I)) continue;
+			CallInst* call = cast<CallInst>(I);
+
+			const Function* callee = call->getCalledFunction();
+			if (!callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) continue;
+
+			++numBarriers;
+
+			BarrierInfo* bi = new BarrierInfo(call, block, depth);
+#if 0
+			// we fetch the bucket for this depth at each barrier to prevent
+			// generating a bucket if no barrier exists
+			if (barriers.find(depth) == barriers.end()) {
+				// no bucket for this depth exists yet -> generate and store
+				SmallVector<BarrierInfo*, 4>* depthVector = new SmallVector<BarrierInfo*, 4>();
+				barriers[depth] = depthVector;
+			}
+
+			// fetch bucket for this depth and append barrier info
+			barriers[depth]->push_back(bi);
+#else
+			barriers.push_back(bi);
+#endif
+
+			if (depth > maxBarrierDepth) maxBarrierDepth = depth;
+		}
+
+		DEBUG_LA( outs() << "collectBarriersDFS(" << block->getNameStr() << ", " << depth << ") -> " << numBarriers << "\n"; );
 
 		return numBarriers;
 	}
@@ -200,6 +321,39 @@ private:
 		}
 	}
 
+	inline void printBarriers(BarrierMapType& barriers) {
+#if 0
+		for (BarrierMapType::iterator it=barriers.begin(), E=barriers.end(); it!=E; ++it) {
+			const unsigned depth = it->first;
+			SmallVector<BarrierInfo*, 4>* vec = it->second;
+			outs() << "barriers at depth " << depth << ":\n";
+			for (SmallVector<BarrierInfo*, 4>::iterator it2=vec->begin(), E2=vec->end(); it2!=E2; ++it2) {
+				BarrierInfo* binfo = *it2;
+				outs() << " * " << *binfo->barrier << "\n";
+			}
+		}
+#else
+		for (BarrierMapType::iterator it=barriers.begin(), E=barriers.end(); it!=E; ++it) {
+			BarrierInfo* binfo = *it;
+			outs() << " * " << *binfo->barrier << "\n";
+		}
+#endif
+		outs() << "\n";
+	}
+	// Traverse the function in DFS and collect all barriers in post-reversed order.
+	// Count how many barriers the function has and assign an id to each barrier
+	inline unsigned getBarrierInfo(Function* f, BarrierMapType& barriers, unsigned& maxBarrierDepth) {
+		std::set<BasicBlock*> visitedBlocks;
+		const unsigned numBarriers = collectBarriersDFS(&f->getEntryBlock(), 0, barriers, maxBarrierDepth, visitedBlocks);
+
+		DEBUG_LA(
+			outs() << "\nnum barriers: " << numBarriers << "\n";
+			printBarriers(barriers);
+			//f->viewCFG();
+		);
+
+		return numBarriers;
+	}
 
 #ifndef USE_LLVM_DOMTREE_PASS
 	// We need these two functions because requiring domTree is not enoug
@@ -662,7 +816,7 @@ private:
 		}
 	}
 	*/
-	Function* eliminateBarriers(Function* f, SpecialParamVecType& specialParams, SpecialParamNameVecType& specialParamNames, TargetData* targetData) {
+	Function* eliminateBarriers(Function* f, BarrierMapType& barriers, const unsigned numBarriers, const unsigned maxBarrierDepth, SpecialParamVecType& specialParams, SpecialParamNameVecType& specialParamNames, TargetData* targetData) {
 		assert (f && targetData);
 		assert (f->getReturnType()->isVoidTy());
 		Module* mod = f->getParent();
@@ -710,10 +864,6 @@ private:
 			A->takeName(A2);
 			++A2;
 		}
-		//for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A, ++A2) {
-			//valueMap[A] = A2;
-			//A2->takeName(A);
-		//}
 		SmallVector<ReturnInst*, 2> returns;
 
 		CloneAndPruneFunctionInto(newF, f, valueMap, returns, ".");
@@ -724,29 +874,30 @@ private:
 			ReturnInst::Create(context, ConstantInt::get(fTypeNew->getReturnType(), PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID, true), retBlock);
 		}
 
+		DEBUG_LA( outs() << "\n" << *newF << "\n"; );
 		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(newF, "debug_cont_begin_beforesplitting.ll"); );
 
 		// map the live values of the original function to the new one
 		livenessAnalyzer->mapLiveValues(f, newF, valueMap);
 
-
+#if 0
 		//--------------------------------------------------------------------//
 		// Traverse the function in DFS and collect all barriers in post-reversed order.
 		// Count how many barriers the function has and assign an id to each barrier
 		//--------------------------------------------------------------------//
-		BarrierMapType barriers; // depth -> [ infos ] mapping
+		BarrierMapType _barriers; // depth -> [ infos ] mapping
 		std::set<BasicBlock*> visitedBlocks;
-		unsigned maxBarrierDepth = 0;
-		const unsigned numBarriers = collectBarriersDFS(&newF->getEntryBlock(), 0, barriers, maxBarrierDepth, visitedBlocks);
+		unsigned _maxBarrierDepth = 0;
+		const unsigned _numBarriers = collectBarriersDFS(&newF->getEntryBlock(), 0, _barriers, _maxBarrierDepth, visitedBlocks);
 
-		if (numBarriers == 0) {
+		if (_numBarriers == 0) {
 			DEBUG_LA( outs() << "  no barriers found in function!\n"; );
 			newF->eraseFromParent();
 			return NULL;
 		}
 
-		DEBUG_LA( outs() << "  number of barriers in function : " << numBarriers << "\n"; );
-		DEBUG_LA( outs() << "  maximum block depth of barriers: " << maxBarrierDepth << "\n\n"; );
+		DEBUG_LA( outs() << "  number of barriers in function : " << _numBarriers << "\n"; );
+		DEBUG_LA( outs() << "  maximum block depth of barriers: " << _maxBarrierDepth << "\n\n"; );
 
 		// for some reason, we can't put a DEBUG_LA(); around this:
 		//for (BarrierMapType::iterator it=barriers.begin(), E=barriers.end(); it!=E; ++it) {
@@ -758,8 +909,11 @@ private:
 				//outs() << " * " << *binfo->barrier << "\n";
 			//}
 		//}
+#else
+		// map the barriers of the original function to the new one
+		mapBarrierInfo(f, newF, valueMap, barriers, maxBarrierDepth);
 
-		DEBUG_LA( outs() << "\n" << *newF << "\n"; );
+#endif
 
 		//--------------------------------------------------------------------//
 		// Generate order in which barriers should be replaced:
@@ -770,6 +924,7 @@ private:
 		DenseMap<CallInst*, unsigned> barrierIndices;
 		SmallVector<BarrierInfo*, 4> orderedBarriers;
 
+#if 0
 		// 0 is reserved for 'start'-function, so the last index is numBarriers and 0 is not used
 		unsigned barrierIndex = numBarriers; 
 		for (int depth=maxBarrierDepth; depth >= 0; --depth) {
@@ -790,8 +945,22 @@ private:
 				binfo->id = barrierIndex; // set id
 				barrierIndices[binfo->barrier] = barrierIndex--; // save barrier -> id mapping
 				DEBUG_LA( outs() << "  added barrier " << i << " with id " << barrierIndex+1 << ": " << *binfo->barrier << "\n"; );
+				DEBUG_LA( outs() << "    parent block: " << binfo->parentBlock->getNameStr() << "\n"; );
 			}
 		}
+#else
+		// 0 is reserved for 'start'-function, so the last index is numBarriers and 0 is not used
+		unsigned barrierIndex = 1;
+		for (BarrierMapType::iterator it=barriers.begin(), E=barriers.end(); it!=E; ++it, ++barrierIndex) {
+			BarrierInfo* binfo = *it;
+			orderedBarriers.push_back(binfo);
+			binfo->id = barrierIndex; // set id
+			barrierIndices[binfo->barrier] = barrierIndex; // save barrier -> id mapping
+			DEBUG_LA( outs() << "  added barrier " << barrierIndex << ": " << *binfo->barrier << "\n"; );
+			DEBUG_LA( outs() << "    parent block: " << binfo->parentBlock->getNameStr() << "\n"; );
+		}
+#endif
+
 
 
 		//--------------------------------------------------------------------//
