@@ -2068,6 +2068,7 @@ public:
 		switch (arg_get_address_space(arg_index)) {
 			case CL_GLOBAL: {
 				assert (arg_size == sizeof(_cl_mem*)); // = sizeof(cl_mem)
+				assert (data);
 				// data is actually a _cl_mem* given by reference
 				const _cl_mem* mem = *(const _cl_mem**)data; 
 				const void* datax = mem->get_data();
@@ -2076,14 +2077,12 @@ public:
 				break;
 			}
 			case CL_PRIVATE: {
+				assert (data);
 				// copy the data itself
 				memcpy(arg_pos, data, arg_size);
 				break;
 			}
 			case CL_LOCAL: {
-				// copy the pointer, not what is pointed to
-				//memcpy(arg_pos, &data, arg_size);
-
 				assert (!data);
 				// allocate memory of size 'arg_size' and copy the pointer
 				const void* datax = malloc(arg_size);
@@ -3814,19 +3813,16 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	);
 
 #ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  best simd dim: " << kernel->get_best_simd_dim() << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_work_size of dim: " << local_work_size[kernel->get_best_simd_dim()] << "\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG(
 		const size_t simd_dim_work_size = local_work_size[kernel->get_best_simd_dim()];
+		outs() << "  best simd dim: " << kernel->get_best_simd_dim() << "\n";
+		outs() << "  local_work_size of dim: " << simd_dim_work_size << "\n";
 		const bool dividableBySimdWidth = simd_dim_work_size % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0;
 		const bool dividesSimdWidth = simd_dim_work_size / PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0;
 		if (!dividableBySimdWidth) {
 			errs() << "WARNING: group size of simd dimension not dividable by simdWidth\n";
 		}
-		if (!dividableBySimdWidth || !dividesSimdWidth) {
-			errs() << "WARNING: simdWidth not dividable by group size of simd dimension or vice-versa\n";
-			errs() << "         group size of dimension " << kernel->get_best_simd_dim() << " will be set to " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << " or entire global size!\n";
-		}
+		//errs() << "         group size of dimension " << kernel->get_best_simd_dim() << " will be set to " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << " or entire global size!\n";
 	);
 #endif
 

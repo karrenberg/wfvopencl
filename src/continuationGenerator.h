@@ -76,7 +76,7 @@ private:
 
 public:
 	static char ID; // Pass identification, replacement for typeid
-	ContinuationGenerator(const bool verbose_flag = false) : FunctionPass(&ID), verbose(verbose_flag) {}
+	ContinuationGenerator(const bool verbose_flag = false) : FunctionPass(&ID), verbose(verbose_flag), barrierFreeFunction(NULL) {}
 	~ContinuationGenerator() { releaseMemory(); }
 
 	virtual bool runOnFunction(Function &f) {
@@ -101,6 +101,13 @@ public:
 		const unsigned numBarriers = getBarrierInfo(&f, barriers, maxBarrierDepth);
 		DEBUG_LA( outs() << "  number of barriers in function : " << numBarriers << "\n"; );
 		DEBUG_LA( outs() << "  maximum block depth of barriers: " << maxBarrierDepth << "\n\n"; );
+
+		if (numBarriers == 0) {
+			DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
+			DEBUG_LA( outs() << "no barrier found, skipping generation of continuations!\n"; );
+			DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
+			return false;
+		}
 
 		barrierFreeFunction = eliminateBarriers(&f, barriers, numBarriers, maxBarrierDepth, specialParams, specialParamNames, targetData);
 
@@ -309,12 +316,15 @@ private:
 		assert (f);
 		Module* mod = f->getParent();
 		assert (mod);
-		assert (barrier->getParent() == parentBlock);
 
 		LLVMContext& context = mod->getContext();
 
 		DEBUG_LA( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
 
+		outs() << "barrier: " << *barrier << "\n";
+		outs() << "barrier-parent: " << barrier->getParent()->getNameStr() << "\n";
+		outs() << "binfo-parent  : " << parentBlock->getNameStr() << "\n";
+		assert (barrier->getParent() == parentBlock);
 
 		//--------------------------------------------------------------------//
 		// get live values for this block
