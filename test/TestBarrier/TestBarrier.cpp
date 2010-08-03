@@ -210,6 +210,8 @@ int main(int argc, char** argv)
         exit(1);
     }
 
+	//for(i = 0; i < count; i++) printf("input[%d]: %f\n", i, data[i]);
+
     // Execute the kernel over the entire range of our 1d input data set
     // using the maximum number of work group items for this device
     //
@@ -244,7 +246,7 @@ int main(int argc, char** argv)
 			//printf("results[%d]: %f (correct)\n", i, results[i]);
             correct++;
 		} else {
-			//printf("results[%d]: %f (wrong, expected: %f * %f = %f)\n", i, results[i], data[i], data[i], data[i] * data[i]);
+			//printf("results[%d]: %f (wrong, expected: %f * %f = %f)\n", i, results[i], data[i], data[i], data[i] * data[i] - count);
 		}
     }
 

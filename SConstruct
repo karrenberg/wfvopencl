@@ -3,10 +3,10 @@ import os
 #						 'LD_LIBRARY_PATH' : os.environ['LD_LIBRARY_PATH']})
 
 # build variables
-debug = ARGUMENTS.get('debug', 0)
+debug      = ARGUMENTS.get('debug', 0)
 use_openmp = ARGUMENTS.get('openmp', 0)
-packetize = ARGUMENTS.get('packetize', 0)
-force_nd_iteration = ARGUMENTS.get('force_nd', 0)
+packetize  = ARGUMENTS.get('packetize', 0)
+split      = ARGUMENTS.get('split', 0)
 
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
@@ -37,8 +37,9 @@ if int(use_openmp):
 if not int(packetize):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION")
 
-if int(force_nd_iteration):
-	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME")
+if int(split):
+	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING")
+
 
 env.Append(CXXFLAGS = cxxflags)
 

@@ -64,7 +64,7 @@
 // these are assumed to be set by build script
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 //#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-//#define PACKETIZED_OPENCL_DRIVER_FORCE_ND_ITERATION_SCHEME // deprecated
+//#define PACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING
 //#define NDEBUG
 //----------------------------------------------------------------------------//
 
@@ -75,13 +75,16 @@
 
 #ifdef DEBUG
 #define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+#define PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(x) do { x } while (false)
 #else
 #define PACKETIZED_OPENCL_DRIVER_DEBUG(x) ((void)0)
+#define PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(x) ((void)0)
 #endif
 
 #ifdef NDEBUG // force debug output disabled
 #undef PACKETIZED_OPENCL_DRIVER_DEBUG
 #define PACKETIZED_OPENCL_DRIVER_DEBUG(x) ((void)0)
+#define PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(x) ((void)0)
 #endif
 
 
@@ -534,7 +537,7 @@ namespace PacketizedOpenCLDriver {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  dimVal: " << *dimVal << "\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  arg: " << *arg << "\n"; );
 				GetElementPtrInst* gep = GetElementPtrInst::Create(arg, dimVal, "", call);
-				LoadInst* load = new LoadInst(gep, "", call);
+				LoadInst* load = new LoadInst(gep, "", false, 16, call);
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  new gep: " << *gep << "\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  new load: " << *load << "\n"; );
 
@@ -675,7 +678,7 @@ namespace PacketizedOpenCLDriver {
 			local_id_flat->setName(sstr.str());
 		}
 		
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( insertPrintf("\ncontinuation ", ConstantInt::get(context, APInt(32, continuation_id)), true, callBB->getFirstNonPHI()); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( insertPrintf("\ncontinuation ", ConstantInt::get(newCall->getContext(), APInt(32, continuation_id)), true, callBB->getFirstNonPHI()); );
 		
 		// adjust GEP-instructions to point to current localID's live value struct,
 		// e.g. GEP liveValueUnion, i32 0, i32 elementindex
@@ -719,11 +722,11 @@ namespace PacketizedOpenCLDriver {
 			gep->replaceAllUsesWith(newGEP);
 			gep->eraseFromParent();
 			
-			//PACKETIZED_OPENCL_DRIVER_DEBUG(
-			//assert (newGEP->getNumUses() == 1);
-			//Value* gepUse = newGEP->use_back();
-			//insertPrintf("live value loaded: ", gepUse, true, newCall);
-			//);
+			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+				assert (newGEP->getNumUses() == 1);
+				Value* gepUse = newGEP->use_back();
+				insertPrintf("live value loaded: ", gepUse, true, newCall);
+			);
 		}
 	}
 	void adjustLiveValueStoreGEPs(Function* continuation, const unsigned num_dimensions, LLVMContext& context) {
@@ -769,12 +772,12 @@ namespace PacketizedOpenCLDriver {
 				std::stringstream sstr;
 				sstr << "local_id_" << i;
 				GetElementPtrInst* gep = GetElementPtrInst::Create(arg_local_id_array, dimIdx, "", liveValueStructBc);
-				local_ids[i] = new LoadInst(gep, sstr.str(), false, liveValueStructBc);
+				local_ids[i] = new LoadInst(gep, sstr.str(), false, 16, liveValueStructBc);
 
 				std::stringstream sstr2;
 				sstr2 << "local_size_" << i;
 				gep = GetElementPtrInst::Create(arg_local_size_array, dimIdx, "", liveValueStructBc);
-				local_sizes[i] = new LoadInst(gep, sstr2.str(), false, liveValueStructBc);
+				local_sizes[i] = new LoadInst(gep, sstr2.str(), false, 16, liveValueStructBc);
 			}
 
 			// compute the local "flat" index (computation will be redundant after inlining,
@@ -807,14 +810,15 @@ namespace PacketizedOpenCLDriver {
 				gep->replaceAllUsesWith(newGEP);
 				gep->eraseFromParent();
 
-				//PACKETIZED_OPENCL_DRIVER_DEBUG(
-					//assert (newGEP->getNumUses() == 1);
-					//Value* gepUse = newGEP->use_back();
-					//assert (isa<StoreInst>(gepUse));
-					//StoreInst* store = cast<StoreInst>(gepUse);
-					//Value* storedVal = store->getOperand(0);
-					//insertPrintf("live value stored: ", storedVal, true, store->getParent()->getTerminator());
-				//);
+				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+					assert (newGEP->getNumUses() == 1);
+					Value* gepUse = newGEP->use_back();
+					assert (isa<StoreInst>(gepUse));
+					StoreInst* store = cast<StoreInst>(gepUse);
+					Value* storedVal = store->getOperand(0);
+					insertPrintf("live value stored: ", storedVal, true, store->getParent()->getTerminator());
+					//insertPrintf("  address: ", store->getOperand(1), true, store->getParent()->getTerminator());
+				);
 			}
 		}
 
@@ -881,17 +885,17 @@ namespace PacketizedOpenCLDriver {
 			std::stringstream sstr;
 			sstr << "global_size_" << i;
 			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_size_array, dimIdx, "", insertBefore);
-			global_sizes[i] = new LoadInst(gep, sstr.str(), false, insertBefore);
+			global_sizes[i] = new LoadInst(gep, sstr.str(), false, 16, insertBefore);
 
 			std::stringstream sstr2;
 			sstr2 << "local_size_" << i;
 			gep = GetElementPtrInst::Create(arg_local_size_array, dimIdx, "", insertBefore);
-			local_sizes[i] = new LoadInst(gep, sstr2.str(), false, insertBefore);
+			local_sizes[i] = new LoadInst(gep, sstr2.str(), false, 16, insertBefore);
 
 			std::stringstream sstr3;
 			sstr3 << "group_id_" << i;
 			gep = GetElementPtrInst::Create(arg_group_id_array, dimIdx, "", insertBefore);
-			group_ids[i] = new LoadInst(gep, sstr3.str(), false, insertBefore);
+			group_ids[i] = new LoadInst(gep, sstr3.str(), false, 16, insertBefore);
 
 			std::stringstream sstr4;
 			sstr4 << "num_groups_" << i;
@@ -908,17 +912,17 @@ namespace PacketizedOpenCLDriver {
 
 			// store num_groups into array
 			gep = GetElementPtrInst::Create(arg_num_groups_array, dimIdx, "", insertBefore);
-			new StoreInst(num_groupss[i], gep, false, insertBefore);
+			new StoreInst(num_groupss[i], gep, false, 16, insertBefore);
 			//InsertValueInst::Create(arg_num_groups_array, num_groupss[i], i, "", insertBefore); // TODO: maybe later...
 
-			//PACKETIZED_OPENCL_DRIVER_DEBUG(
-				//insertPrintf("i = ", dimIdx, true, insertBefore);
-				//insertPrintf("work_dim: ", arg_work_dim, true, insertBefore);
-				//insertPrintf("global_sizes[i]: ", global_sizes[i], true, insertBefore);
-				//insertPrintf("local_sizes[i]: ", local_sizes[i], true, insertBefore);
-				//insertPrintf("group_ids[i]: ", group_ids[i], true, insertBefore);
-				//insertPrintf("num_groups[i]: ", num_groupss[i], true, insertBefore);
-			//);
+			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+				insertPrintf("i = ", dimIdx, true, insertBefore);
+				insertPrintf("work_dim: ", arg_work_dim, true, insertBefore);
+				insertPrintf("global_sizes[i]: ", global_sizes[i], true, insertBefore);
+				insertPrintf("local_sizes[i]: ", local_sizes[i], true, insertBefore);
+				insertPrintf("group_ids[i]: ", group_ids[i], true, insertBefore);
+				insertPrintf("num_groups[i]: ", num_groupss[i], true, insertBefore);
+			);
 		}
 	}
 	inline void generateLoopsAroundCall(
@@ -1032,17 +1036,17 @@ namespace PacketizedOpenCLDriver {
 			
 			// save special parameters global_id, local_id to arrays
 			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
-			new StoreInst(global_id, gep, false, call);
+			new StoreInst(global_id, gep, false, 16, call);
 			gep = GetElementPtrInst::Create(arg_local_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
-			new StoreInst(local_id, gep, false, call);
+			new StoreInst(local_id, gep, false, 16, call);
 
 			global_ids[i] = global_id;
 			local_ids[i] = local_id;
 			
-			//PACKETIZED_OPENCL_DRIVER_DEBUG(
-				//insertPrintf("global_id[i]: ", global_ids[i], true, call);
-				//insertPrintf("local_id[i]: ", local_ids[i], true, call);
-			//);
+			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+				insertPrintf("global_id[i]: ", global_ids[i], true, call);
+				insertPrintf("local_id[i]: ", local_ids[i], true, call);
+			);
 #else
 			// compute global id for consecutive access
 			Instruction* global_id = BinaryOperator::Create(Instruction::Mul, group_id, local_size, "", call);
@@ -1050,9 +1054,9 @@ namespace PacketizedOpenCLDriver {
 
 			// save special parameters global_id, local_id to arrays
 			GetElementPtrInst* gep = GetElementPtrInst::Create(arg_global_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
-			new StoreInst(global_id, gep, false, call);
+			new StoreInst(global_id, gep, false, 16, call);
 			gep = GetElementPtrInst::Create(arg_local_id_array, ConstantInt::get(context, APInt(32, i)), "", insertBefore);
-			new StoreInst(local_id, gep, false, call);
+			new StoreInst(local_id, gep, false, 16, call);
 
 			// reconstruct global ids of scalar instances and put into vector for scattered access
 			Instruction* global_id_split_SIMD = NULL;
@@ -1085,12 +1089,12 @@ namespace PacketizedOpenCLDriver {
 				global_ids[i] = global_id;
 				local_ids[i] = local_id;
 
-				//PACKETIZED_OPENCL_DRIVER_DEBUG(
-					//insertPrintf("global_id[i]: ", global_ids[i], true, call);
-					//insertPrintf("local_id[i]: ", local_ids[i], true, call);
-					//insertPrintf("global_id_split_simd: ", arg_global_id_split_simd, true, call);
-					//insertPrintf("local_id_split_simd: ", arg_local_id_split_simd, true, call);
-				//);
+				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+					insertPrintf("global_id[i]: ", global_ids[i], true, call);
+					insertPrintf("local_id[i]: ", local_ids[i], true, call);
+					insertPrintf("global_id_split_simd: ", *arg_global_id_split_simd, true, call);
+					insertPrintf("local_id_split_simd: ", *arg_local_id_split_simd, true, call);
+				);
 			} else {
 				std::stringstream sstr2;
 				sstr2 << "global_id_" << i;
@@ -1103,10 +1107,10 @@ namespace PacketizedOpenCLDriver {
 				global_ids[i] = global_id; // not required for anything else but being supplied as parameter
 				local_ids[i] = local_id;
 				
-				//PACKETIZED_OPENCL_DRIVER_DEBUG(
-					//insertPrintf("global_id[i]: ", global_ids[i], true, call);
-					//insertPrintf("local_id[i]: ", local_ids[i], true, call);
-				//);
+				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+					insertPrintf("global_id[i]: ", global_ids[i], true, call);
+					insertPrintf("local_id[i]: ", local_ids[i], true, call);
+				);
 			}
 #endif
 
@@ -1378,10 +1382,14 @@ namespace PacketizedOpenCLDriver {
 					outs() << "\n    params for new call:\n";
 					outs() << "     * " << *arg_global_id_array << "\n";
 					outs() << "     * " << *arg_local_id_array << "\n";
+				);
 #ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+				PACKETIZED_OPENCL_DRIVER_DEBUG(
 					outs() << "     * " << *arg_global_id_split_simd << "\n";
 					outs() << "     * " << *arg_local_id_split_simd << "\n";
+				);
 #endif
+				PACKETIZED_OPENCL_DRIVER_DEBUG(
 					outs() << "     * " << *arg_num_groups_array << "\n";
 					outs() << "     * " << *arg_work_dim << "\n";
 					outs() << "     * " << *arg_global_size_array << "\n";
@@ -1616,6 +1624,13 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
 
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd.mod.ll"); );
+		std::set<GetElementPtrInst*> fixedGEPs;
+		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
+		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd2.mod.ll"); );
+
 		// eliminate barriers
 		FunctionPassManager FPM(module);
 		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
@@ -1682,10 +1697,12 @@ namespace PacketizedOpenCLDriver {
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "debug_wrapper.ll"); );
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
-			std::set<GetElementPtrInst*> fixedGEPs;
-			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
-			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
-			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+			//PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_wrapper->getParent(), "debug_f_simd.mod.ll"); );
+			//std::set<GetElementPtrInst*> fixedGEPs;
+			//PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
+			//PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
+			//PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+			//PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_wrapper->getParent(), "debug_f_simd2.mod.ll"); );
 
 			// - callbacks inside continuations have to be replaced by argument accesses
 			PacketizedOpenCLDriver::mapCallbacksToContinuationArguments(num_dimensions, context, module, continuations);
@@ -1695,6 +1712,20 @@ namespace PacketizedOpenCLDriver {
 			// - map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
 			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
 			PacketizedOpenCLDriver::generateBlockSizeLoopsForContinuations(num_dimensions, simd_dim, context, f_wrapper, continuations);
+
+			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+				Function* cont = continuations[1];
+				for (Function::iterator BB=cont->begin(), BBE=cont->end(); BB!=BBE; ++BB) {
+					if (!isa<ReturnInst>(BB->getTerminator())) continue;
+					for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+						if (isa<StoreInst>(I)) {
+							insertPrintf("!! stored return value: ", I->getOperand(0), true, I);
+							insertPrintf("!!   address: ", I->getOperand(1), true, I);
+						}
+					}
+					break;
+				}
+			);
 
 		} else {
 
@@ -1719,10 +1750,10 @@ namespace PacketizedOpenCLDriver {
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "debug_arg_wrapper.ll"); );
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
-			std::set<GetElementPtrInst*> fixedGEPs;
-			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
-			PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
-			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+			//std::set<GetElementPtrInst*> fixedGEPs;
+			//PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
+			//PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
+			//PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 
 			// generate loop(s) over blocksize(s) (BEFORE inlining!)
 			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f_SIMD);
@@ -1733,8 +1764,8 @@ namespace PacketizedOpenCLDriver {
 
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing wrapper... "; );
-		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
-		PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
+		//PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
+		//PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
@@ -3818,7 +3849,6 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		outs() << "  best simd dim: " << kernel->get_best_simd_dim() << "\n";
 		outs() << "  local_work_size of dim: " << simd_dim_work_size << "\n";
 		const bool dividableBySimdWidth = simd_dim_work_size % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0;
-		const bool dividesSimdWidth = simd_dim_work_size / PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0;
 		if (!dividableBySimdWidth) {
 			errs() << "WARNING: group size of simd dimension not dividable by simdWidth\n";
 		}

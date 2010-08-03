@@ -321,9 +321,6 @@ private:
 
 		DEBUG_LA( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
 
-		outs() << "barrier: " << *barrier << "\n";
-		outs() << "barrier-parent: " << barrier->getParent()->getNameStr() << "\n";
-		outs() << "binfo-parent  : " << parentBlock->getNameStr() << "\n";
 		assert (barrier->getParent() == parentBlock);
 
 		//--------------------------------------------------------------------//

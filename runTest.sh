@@ -7,4 +7,3 @@
 ./runPacketizerMandelbrot.sh -q -e -x 16 && \
 ./runPacketizerPrefixSum.sh -q -e && \
 ./runPacketizerSimpleConvolution.sh -q -e -x 8
-# packetized currently only passes first 3

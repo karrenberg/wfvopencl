@@ -578,6 +578,7 @@ namespace PacketizedOpenCLDriver {
 				assert (isa<Instruction>(U2));
 				Instruction* useI = cast<Instruction>(U2++);
 
+#ifndef PACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING
 				// attempt to analyze path
 				// TODO: entirely uniform paths are okay as well
 				std::set<Instruction*> visited;
@@ -585,6 +586,7 @@ namespace PacketizedOpenCLDriver {
 					useI->replaceUsesOfWith(call, simdCall);
 					continue;
 				}
+#endif
 
 				// otherwise, we have a use that (conservatively) has to be split
 				// ( = replaced with call to splitFn)
