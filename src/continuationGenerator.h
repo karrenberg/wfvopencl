@@ -347,6 +347,13 @@ private:
 
 		// merge block-internal live values with liveInValues
 		liveInValues->insert(internalLiveValues.begin(), internalLiveValues.end());
+
+		outs() << "\n\nLive-In values of block '" << parentBlock->getNameStr() << "' before removal:\n";
+		for (std::set<Value*>::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
+			outs() << " * " << **it << "\n";
+		}
+		outs() << "\n";
+
 		// remove all values that die in same block but above barrier
 		livenessAnalyzer->removeBlockInternalNonLiveInValues(barrier, *liveInValues, *liveOutValuesOrig);
 

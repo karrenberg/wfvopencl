@@ -3,10 +3,11 @@ import os
 #						 'LD_LIBRARY_PATH' : os.environ['LD_LIBRARY_PATH']})
 
 # build variables
-debug      = ARGUMENTS.get('debug', 0)
-use_openmp = ARGUMENTS.get('openmp', 0)
-packetize  = ARGUMENTS.get('packetize', 0)
-split      = ARGUMENTS.get('split', 0)
+debug         = ARGUMENTS.get('debug', 0)
+debug_runtime = ARGUMENTS.get('debug-runtime', 0)
+use_openmp    = ARGUMENTS.get('openmp', 0)
+packetize     = ARGUMENTS.get('packetize', 0)
+split         = ARGUMENTS.get('split', 0)
 
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
@@ -25,9 +26,16 @@ llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
 # set up CXXFLAGS
 cxxflags = env.Split("-Wall -pedantic -Wno-long-long -msse3")+llvm_vars.get('CCFLAGS')
 
+if int(debug) or int(debug_runtime):
+	cxxflags=cxxflags+env.Split("-O0 -g")
+
 if int(debug):
-	cxxflags=cxxflags+env.Split("-O0 -g -DDEBUG")
-else:
+	cxxflags=cxxflags+env.Split("-DDEBUG")
+
+if int(debug_runtime):
+	cxxflags=cxxflags+env.Split("-DDEBUG_RUNTIME")
+
+if not int(debug) and not int(debug_runtime):
 	cxxflags=cxxflags+env.Split("-O3 -DNDEBUG")
 
 if int(use_openmp):

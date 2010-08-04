@@ -75,9 +75,13 @@
 
 #ifdef DEBUG
 #define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
-#define PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(x) do { x } while (false)
 #else
 #define PACKETIZED_OPENCL_DRIVER_DEBUG(x) ((void)0)
+#endif
+
+#ifdef DEBUG_RUNTIME
+#define PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(x) do { x } while (false)
+#else
 #define PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(x) ((void)0)
 #endif
 
@@ -1713,19 +1717,19 @@ namespace PacketizedOpenCLDriver {
 			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
 			PacketizedOpenCLDriver::generateBlockSizeLoopsForContinuations(num_dimensions, simd_dim, context, f_wrapper, continuations);
 
-			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
-				Function* cont = continuations[1];
-				for (Function::iterator BB=cont->begin(), BBE=cont->end(); BB!=BBE; ++BB) {
-					if (!isa<ReturnInst>(BB->getTerminator())) continue;
-					for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
-						if (isa<StoreInst>(I)) {
-							insertPrintf("!! stored return value: ", I->getOperand(0), true, I);
-							insertPrintf("!!   address: ", I->getOperand(1), true, I);
-						}
-					}
-					break;
-				}
-			);
+//			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+//				Function* cont = continuations[1];
+//				for (Function::iterator BB=cont->begin(), BBE=cont->end(); BB!=BBE; ++BB) {
+//					if (!isa<ReturnInst>(BB->getTerminator())) continue;
+//					for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+//						if (isa<StoreInst>(I)) {
+//							insertPrintf("!! stored return value: ", I->getOperand(0), true, I);
+//							insertPrintf("!!   address: ", I->getOperand(1), true, I);
+//						}
+//					}
+//					break;
+//				}
+//			);
 
 		} else {
 

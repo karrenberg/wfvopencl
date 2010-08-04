@@ -35,6 +35,7 @@
 #include <llvm/Pass.h>
 #include <llvm/Function.h>
 #include <llvm/Module.h>
+//#include <llvm/Analysis/LoopInfo.h>
 
 
 #ifdef DEBUG
@@ -62,8 +63,7 @@ namespace {
 
             // get loop info
             //loopInfo = &getAnalysis<LoopInfo>();
-			//DEBUG_LA( print(outs(), f.getParent()); );
-			
+
             DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
             DEBUG_LA( outs() << "analyzing liveness of blocks in function '" << f.getNameStr() << "'...\n"; );
             DEBUG_LA( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
@@ -189,34 +189,32 @@ namespace {
 		// removes all values from 'liveVals' that are live-in of the block of
 		// 'inst' but that do not survive 'inst'.
 		// TODO: implement more cases than just phis
-		void removeBlockInternalNonLiveInValues(Instruction* inst, LiveSetType& liveInVals, const LiveSetType& liveOutVals) {
-			assert (inst);
+		void removeBlockInternalNonLiveInValues(Instruction* frontier, LiveSetType& liveInVals, const LiveSetType& liveOutVals) {
+			assert (frontier);
 			if (liveInVals.empty()) return;
 
-			BasicBlock* block = inst->getParent();
-
-			// remove all values that go into a phi (they die immediately)
-			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
-				if (block->getFirstNonPHI() == I) break;
-				PHINode* phi = cast<PHINode>(I);
-
-				for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
-					Value* val = phi->getIncomingValue(i);
-					// no need to check if this value really exists in set
-					liveInVals.erase(val);
-				}
-			}
+			BasicBlock* block = frontier->getParent();
 
 			// remove all values that are live-in but not live-out and do not
 			// have uses behind the frontier (they die before the frontier)
 
 			// create map which holds order of instructions
 			std::map<Instruction*, unsigned> instMap;
-			const unsigned frontierId = createInstructionOrdering(block, inst, instMap);
+			const unsigned frontierId = createInstructionOrdering(block, frontier, instMap);
 
 			for (LiveSetType::iterator it=liveInVals.begin(), E=liveInVals.end(); it!=E;) {
 				Value* liveVal = *it++;
 				DEBUG_LA( outs() << "checking if live value dies before frontier: " << *liveVal << "\n"; );
+
+				// if the value is defined behind the frontier, we can remove it immediately
+				if (Instruction* liveInst = dyn_cast<Instruction>(liveVal)) {
+					if (liveInst->getParent() == block && instMap[liveInst] >= frontierId) {
+						DEBUG_LA( outs() << "  live value defined behind frontier!\n"; );
+						liveInVals.erase(liveInst);
+						continue;
+					}
+				}
+
 				// If the value is also live-out, we know it survives the frontier
 				// and we must not remove it from live values.
 				if (liveOutVals.find(liveVal) != liveOutVals.end()) {
@@ -349,8 +347,24 @@ namespace {
 						assert (isa<Instruction>(U));
 						Instruction* useI = cast<Instruction>(U);
 
-						if (useI->getParent() == BB) continue; // def-use chain inside same block -> ignore
 						DEBUG_LA( outs() << "    checking use: " << *useI << "\n"; );
+
+						if (useI->getParent() == BB) {
+							if (loopInfo->isLoopHeader(BB) && isa<PHINode>(useI)) {
+								// add value as live-in/live-out of all blocks that belong to the loop
+								DEBUG_LA( outs() << "      is phi of loop header (value is live across loop boundaries)!\n"; );
+								Loop* loop = loopInfo->getLoopFor(BB);
+								std::vector<BasicBlock*> loopBlocks = loop->getBlocks();
+								for (std::vector<BasicBlock*>::iterator it=loopBlocks.begin(), E=loopBlocks.end(); it!=E; ++it) {
+									BasicBlock* loopBB = *it;
+									DEBUG_LA( outs() << "      -> is live-through value of block '" << loopBB->getNameStr() << "'\n"; );
+									liveValueMap[loopBB].first->insert(I);
+									liveValueMap[loopBB].second->insert(I);
+								}
+							}
+							// otherwise, simply ignore the block (normal def-use chain inside same block)
+							continue;
+						}
 
 						std::set<BasicBlock*> visitedBlocks;
 						computeLivenessInformation(useI->getParent(), I, useI, visitedBlocks);
