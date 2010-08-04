@@ -35,7 +35,7 @@
 #include <llvm/Pass.h>
 #include <llvm/Function.h>
 #include <llvm/Module.h>
-//#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/LoopInfo.h>
 
 
 #ifdef DEBUG
@@ -62,7 +62,7 @@ namespace {
         virtual bool runOnFunction(Function &f) {
 
             // get loop info
-            //loopInfo = &getAnalysis<LoopInfo>();
+            loopInfo = &getAnalysis<LoopInfo>();
 
             DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
             DEBUG_LA( outs() << "analyzing liveness of blocks in function '" << f.getNameStr() << "'...\n"; );
@@ -104,7 +104,7 @@ namespace {
 			}
 		}
         virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-			//AU.addRequired<LoopInfo>();
+			AU.addRequired<LoopInfo>();
 			AU.setPreservesAll();
         }
 		void releaseMemory() {
@@ -189,6 +189,8 @@ namespace {
 		// removes all values from 'liveVals' that are live-in of the block of
 		// 'inst' but that do not survive 'inst'.
 		// TODO: implement more cases than just phis
+		// NOTE: must not use loop info here, this function is meant to work on any
+		//       code unrelated to this analysis.
 		void removeBlockInternalNonLiveInValues(Instruction* frontier, LiveSetType& liveInVals, const LiveSetType& liveOutVals) {
 			assert (frontier);
 			if (liveInVals.empty()) return;
@@ -318,7 +320,7 @@ namespace {
 
     private:
         const bool verbose;
-		//LoopInfo* loopInfo;
+		LoopInfo* loopInfo;
 
 		LiveValueMapType liveValueMap;
 
