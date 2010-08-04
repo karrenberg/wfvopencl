@@ -1768,8 +1768,8 @@ namespace PacketizedOpenCLDriver {
 
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing wrapper... "; );
-		//PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
-		//PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
+		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
+		PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
