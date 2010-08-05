@@ -49,7 +49,8 @@
 
 #define PACKETIZED_OPENCL_DRIVER_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
 #define PACKETIZED_OPENCL_DRIVER_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128"
-#define PACKETIZED_OPENCL_DRIVER_MAX_WORK_GROUP_SIZE 8192
+#define PACKETIZED_OPENCL_DRIVER_ADDRESS_BITS 32
+#define PACKETIZED_OPENCL_DRIVER_MAX_WORK_GROUP_SIZE 100000//8192
 #define PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS 3
 #define PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH 4
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
@@ -61,7 +62,7 @@
 
 
 
-// these are assumed to be set by build script
+// these are assumed to be set via build script
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 //#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 //#define PACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING
@@ -564,6 +565,7 @@ namespace PacketizedOpenCLDriver {
 			const std::string& wrapper_name,
 			llvm::Function* f,
 			llvm::Module* mod,
+			TargetData* targetData,
 			const bool inlineCall)
 	{
 		assert (f && mod);
@@ -576,11 +578,14 @@ namespace PacketizedOpenCLDriver {
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_global_size = size_t[]
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_local_size = size_t[]
 		additionalParams.push_back(Type::getInt32PtrTy(context, 0)); // get_group_id = size_t[]
+		//additionalParams.push_back(PointerType::getUnqual(targetData->getIntPtrType(context))); // get_global_size = size_t[]
+		//additionalParams.push_back(PointerType::getUnqual(targetData->getIntPtrType(context))); // get_local_size = size_t[]
+		//additionalParams.push_back(PointerType::getUnqual(targetData->getIntPtrType(context))); // get_group_id = size_t[]
 		// other callbacks are resolved inside kernel
 
 		// generate wrapper
 		llvm::Function* wrapper = PacketizedOpenCLDriver::generateFunctionWrapperWithParams(wrapper_name, f, mod, additionalParams, inlineCall);
-		if (!wrapper) return  NULL;
+		if (!wrapper) return NULL;
 
 		// set argument names and attributes
 		Function::arg_iterator arg = wrapper->arg_begin();
@@ -615,6 +620,42 @@ namespace PacketizedOpenCLDriver {
 			assert (PacketizedOpenCLDriver::getFunction("llvm.sqrt.f32", mod));
 
 			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__sqrt_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.sqrt.f32", mod));
+		}
+		// fix __exp_f32
+		if (PacketizedOpenCLDriver::getFunction("__exp_f32", mod)) {
+
+			// create llvm.exp.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("llvm.exp.f32", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("llvm.exp.f32", mod));
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__exp_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.sqrt.f32", mod));
+		}
+		// fix __log_f32
+		if (PacketizedOpenCLDriver::getFunction("__log_f32", mod)) {
+
+			// create llvm.log.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("llvm.log.f32", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("llvm.log.f32", mod));
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__log_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.sqrt.f32", mod));
+		}
+		// fix __fabs_f32
+		if (PacketizedOpenCLDriver::getFunction("__fabs_f32", mod)) {
+
+			// create llvm.fabs.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("llvm.fabs.f32", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("llvm.fabs.f32", mod));
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__fabs_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.sqrt.f32", mod));
 		}
 	}
 
@@ -881,8 +922,11 @@ namespace PacketizedOpenCLDriver {
 			Instruction** num_groupss,
 			Instruction* insertBefore
 	) {
+		assert (arg_global_size_array->getType()->isPointerTy());
+		const Type* argType = arg_global_size_array->getType()->getContainedType(0);
+
 		for (unsigned i=0; i<num_dimensions; ++i) {
-			Value* dimIdx = ConstantInt::get(context, APInt(32, i));
+			Value* dimIdx = ConstantInt::get(argType, i, false); //ConstantInt::get(context, APInt(32, i));
 			// "0123456789ABCDEF"[i] only works as long as we do not have more than 10 dimensions :P
 			// TODO: somehow it doesn't and just screws the names...
 
@@ -903,11 +947,15 @@ namespace PacketizedOpenCLDriver {
 
 			std::stringstream sstr4;
 			sstr4 << "num_groups_" << i;
-			// we need to make sure that num_groups always returns at least 1
-			// TODO: can't we rely on global_sizes being dividable by local_sizes at this point?
+#if 1
+			// NOTE: We rely on global_sizes being dividable by local_sizes at this point.
+			//       Otherwise we would have to to make sure that num_groups always returns at least 1.
+			num_groupss[i] = BinaryOperator::Create(Instruction::UDiv, global_sizes[i], local_sizes[i], sstr4.str(), insertBefore);
+#else
 			Instruction* div = BinaryOperator::Create(Instruction::UDiv, global_sizes[i], local_sizes[i], "", insertBefore);
 			ICmpInst* cmp = new ICmpInst(insertBefore, ICmpInst::ICMP_EQ, div, ConstantInt::get(context, APInt(32, 0)), "");
 			num_groupss[i] = SelectInst::Create(cmp, ConstantInt::get(context, APInt(32, 1)), div, sstr4.str(), insertBefore);
+#endif
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_sizes[" << i << "]: " << *(global_sizes[i]) << "\n"; );
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_sizes[" << i << "] : " << *(local_sizes[i]) << "\n"; );
@@ -951,6 +999,13 @@ namespace PacketizedOpenCLDriver {
 		Function* f = call->getParent()->getParent();
 		Instruction* insertBefore = call;
 
+		assert (arg_global_id_array->getType()->isPointerTy());
+		const Type* argType = arg_global_id_array->getType()->getContainedType(0);
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
+		const Type* simdScalarIntType = Type::getInt32Ty(context);
+		const VectorType* simdVectorIntType = VectorType::get(simdScalarIntType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+#endif
+
 		for (int i=num_dimensions-1; i>=0; --i) {
 			Value* local_size = local_sizes[i];
 			Value* group_id = group_ids[i];
@@ -962,11 +1017,11 @@ namespace PacketizedOpenCLDriver {
 			BasicBlock* entryBB = headerBB->getUniquePredecessor(); // tmpEntryBB -> header of current innermost loop
 			BasicBlock* exitBB  = *succ_begin(headerBB); // tmpExitBB -> latch of current innermost loop
 
-			BasicBlock* loopBB   = headerBB->splitBasicBlock(headerBB->begin(), headerBB->getNameStr()+".loop");
-			BasicBlock* latchBB  = BasicBlock::Create(context, headerBB->getNameStr()+".loop.end", f, loopBB);
+			BasicBlock* loopBB  = headerBB->splitBasicBlock(headerBB->begin(), headerBB->getNameStr()+".loop");
+			BasicBlock* latchBB = BasicBlock::Create(context, headerBB->getNameStr()+".loop.end", f, loopBB);
 
 			// Block headerBB
-			const Type* counterType = Type::getInt32Ty(context);
+			const Type* counterType = argType; //Type::getInt32Ty(context);
 			Argument* fwdref = new Argument(counterType);
 			PHINode* loopCounterPhi = PHINode::Create(counterType, "", headerBB->getFirstNonPHI());
 			loopCounterPhi->reserveOperandSpace(2);
@@ -979,22 +1034,18 @@ namespace PacketizedOpenCLDriver {
 			ConstantInt* simdWidthVal = ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH));
 
 			// reconstruct local ids of scalar instances and put into vector for scattered access
-			const Type* local_id_type = NULL;
-			if (i == simd_dim) local_id_type = VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
-			else local_id_type = counterType;
-
 			Instruction* local_id_split_SIMD = NULL;
 			if (i == simd_dim) {
 				Value* nextElem = BinaryOperator::Create(Instruction::Mul, loopCounterPhi, simdWidthVal, "", call); // name = local_id_simd_0
-				local_id_split_SIMD = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
+				local_id_split_SIMD = InsertElementInst::Create(UndefValue::get(simdVectorIntType), nextElem, Constant::getNullValue(simdScalarIntType), "", call);
 				std::vector<Constant*> consts;
-				consts.push_back(ConstantInt::get(context, APInt(32, 0)));
+				consts.push_back(ConstantInt::getNullValue(simdScalarIntType));
 				for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
 					local_id_split_SIMD = InsertElementInst::Create(local_id_split_SIMD, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
-					consts.push_back(ConstantInt::get(context, APInt(32, j)));
+					consts.push_back(ConstantInt::get(simdScalarIntType, j, false));
 				}
 				// use vector-add with <0, 1, 2, 3> instead of 4 scalar additions
-				Constant* addVec = ConstantVector::get(VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH), consts);
+				Constant* addVec = ConstantVector::get(simdVectorIntType, consts);
 				local_id_split_SIMD = BinaryOperator::Create(Instruction::Add, local_id_split_SIMD, addVec, "", call);
 				local_id_split_SIMD->setName("get_local_id_split_SIMD");
 			}
@@ -1010,7 +1061,7 @@ namespace PacketizedOpenCLDriver {
 			BranchInst::Create(latchBB, loopBB);
 
 			// Block latchBB
-			BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(context, APInt(32, 1)), "inc", latchBB);
+			BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(counterType, 1, false), "inc", latchBB);
 			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, loopCounterInc, local_size, "exitcond");
 			BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
@@ -1066,17 +1117,17 @@ namespace PacketizedOpenCLDriver {
 			Instruction* global_id_split_SIMD = NULL;
 			if (i == simd_dim) {
 				// global_id_split_SIMD = global_id * 4 + <0, 1, 2, 3>
-				Value* nextElem = BinaryOperator::Create(Instruction::Mul, global_id, ConstantInt::get(context, APInt(32, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH)), "", call);
-				global_id_split_SIMD = InsertElementInst::Create(UndefValue::get(local_id_type), nextElem, Constant::getNullValue(counterType), "", call);
+				Value* nextElem = BinaryOperator::Create(Instruction::Mul, global_id, simdWidthVal, "", call);
+				global_id_split_SIMD = InsertElementInst::Create(UndefValue::get(simdVectorIntType), nextElem, Constant::getNullValue(Type::getInt32Ty(context)), "", call);
 				std::vector<Constant*> consts;
-				consts.push_back(ConstantInt::get(context, APInt(32, 0)));
+				consts.push_back(ConstantInt::getNullValue(simdScalarIntType));
 				// replicate
 				for (unsigned j=1; j<PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; ++j) {
 					global_id_split_SIMD = InsertElementInst::Create(global_id_split_SIMD, nextElem, ConstantInt::get(context, APInt(32, j)), "", call);
-					consts.push_back(ConstantInt::get(context, APInt(32, j)));
+					consts.push_back(ConstantInt::get(simdScalarIntType, j, false));
 				}
 				// use vector-add with <0, 1, 2, 3> instead of 4 scalar additions
-				Constant* addVec = ConstantVector::get(VectorType::get(counterType, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH), consts);
+				Constant* addVec = ConstantVector::get(simdVectorIntType, consts);
 				global_id_split_SIMD = BinaryOperator::Create(Instruction::Add, global_id_split_SIMD, addVec, "", call);
 				global_id_split_SIMD->setName("get_global_id_split_SIMD");
 			}
@@ -1128,8 +1179,6 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\ngenerating loop(s) over group size(s) in function '"
 				<< f->getNameStr() << "' around call to '" << call->getCalledFunction()->getNameStr() << "'...\n\n"; );
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
-
 		Instruction* insertBefore = call;
 
 		Function::arg_iterator A = f->arg_begin(); // arg_struct
@@ -1144,8 +1193,9 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
 
 		// allocate array of size 'num_dimensions' for special parameter num_groups
-		//Value* arg_num_groups_array = UndefValue::get(ArrayType::get(Type::getInt32Ty(context), num_dimensions)); // TODO: maybe later...
-		AllocaInst* arg_num_groups_array = new AllocaInst(Type::getInt32Ty(context), ConstantInt::get(context,  APInt(32, num_dimensions)), "num_groups_array", insertBefore);
+		assert (arg_global_size_array->getType()->isPointerTy());
+		const Type* argType = arg_global_size_array->getType()->getContainedType(0);
+		AllocaInst* arg_num_groups_array = new AllocaInst(argType, ConstantInt::get(context,  APInt(32, num_dimensions)), "num_groups_array", insertBefore);
 
 		// load/compute special values for each dimension
 		Instruction** global_sizes = new Instruction*[num_dimensions]();
@@ -1172,8 +1222,8 @@ namespace PacketizedOpenCLDriver {
 
 		// allocate array of size 'num_dimensions' for special parameters global_id, local_id
 		Value* numDimVal = ConstantInt::get(context,  APInt(32, num_dimensions));
-		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimVal, "global_id_array", insertBefore);
-		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimVal, "local_id_array", insertBefore);
+		AllocaInst* arg_global_id_array = new AllocaInst(argType, numDimVal, "global_id_array", insertBefore);
+		AllocaInst* arg_local_id_array  = new AllocaInst(argType, numDimVal, "local_id_array", insertBefore);
 
 		assert (f->getBasicBlockList().size() == 1);
 
@@ -1193,7 +1243,6 @@ namespace PacketizedOpenCLDriver {
 		// generate loop(s)
 		// iterate backwards in order to have loops ordered by dimension
 		// (highest dimension = innermost loop)
-		// TODO: move this loop to own function?
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 		generateLoopsAroundCall(
 				call,
@@ -1290,8 +1339,9 @@ namespace PacketizedOpenCLDriver {
 
 		// allocate array of size 'num_dimensions' for special parameter num_groups
 		Value* numDimVal = ConstantInt::get(context,  APInt(32, num_dimensions));
-		//Value* arg_num_groups_array = UndefValue::get(ArrayType::get(Type::getInt32Ty(context), num_dimensions)); // TODO: maybe later...
-		AllocaInst* arg_num_groups_array = new AllocaInst(Type::getInt32Ty(context), numDimVal, "num_groups_array", insertBefore);
+		assert (arg_global_size_array->getType()->isPointerTy());
+		const Type* argType = arg_global_size_array->getType()->getContainedType(0);
+		AllocaInst* arg_num_groups_array = new AllocaInst(argType, numDimVal, "num_groups_array", insertBefore);
 
 		// load/compute special values for each dimension
 		Instruction** global_sizes = new Instruction*[num_dimensions]();
@@ -1317,8 +1367,8 @@ namespace PacketizedOpenCLDriver {
 		Instruction** local_ids = new Instruction*[num_dimensions]();
 
 		// allocate array of size 'num_dimensions' for special parameters global_id, local_id
-		AllocaInst* arg_global_id_array = new AllocaInst(num_groupss[0]->getType(), numDimVal, "global_id_array", insertBefore);
-		AllocaInst* arg_local_id_array  = new AllocaInst(num_groupss[0]->getType(), numDimVal, "local_id_array", insertBefore);
+		AllocaInst* arg_global_id_array = new AllocaInst(argType, numDimVal, "global_id_array", insertBefore);
+		AllocaInst* arg_local_id_array  = new AllocaInst(argType, numDimVal, "local_id_array", insertBefore);
 
 		unsigned continuation_id = 0;
 		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it, ++continuation_id) {
@@ -1478,6 +1528,13 @@ namespace PacketizedOpenCLDriver {
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_size"); // supplied from outside
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_size");  // supplied from outside
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_group_id");    // supplied from outside
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_global_id");   // generated inside switch (group_id * loc_size + loc_id)
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_local_id");    // generated inside switch (loop induction variables)
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_num_groups");  // generated inside switch (glob_size / loc_size)
+		//CG->addSpecialParam(Type::getInt32Ty(context),       "get_work_dim");    // supplied from outside
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_global_size"); // supplied from outside
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_local_size");  // supplied from outside
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_group_id");    // supplied from outside
 		FPM.add(LA);
 		FPM.add(CG);
 		FPM.run(*f);
@@ -1517,7 +1574,7 @@ namespace PacketizedOpenCLDriver {
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "generating kernel wrapper... "; );
 			const bool inlineCall = true; // inline call immediately
-			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, barrierFreeFunction, module, inlineCall);
+			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, barrierFreeFunction, module, targetData, inlineCall);
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 
 			f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
@@ -1549,7 +1606,7 @@ namespace PacketizedOpenCLDriver {
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
 			const bool inlineCall = false; // don't inline call immediately (needed for generating loop(s))
-			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f, module, inlineCall);
+			PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f, module, targetData, inlineCall);
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 
 			f_wrapper = PacketizedOpenCLDriver::getFunction(wrapper_name, module);
@@ -1650,6 +1707,15 @@ namespace PacketizedOpenCLDriver {
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_size"); // supplied from outside
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_size");  // supplied from outside
 		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_group_id");    // supplied from outside
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_global_id");   // generated inside switch (group_id * loc_size + loc_id)
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_local_id");    // generated inside switch (loop induction variables)
+		//CG->addSpecialParam(VectorType::get(Type::getInt32Ty(context), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH),      "get_global_id_split_SIMD");   // generated inside switch (reconstructed global ids of scalar instances)
+		//CG->addSpecialParam(VectorType::get(Type::getInt32Ty(context), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH),       "get_local_id_split_SIMD");    // generated inside switch (reconstructed local ids of scalar instances)
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_num_groups");  // generated inside switch (glob_size / loc_size)
+		//CG->addSpecialParam(Type::getInt32Ty(context),       "get_work_dim");    // supplied from outside
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_global_size"); // supplied from outside
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_local_size");  // supplied from outside
+		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_group_id");    // supplied from outside
 		FPM.add(LA);
 		FPM.add(CG);
 		FPM.run(*f_SIMD);
@@ -1691,7 +1757,7 @@ namespace PacketizedOpenCLDriver {
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
 			const bool inlineCall = true; // inline call immediately (and only this call)
-			f_wrapper = PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f_SIMD, module, inlineCall);
+			f_wrapper = PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f_SIMD, module, targetData, inlineCall);
 			if (!f_wrapper) {
 				errs() << "FAILED!\nERROR: wrapper generation for kernel module failed!\n";
 				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
@@ -1744,7 +1810,7 @@ namespace PacketizedOpenCLDriver {
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  generating kernel wrapper... "; );
 			const bool inlineCall = false; // don't inline call immediately (needed for generating loop(s))
-			f_wrapper = PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f_SIMD, module, inlineCall);
+			f_wrapper = PacketizedOpenCLDriver::generateKernelWrapper(wrapper_name, f_SIMD, module, targetData, inlineCall);
 			if (!f_wrapper) {
 				errs() << "FAILED!\nERROR: wrapper generation for kernel module failed!\n";
 				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
@@ -2041,7 +2107,8 @@ public:
 			const bool arg_uniform = argType == argType_SIMD;
 
 			// check for sanity
-			if (!arg_uniform && (address_space != CL_GLOBAL)) {
+			//if (!arg_uniform && (address_space != CL_GLOBAL) && (address_space != CL_LOCAL))
+			if (!arg_uniform && !argType_SIMD->isPointerTy()) {
 				// NOTE: This can not really exist, as the input data for such a value
 				//       is always a scalar (the user's host program is not changed)!
 				// NOTE: This case would mean there are values that change for each thread in a group
@@ -2365,9 +2432,10 @@ clGetDeviceInfo(cl_device_id    device,
 			return CL_INVALID_VALUE;
 		}
 		case CL_DEVICE_ADDRESS_BITS: {
-			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
-			assert (false && "NOT IMPLEMENTED!");
-			return CL_INVALID_VALUE;
+			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
+			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_DRIVER_ADDRESS_BITS;
+			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_uint);
+			break;
 		}
 		case CL_DEVICE_MAX_MEM_ALLOC_SIZE: {
 			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
@@ -3630,8 +3698,8 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	typedef void (*kernelFnPtr)(
 			const void*,
 			const cl_uint,
-			const size_t*,
-			const size_t*,
+			const cl_uint*,
+			const cl_uint*,
 			const cl_uint*);
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
@@ -3643,28 +3711,32 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 
 	assert (global_work_size >= PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
 
+	// unfortunately we have to convert to 32bit values because we work with 32bit internally
+	// TODO: in the 1D case we can optimize because only the first value is loaded (automatic truncation)
+	const cl_uint modified_global_work_size = (cl_uint)global_work_size;
+
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-	const size_t modified_local_work_size = local_work_size;
+	const cl_uint modified_local_work_size = (cl_uint)local_work_size;
 #else
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	// TODO: simd width? simd width squared? other factor?
-	const size_t modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
-		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : local_work_size;
+	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
+		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : (cl_uint)local_work_size;
 	#else
-	const size_t modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
-		global_work_size : local_work_size;
+	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
+		modified_global_work_size : (cl_uint)local_work_size;
 	#endif
 #endif
 
 	//
 	// execute the kernel
 	//
-	const size_t num_iterations = global_work_size / modified_local_work_size; // = total # threads per block
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations << ")...\n"; );
+	const cl_uint num_iterations = modified_global_work_size / modified_local_work_size; // = total # threads per block
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
 
 	assert (num_iterations > 0 && "should give error message before executeRangeKernel!");
 
-	unsigned i;
+	cl_uint i;
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
 	#pragma omp parallel for default(none) private(i) shared(argument_struct, typedPtr)
@@ -3676,7 +3748,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 		typedPtr(
 			argument_struct,
 			1U, // get_work_dim
-			&global_work_size,
+			&modified_global_work_size,
 			&modified_local_work_size,
 			&i
 		);
@@ -3699,40 +3771,43 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	typedef void (*kernelFnPtr)(
 			const void*,
 			const cl_uint,
-			const size_t*,
-			const size_t*,
-			const size_t*);
+			const cl_uint*,
+			const cl_uint*,
+			const cl_uint*);
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	const void* argument_struct = kernel->get_argument_struct();
 
+	// unfortunately we have to convert to 32bit values because we work with 32bit internally
+	const cl_uint modified_global_work_size[2] = { (cl_uint)global_work_size[0], (cl_uint)global_work_size[1] };
+	const cl_uint modified_local_work_size[2] = { (cl_uint)local_work_size[0], (cl_uint)local_work_size[1] };
+
 	//
 	// execute the kernel
 	//
-	const size_t num_iterations_0 = global_work_size[0] / local_work_size[0]; // = total # threads per block in dim 0
-	const size_t num_iterations_1 = global_work_size[1] / local_work_size[1]; // = total # threads per block in dim 1
+	const cl_uint num_iterations_0 = modified_global_work_size[0] / modified_local_work_size[0]; // = total # threads per block in dim 0
+	const cl_uint num_iterations_1 = modified_global_work_size[1] / modified_local_work_size[1]; // = total # threads per block in dim 1
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 << ")...\n"; );
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && "should give error message before executeRangeKernel!");
 
-	unsigned i, j;
+	cl_uint i, j;
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
-	#pragma omp parallel for default(none) private(i, j) shared(argument_struct, typedPtr, global_work_size, local_work_size)
+	#pragma omp parallel for default(none) private(i, j) shared(argument_struct, typedPtr, modified_global_work_size, modified_local_work_size)
 	#endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << "/"  << j << " (= group ids)\n"; );
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
 
-			// TODO: unsure whether this really works
-			const size_t group_id[2] = { i, j };
+			const cl_uint group_id[2] = { i, j };
 
 			typedPtr(
 				argument_struct,
 				2U, // get_work_dim
-				global_work_size,
-				local_work_size,
+				modified_global_work_size,
+				modified_local_work_size,
 				group_id
 			);
 
@@ -3756,27 +3831,31 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 	typedef void (*kernelFnPtr)(
 			const void*,
 			const cl_uint,
-			const size_t*,
-			const size_t*,
-			const size_t*);
+			const cl_uint*,
+			const cl_uint*,
+			const cl_uint*);
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	const void* argument_struct = kernel->get_argument_struct();
 
+	// unfortunately we have to convert to 32bit values because we work with 32bit internally
+	const cl_uint modified_global_work_size[3] = { (cl_uint)global_work_size[0], (cl_uint)global_work_size[1], (cl_uint)global_work_size[2] };
+	const cl_uint modified_local_work_size[3] = { (cl_uint)local_work_size[0], (cl_uint)local_work_size[1],(cl_uint)local_work_size[2] };
+
 	//
 	// execute the kernel
 	//
-	const size_t num_iterations_0 = global_work_size[0] / local_work_size[0]; // = total # threads per block in dim 0
-	const size_t num_iterations_1 = global_work_size[1] / local_work_size[1]; // = total # threads per block in dim 1
-	const size_t num_iterations_2 = global_work_size[2] / local_work_size[2]; // = total # threads per block in dim 2
+	const cl_uint num_iterations_0 = modified_global_work_size[0] / modified_local_work_size[0]; // = total # threads per block in dim 0
+	const cl_uint num_iterations_1 = modified_global_work_size[1] / modified_local_work_size[1]; // = total # threads per block in dim 1
+	const cl_uint num_iterations_2 = modified_global_work_size[2] / modified_local_work_size[2]; // = total # threads per block in dim 2
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 * num_iterations_2 << ")...\n"; );
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && num_iterations_2 && "should give error message before executeRangeKernel!");
 
-	unsigned i, j, k;
+	cl_uint i, j, k;
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
-	#pragma omp parallel for default(none) private(i, j, k) shared(argument_struct, typedPtr, global_work_size, local_work_size)
+	#pragma omp parallel for default(none) private(i, j, k) shared(argument_struct, typedPtr, modified_global_work_size, modified_local_work_size)
 	#endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
@@ -3784,13 +3863,13 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << "/"  << j << "/" << k << " (= group ids)\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
 
-				const size_t group_id[3] = { i, j, k };
+				const cl_uint group_id[3] = { i, j, k };
 
 				typedPtr(
 					argument_struct,
 					3U, // get_work_dim
-					global_work_size,
-					local_work_size,
+					modified_global_work_size,
+					modified_local_work_size,
 					group_id
 				);
 
