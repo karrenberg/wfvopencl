@@ -560,7 +560,8 @@ Histogram::runCLKernels(void)
         "clSetKernelArg failed. (dataBuf)"))
         return SDK_FAILURE;
 
-    status = clSetKernelArg(kernel, 1, groupSize * binSize * sizeof(cl_uchar), NULL); 
+    //status = clSetKernelArg(kernel, 1, groupSize * binSize * sizeof(cl_uchar), NULL);
+    status = clSetKernelArg(kernel, 1, groupSize * binSize * sizeof(cl_uint), NULL);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
