@@ -81,7 +81,10 @@ env.Depends(SDKUtil, PacketizedOpenCLDriver)
 ###
 
 testApps = env.Split("""
+BinomialOption
 BitonicSort
+BlackScholes
+DCT
 DwtHaar1D
 EigenValue
 FastWalshTransform
@@ -92,6 +95,7 @@ MatrixTranspose
 NBody
 PrefixSum
 RadixSort
+Reduction
 ScanLargeArrays
 SimpleConvolution
 TestSimple
@@ -99,6 +103,7 @@ TestBarrier
 TestBarrier2
 TestLoopBarrier
 TestLoopBarrier2
+Test2D
 """)
 
 for a in testApps:
