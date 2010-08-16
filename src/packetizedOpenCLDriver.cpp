@@ -36,8 +36,11 @@
 #include <CL/cl.h>          // e.g. for cl_platform_id
 #endif
 
+#ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 #include "Packetizer/api.h" // packetizer
-#include "llvmTools.hpp" // all LLVM functionality
+#endif
+
+#include "llvmTools.hpp" // LLVM functionality
 
 #include "livenessAnalyzer.h"
 #include "continuationGenerator.h"
@@ -61,11 +64,11 @@
 #define PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS PACKETIZED_OPENCL_DRIVER_NUM_CORES
 
 
-
 // these are assumed to be set via build script
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 //#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 //#define PACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING
+//#define PACKETIZED_OPENCL_DRIVER_OPTIMIZE_MEM_ACCESS
 //#define NDEBUG
 //----------------------------------------------------------------------------//
 
@@ -497,6 +500,226 @@ namespace PacketizedOpenCLDriver {
 		return int32_51;
 	}
 
+	
+	// We currently do not have a possibility to ask the packetizer what instructions are
+	// varying and which are uniform, so we have to rely on the domain-specific knowledge we have.
+	// This will be far from optimal, but at least cover the most common cases.
+	// The things we can test are the following:
+	// - constants
+	// - known arguments (localsize, globalsize, groupid, numgroups)
+	// - possibly all non-pointer parameters (__local keyword) (TODO: really? if so, implement!)
+	//
+	// TODO: do we need separate checks for casts, phis, and selects as in functions below?
+	bool isNonVaryingMultiplicationTerm(Value* value) {
+		assert (value);
+
+		if (isa<Constant>(value)) return true;
+
+		if (isa<Argument>(value)) {
+			const std::string name = value->getNameStr();
+			if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
+			if (std::strstr(name.c_str(), "get_global_size") != 0) return true;
+			if (std::strstr(name.c_str(), "get_group_id") != 0) return true;
+			if (std::strstr(name.c_str(), "get_num_groups") != 0) return true;
+			return false;
+		}
+
+		// no constant, no argument -> only uniform if all operands are uniform
+		for (Value::op_iterator O=value->op_begin(), OE=value->op_end(); O!=OE; ++O) {
+			if (!isa<Value>(O)) continue;
+			Value* opVal = cast<Value>(O);
+			if (!isNonVaryingMultiplicationTerm(opVal)) return false;
+		}
+
+		return true;
+	}
+
+	// returns true if any term of a multiplication-chain ( x * y * z * ... ) is
+	// the local size argument
+	// TODO: implement generic function 'isSafeConsecutiveMultiplicationTerm' that checks for multiple of SIMD width
+	bool hasLocalSizeMultiplicationTerm(Value* value) {
+		assert (value);
+		// if the value is the "local_size"-argument, the entire multiplication term is safe
+		if (isa<Argument>(value)) {
+			const std::string name = value->getNameStr();
+			if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
+			return false;
+		}
+		
+		// if this is a cast, recurse into the casted operand
+		// TODO: other casts?
+		//if (isa<CastInst>(value)) return hasLocalSizeMultiplicationTerm(cast<UnaryInstruction>(value)->getOperand(0));
+		if (isa<BitCastInst>(value)) return hasLocalSizeMultiplicationTerm(cast<BitCastInst>(value)->getOperand(0));
+
+		// if this is a phi, recurse into all incoming operands to ensure safety
+		if (PHINode* phi = dyn_cast<PHINode>(value)) {
+			for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
+				Value* incVal = phi->getIncomingValue(i);
+				if (!hasLocalSizeMultiplicationTerm(incVal)) return false;
+			}
+			return true;
+		}
+
+		// same goes for selects (both incoming values have to be safe)
+		if (SelectInst* select = dyn_cast<SelectInst>(value)) {
+			return hasLocalSizeMultiplicationTerm(select->getTrueValue()) && hasLocalSizeMultiplicationTerm(select->getFalseValue());
+		}
+
+		// if it is none of the above and no binary operator, we are screwed anyway
+		if (!isa<BinaryOperator>(value)) return false;
+		
+		BinaryOperator* binOp = cast<BinaryOperator>(value);
+		switch (binOp->getOperator()) {
+			case BinaryOps::Mul: {
+				// Check if the result of the multiplication is a multiple of the SIMD width.
+				// Simpler version: check if any operand of the multiplication is the local size.
+				Value* op0 = binOp->getOperand(0);
+				Value* op1 = binOp->getOperand(1);
+				return hasLocalSizeMultiplicationTerm(op0) || hasLocalSizeMultiplicationTerm(op1);
+			}
+			default: {
+				return false;
+			}
+		}
+	}
+	
+	// TODO: should this function check whether any *multiplication*-term is an ID
+	//       or whether there is any use of the ID in the entire computation-tree?
+	//       (currently 2nd option is implemented -> not as efficient, but easier :) )
+	bool termUsesID(Value* value) {
+		assert (value);
+
+		if (isa<Argument>(index)) {
+			const std::string name = index->getNameStr();
+			if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
+			if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
+			return false;
+		}
+		
+		for (Value::op_iterator O=value->op_begin(), OE=value->op_end(); O!=OE; ++O) {
+			if (!isa<Value>(O)) continue;
+			Value* opVal = cast<Value>(O);
+			if (termUsesID(opVal)) return true;
+		}
+	}
+	
+	bool isConsecutiveIndex(Value* index) {
+		assert (index);
+
+		// if the index is a constant, we have to load scalar and replicate
+		// TODO: really?
+		if (isa<Constant>(index)) return false;
+		
+		// if the index is an argument, the indexing is consecutive if it is
+		// the local or global id (and not the split id which holds 4 values)
+		if (isa<Argument>(index)) {
+			const std::string name = index->getNameStr();
+			if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
+			if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
+			return false;
+		}
+
+		// otherwise, this has to be an instruction
+		assert (isa<Instruction>(index));
+
+		// if this is a cast, recurse into the casted operand
+		// TODO: other casts?
+		//if (isa<CastInst>(index)) return isConsecutiveIndex(cast<UnaryInstruction>(index)->getOperand(0));
+		if (isa<BitCastInst>(index)) return isConsecutiveIndex(cast<BitCastInst>(index)->getOperand(0));
+
+		// if this is a phi, recurse into all incoming operands to ensure safety
+		if (PHINode* phi = dyn_cast<PHINode>(index)) {
+			for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
+				Value* incVal = phi->getIncomingValue(i);
+				if (!isConsecutiveIndex(incVal)) return false;
+			}
+			return true;
+		}
+
+		// same goes for selects (both incoming values have to be safe)
+		if (SelectInst* select = dyn_cast<SelectInst>(index)) {
+			return isConsecutiveIndex(select->getTrueValue()) && isConsecutiveIndex(select->getFalseValue());
+		}
+
+		// if it is none of the above and no binary operator, we are screwed anyway
+		if (!isa<BinaryOperator>(index)) return false;
+
+		// This is the hard part:
+		// Analyze the computation-tree below the index and check whether
+		// it only consists of linear combinations where each term is a multiple
+		// of the SIMD width.
+		// We implement a simplified version that only checks if each term is a 
+		// multiple of the local size.
+
+		BinaryOperator* binOp = cast<BinaryOperator>(index);
+		switch (binOp->getOperator()) {
+			case BinaryOps::Sub: // fallthrough
+			case BinaryOps::Add: {
+				// recurse into subterms
+				Value* op0 = binOp->getOperand(0);
+				Value* op1 = binOp->getOperand(1);
+				// check if the usage of local/global id is okay (only one use of one id (local OR global) in all terms)
+				// example: arr[local id + 2] = 0+2 / 1+2 / 2+2 / 3+2 = 2 / 3 / 4 / 5 = consecutive
+				// example: arr[local id + local id] = 0+0 / 1+1 / 2+2 / 3+3 = 0 / 2 / 4 / 6 = non-consecutive
+				// TODO: this recomputes the same info for all terms on each level of recursion -> can be optimized
+				const bool idUsageOkay = termUsesID(op0) ^ termUsesID(op1);
+				return idUsageOkay && isConsecutiveIndex(op0) && isConsecutiveIndex(op1);
+			}
+			case BinaryOps::Mul: {
+				// Check if the result of the multiplication is a multiple of the SIMD width.
+				// Simplified version (currently implemented): check if any operand of the multiplication is the local size.
+				
+				// We also require all terms of the multiplication to be uniform.
+				// example: arr[local id + local size * 2] = 0+16*2 / 1+16*2 / 2+16*2 / 3+16*2 = 32 / 33 / 34 / 35 = consecutive
+				// example: arr[local id + local size * (2/3/4/5)] = 0+16*2 / 1+16*3 / 2+16*4 / 3+16*5 = 32 / 49 / 66 / 83 = non-consecutive
+				
+				//return isSafeConsecutiveMultiplicationTerm(binOp) && isNonVaryingMultiplication(binOp);
+				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplication(binOp);
+			}
+			default: {
+				return false;
+			}
+		}
+	}
+	bool canOptimizeMemAccess(Instruction* inst) {
+		assert(inst);
+		assert(isa<LoadInst>(inst) || isa<StoreInst>(inst));
+
+		Value* ptr = isa<LoadInst>(inst) ? cast<LoadInst>(inst)->getPointerOperand() :
+				cast<StoreInst>(inst)->getPointerOperand();
+
+		if (!isa<GetElementPtrInst>(ptr)) {
+			// this is either a mem op unrelated to any local/global id,
+			// or it accesses index 0
+			if (isa<Argument>(ptr) && ptr->getType()->isPointerTy()) {
+				// TODO: is this sufficient to know this is a index-0-access?
+				return true;
+			}
+			return false;
+		}
+
+		// otherwise, we probably have an access to an input/output array
+		GetElementPtr* gep = cast<GetElementPtrInst>(ptr);
+
+		assert (gep->getNumIndices() == 2); // 0 (ptr-stepthrough), arrayidx
+		Value* idxVal = ++gep->idx_begin();
+
+		const bool isConsecutive = isConsecutiveIndex(idxVal);
+		return isConsecutive;
+	}
+	void optimizeMemAccesses(Function* f) {
+		assert (f);
+		for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
+			for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+				if (!isa<StoreInst>(I) && !isa<LoadInst>) continue;
+				const bool canOptimize = canOptimizeMemAccess(I);
+				if (canOptimize) {
+					// TODO: implement
+					outs() << "OPTIMIZED MEMORY ACCESS: " << *I <<"\n";
+				}
+			}
+		}
+	}
 
 	void replaceCallbacksByArgAccess(Function* f, Value* arg, Function* source) {
 		if (!f) return;
