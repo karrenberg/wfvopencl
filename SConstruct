@@ -104,6 +104,7 @@ TestBarrier2
 TestLoopBarrier
 TestLoopBarrier2
 Test2D
+TestLinearAccess
 """)
 
 for a in testApps:
