@@ -515,17 +515,31 @@ namespace PacketizedOpenCLDriver {
 
 		if (isa<Constant>(value)) return true;
 
-		if (isa<Argument>(value)) {
-			const std::string name = value->getNameStr();
-			if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
-			if (std::strstr(name.c_str(), "get_global_size") != 0) return true;
-			if (std::strstr(name.c_str(), "get_group_id") != 0) return true;
-			if (std::strstr(name.c_str(), "get_num_groups") != 0) return true;
+		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
+		//       so we still have calls instead of argument accesses!
+		//if (isa<Argument>(value)) {
+		//	const std::string name = value->getNameStr();
+		//	if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_global_size") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_group_id") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_num_groups") != 0) return true;
+		//	return false;
+		//}
+		
+		//if (!isa<Instruction>(value)) return false;
+		assert (isa<Instruction>(value));
+		
+		if (CallInst* call = dyn_cast<CallInst>(value)) {
+			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_global_size") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_group_id") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_num_groups") return true;
 			return false;
 		}
 
-		// no constant, no argument -> only uniform if all operands are uniform
-		for (Value::op_iterator O=value->op_begin(), OE=value->op_end(); O!=OE; ++O) {
+		// no constant, no callback -> only uniform if all operands are uniform
+		Instruction* inst = cast<Instruction>(value);
+		for (Instruction::op_iterator O=inst->op_begin(), OE=inst->op_end(); O!=OE; ++O) {
 			if (!isa<Value>(O)) continue;
 			Value* opVal = cast<Value>(O);
 			if (!isNonVaryingMultiplicationTerm(opVal)) return false;
@@ -540,11 +554,19 @@ namespace PacketizedOpenCLDriver {
 	bool hasLocalSizeMultiplicationTerm(Value* value) {
 		assert (value);
 		// if the value is the "local_size"-argument, the entire multiplication term is safe
-		if (isa<Argument>(value)) {
-			const std::string name = value->getNameStr();
-			if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
+		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
+		//       so we still have calls instead of argument accesses!
+		//if (isa<Argument>(value)) {
+		//	const std::string name = value->getNameStr();
+		//	if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
+		//	return false;
+		//}
+		
+		if (CallInst* call = dyn_cast<CallInst>(value)) {
+			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
 			return false;
 		}
+
 		
 		// if this is a cast, recurse into the casted operand
 		// TODO: other casts?
@@ -569,8 +591,8 @@ namespace PacketizedOpenCLDriver {
 		if (!isa<BinaryOperator>(value)) return false;
 		
 		BinaryOperator* binOp = cast<BinaryOperator>(value);
-		switch (binOp->getOperator()) {
-			case BinaryOps::Mul: {
+		switch (binOp->getOpcode()) {
+			case Instruction::Mul: {
 				// Check if the result of the multiplication is a multiple of the SIMD width.
 				// Simpler version: check if any operand of the multiplication is the local size.
 				Value* op0 = binOp->getOperand(0);
@@ -589,43 +611,76 @@ namespace PacketizedOpenCLDriver {
 	bool termUsesID(Value* value) {
 		assert (value);
 
-		if (isa<Argument>(index)) {
-			const std::string name = index->getNameStr();
-			if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
-			if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
+		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
+		//       so we still have calls instead of argument accesses!
+		//if (isa<Argument>(value)) {
+		//	const std::string name = value->getNameStr();
+		//	if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
+		//	return false;
+		//}
+
+		if (!isa<Instruction>(value)) return false;
+
+		if (CallInst* call = dyn_cast<CallInst>(value)) {
+			if (call->getCalledFunction()->getNameStr() == "get_local_id") return true; 
+			if (call->getCalledFunction()->getNameStr() == "get_global_id") return true;
 			return false;
 		}
+
+		Instruction* inst = cast<Instruction>(value);
 		
-		for (Value::op_iterator O=value->op_begin(), OE=value->op_end(); O!=OE; ++O) {
+		for (Instruction::op_iterator O=inst->op_begin(), OE=inst->op_end(); O!=OE; ++O) {
 			if (!isa<Value>(O)) continue;
 			Value* opVal = cast<Value>(O);
 			if (termUsesID(opVal)) return true;
 		}
+
+		return false;
 	}
 	
 	bool isConsecutiveIndex(Value* index) {
 		assert (index);
 
+		outs() << "  testing index calculation: " << *index << "\n";
+
 		// if the index is a constant, we have to load scalar and replicate
 		// TODO: really?
-		if (isa<Constant>(index)) return false;
+		if (isa<Constant>(index)) {
+			outs() << "    index is a constant (requires replication)!\n"; 
+			return false;
+		}
 		
 		// if the index is an argument, the indexing is consecutive if it is
 		// the local or global id (and not the split id which holds 4 values)
-		if (isa<Argument>(index)) {
-			const std::string name = index->getNameStr();
-			if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
-			if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
-			return false;
-		}
+		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
+		//       so we still have calls instead of argument accesses!
+		//if (isa<Argument>(index)) {
+		//	const std::string name = index->getNameStr();
+		//	if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
+		//	outs() << "    index is unsuited function parameter (neither local nor global ID)!\n"; 
+		//	return false;
+		//}
 
 		// otherwise, this has to be an instruction
 		assert (isa<Instruction>(index));
 
+		if (CallInst* call = dyn_cast<CallInst>(index)) {
+			if (call->getCalledFunction()->getNameStr() == "get_local_id") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_global_id") return true;
+			outs() << "    index is unsuited function parameter (neither local nor global ID)!\n"; 
+			return false;
+		}
+
 		// if this is a cast, recurse into the casted operand
-		// TODO: other casts?
+		// TODO: what about other casts?
 		//if (isa<CastInst>(index)) return isConsecutiveIndex(cast<UnaryInstruction>(index)->getOperand(0));
 		if (isa<BitCastInst>(index)) return isConsecutiveIndex(cast<BitCastInst>(index)->getOperand(0));
+
+		// same for SExt/ZExt
+		if (isa<SExtInst>(index)) return isConsecutiveIndex(cast<SExtInst>(index)->getOperand(0));
+		if (isa<ZExtInst>(index)) return isConsecutiveIndex(cast<ZExtInst>(index)->getOperand(0));
 
 		// if this is a phi, recurse into all incoming operands to ensure safety
 		if (PHINode* phi = dyn_cast<PHINode>(index)) {
@@ -652,9 +707,9 @@ namespace PacketizedOpenCLDriver {
 		// multiple of the local size.
 
 		BinaryOperator* binOp = cast<BinaryOperator>(index);
-		switch (binOp->getOperator()) {
-			case BinaryOps::Sub: // fallthrough
-			case BinaryOps::Add: {
+		switch (binOp->getOpcode()) {
+			case Instruction::Sub: // fallthrough
+			case Instruction::Add: {
 				// recurse into subterms
 				Value* op0 = binOp->getOperand(0);
 				Value* op1 = binOp->getOperand(1);
@@ -665,7 +720,7 @@ namespace PacketizedOpenCLDriver {
 				const bool idUsageOkay = termUsesID(op0) ^ termUsesID(op1);
 				return idUsageOkay && isConsecutiveIndex(op0) && isConsecutiveIndex(op1);
 			}
-			case BinaryOps::Mul: {
+			case Instruction::Mul: {
 				// Check if the result of the multiplication is a multiple of the SIMD width.
 				// Simplified version (currently implemented): check if any operand of the multiplication is the local size.
 				
@@ -673,10 +728,11 @@ namespace PacketizedOpenCLDriver {
 				// example: arr[local id + local size * 2] = 0+16*2 / 1+16*2 / 2+16*2 / 3+16*2 = 32 / 33 / 34 / 35 = consecutive
 				// example: arr[local id + local size * (2/3/4/5)] = 0+16*2 / 1+16*3 / 2+16*4 / 3+16*5 = 32 / 49 / 66 / 83 = non-consecutive
 				
-				//return isSafeConsecutiveMultiplicationTerm(binOp) && isNonVaryingMultiplication(binOp);
-				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplication(binOp);
+				//return isSafeConsecutiveMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp);
+				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp);
 			}
 			default: {
+				outs() << "    found unknown operation in index calculation!\n";
 				return false;
 			}
 		}
@@ -693,16 +749,24 @@ namespace PacketizedOpenCLDriver {
 			// or it accesses index 0
 			if (isa<Argument>(ptr) && ptr->getType()->isPointerTy()) {
 				// TODO: is this sufficient to know this is a index-0-access?
+				outs() << "  mem access is an index-0-access!\n";
 				return true;
 			}
+			outs() << "  mem access does not load from array (no GEP)\n";
 			return false;
 		}
 
 		// otherwise, we probably have an access to an input/output array
-		GetElementPtr* gep = cast<GetElementPtrInst>(ptr);
+		GetElementPtrInst* gep = cast<GetElementPtrInst>(ptr);
+		outs() << "  found related GEP: " << *gep << "\n";
 
-		assert (gep->getNumIndices() == 2); // 0 (ptr-stepthrough), arrayidx
-		Value* idxVal = ++gep->idx_begin();
+		if (gep->getNumIndices() > 1) {
+			outs() << "  mem access does not load from array (GEP with too many indices)\n";
+			return false; // array access only has arrayidx as gep index
+		}
+
+		assert (isa<Value>(gep->idx_begin()));
+		Value* idxVal = cast<Value>(gep->idx_begin());
 
 		const bool isConsecutive = isConsecutiveIndex(idxVal);
 		return isConsecutive;
@@ -711,7 +775,8 @@ namespace PacketizedOpenCLDriver {
 		assert (f);
 		for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
 			for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
-				if (!isa<StoreInst>(I) && !isa<LoadInst>) continue;
+				if (!isa<StoreInst>(I) && !isa<LoadInst>(I)) continue;
+				outs() << "\ntesting load/store for consecutive access optimization: " << *I << "\n";
 				const bool canOptimize = canOptimizeMemAccess(I);
 				if (canOptimize) {
 					// TODO: implement
@@ -1894,6 +1959,7 @@ namespace PacketizedOpenCLDriver {
 		// (scattered-gather/scattered-store, replace calls with get_global_id_split).
 		// Calls to get_global_id with other dimensions remain unchanged (uses
 		// on packetized paths will be replicated);
+		PacketizedOpenCLDriver::optimizeMemAccesses(f);
 		PacketizedOpenCLDriver::setupIndexUsages(f, gid, gid_simd, gid_split, simd_dim);
 		PacketizedOpenCLDriver::setupIndexUsages(f, lid, lid_simd, lid_split, simd_dim);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );

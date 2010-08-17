@@ -463,8 +463,8 @@ namespace PacketizedOpenCLDriver {
 		return Function::Create(fType, Function::ExternalLinkage, packetKernelName, mod);
 	}
 
-	// Helper for replaceNonContiguousIndexUsage()
-	// Returns true, if all instructions that depend upon I are only constant linear
+	// Helper for setupIndexUsage()
+	// Returns true, if all instructions that depend upon I are only constant, linear
 	// modifications of the index.
 	// Recursion stops at GEP instructions.
 	// Returns false in all cases where this cannot be verified
