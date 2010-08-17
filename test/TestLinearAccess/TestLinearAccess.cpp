@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
 	//
 	correct = 0;
 	for (i = 0; i < dataSize; i++) {
-		if (verifyResults(results, data, dataSize)) {
+		if (verifyResults(results, data, i)) {
 			printf("results[%d]: %f (correct)\n", i, results[i]);
 			//printf("  original element: data[%d] = %f\n", i, data[i]);
 			correct++;
