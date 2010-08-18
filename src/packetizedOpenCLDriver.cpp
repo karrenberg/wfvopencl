@@ -366,12 +366,12 @@ namespace PacketizedOpenCLDriver {
 				-1,
 				PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", mod),
 				true); // packetization is mandatory
-		Packetizer::addNativeFunctionToPacketizer(
-				packetizer,
-				"get_global_id_SIMD",
-				-1,
-				PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", mod),
-				true); // packetization is mandatory
+//		Packetizer::addNativeFunctionToPacketizer(
+//				packetizer,
+//				"get_global_id_SIMD",
+//				-1,
+//				PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", mod),
+//				true); // packetization is mandatory
 
 		Packetizer::addNativeFunctionToPacketizer(
 				packetizer,
@@ -379,12 +379,12 @@ namespace PacketizedOpenCLDriver {
 				-1,
 				PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", mod),
 				true); // packetization is mandatory
-		Packetizer::addNativeFunctionToPacketizer(
-				packetizer,
-				"get_local_id_SIMD",
-				-1,
-				PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", mod),
-				true); // packetization is mandatory
+//		Packetizer::addNativeFunctionToPacketizer(
+//				packetizer,
+//				"get_local_id_SIMD",
+//				-1,
+//				PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", mod),
+//				true); // packetization is mandatory
 
 		Packetizer::runPacketizer(packetizer, mod);
 
@@ -500,7 +500,11 @@ namespace PacketizedOpenCLDriver {
 		return int32_51;
 	}
 
+	// -----------------------------------------------------------------------//
+	// Memory Access Optimization
+	// -----------------------------------------------------------------------//
 	
+#if 0
 	// We currently do not have a possibility to ask the packetizer what instructions are
 	// varying and which are uniform, so we have to rely on the domain-specific knowledge we have.
 	// This will be far from optimal, but at least cover the most common cases.
@@ -547,7 +551,6 @@ namespace PacketizedOpenCLDriver {
 
 		return true;
 	}
-
 	// returns true if any term of a multiplication-chain ( x * y * z * ... ) is
 	// the local size argument
 	// TODO: implement generic function 'isSafeConsecutiveMultiplicationTerm' that checks for multiple of SIMD width
@@ -604,7 +607,6 @@ namespace PacketizedOpenCLDriver {
 			}
 		}
 	}
-	
 	// TODO: should this function check whether any *multiplication*-term is an ID
 	//       or whether there is any use of the ID in the entire computation-tree?
 	//       (currently 2nd option is implemented -> not as efficient, but easier :) )
@@ -638,8 +640,7 @@ namespace PacketizedOpenCLDriver {
 
 		return false;
 	}
-	
-	bool isConsecutiveIndex(Value* index) {
+	bool isLinearModificationCalculation(Value* index) {
 		assert (index);
 
 		outs() << "  testing index calculation: " << *index << "\n";
@@ -676,24 +677,24 @@ namespace PacketizedOpenCLDriver {
 		// if this is a cast, recurse into the casted operand
 		// TODO: what about other casts?
 		//if (isa<CastInst>(index)) return isConsecutiveIndex(cast<UnaryInstruction>(index)->getOperand(0));
-		if (isa<BitCastInst>(index)) return isConsecutiveIndex(cast<BitCastInst>(index)->getOperand(0));
+		if (isa<BitCastInst>(index)) return isLinearModificationCalculation(cast<BitCastInst>(index)->getOperand(0));
 
 		// same for SExt/ZExt
-		if (isa<SExtInst>(index)) return isConsecutiveIndex(cast<SExtInst>(index)->getOperand(0));
-		if (isa<ZExtInst>(index)) return isConsecutiveIndex(cast<ZExtInst>(index)->getOperand(0));
+		if (isa<SExtInst>(index)) return isLinearModificationCalculation(cast<SExtInst>(index)->getOperand(0));
+		if (isa<ZExtInst>(index)) return isLinearModificationCalculation(cast<ZExtInst>(index)->getOperand(0));
 
 		// if this is a phi, recurse into all incoming operands to ensure safety
 		if (PHINode* phi = dyn_cast<PHINode>(index)) {
 			for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
 				Value* incVal = phi->getIncomingValue(i);
-				if (!isConsecutiveIndex(incVal)) return false;
+				if (!isLinearModificationCalculation(incVal)) return false;
 			}
 			return true;
 		}
 
 		// same goes for selects (both incoming values have to be safe)
 		if (SelectInst* select = dyn_cast<SelectInst>(index)) {
-			return isConsecutiveIndex(select->getTrueValue()) && isConsecutiveIndex(select->getFalseValue());
+			return isLinearModificationCalculation(select->getTrueValue()) && isLinearModificationCalculation(select->getFalseValue());
 		}
 
 		// if it is none of the above and no binary operator, we are screwed anyway
@@ -718,7 +719,7 @@ namespace PacketizedOpenCLDriver {
 				// example: arr[local id + local id] = 0+0 / 1+1 / 2+2 / 3+3 = 0 / 2 / 4 / 6 = non-consecutive
 				// TODO: this recomputes the same info for all terms on each level of recursion -> can be optimized
 				const bool idUsageOkay = termUsesID(op0) ^ termUsesID(op1);
-				return idUsageOkay && isConsecutiveIndex(op0) && isConsecutiveIndex(op1);
+				return idUsageOkay && isLinearModificationCalculation(op0) && isLinearModificationCalculation(op1);
 			}
 			case Instruction::Mul: {
 				// Check if the result of the multiplication is a multiple of the SIMD width.
@@ -768,7 +769,7 @@ namespace PacketizedOpenCLDriver {
 		assert (isa<Value>(gep->idx_begin()));
 		Value* idxVal = cast<Value>(gep->idx_begin());
 
-		const bool isConsecutive = isConsecutiveIndex(idxVal);
+		const bool isConsecutive = isLinearModificationCalculation(idxVal);
 		return isConsecutive;
 	}
 	void optimizeMemAccesses(Function* f) {
@@ -780,11 +781,16 @@ namespace PacketizedOpenCLDriver {
 				const bool canOptimize = canOptimizeMemAccess(I);
 				if (canOptimize) {
 					// TODO: implement
+
 					outs() << "OPTIMIZED MEMORY ACCESS: " << *I <<"\n";
 				}
 			}
 		}
 	}
+#endif
+
+	// -----------------------------------------------------------------------//
+	// -----------------------------------------------------------------------//
 
 	void replaceCallbacksByArgAccess(Function* f, Value* arg, Function* source) {
 		if (!f) return;
@@ -1959,7 +1965,8 @@ namespace PacketizedOpenCLDriver {
 		// (scattered-gather/scattered-store, replace calls with get_global_id_split).
 		// Calls to get_global_id with other dimensions remain unchanged (uses
 		// on packetized paths will be replicated);
-		PacketizedOpenCLDriver::optimizeMemAccesses(f);
+		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
+		//PacketizedOpenCLDriver::optimizeMemAccesses(f);
 		PacketizedOpenCLDriver::setupIndexUsages(f, gid, gid_simd, gid_split, simd_dim);
 		PacketizedOpenCLDriver::setupIndexUsages(f, lid, lid_simd, lid_split, simd_dim);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
@@ -1973,6 +1980,7 @@ namespace PacketizedOpenCLDriver {
 		f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f_SIMD << "\n"; );
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd.mod.ll"); );
 		std::set<GetElementPtrInst*> fixedGEPs;
@@ -1980,6 +1988,46 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd2.mod.ll"); );
+
+
+		//PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+			BasicBlock* block = &f_SIMD->getEntryBlock();
+			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+				if (CallInst* call = dyn_cast<CallInst>(I)) {
+					if (call->getCalledFunction()->getNameStr() == "get_global_size")
+						insertPrintf("global size: ", call, true, block->getTerminator());
+					if (call->getCalledFunction()->getNameStr() == "get_local_size")
+						insertPrintf("local size: ", call, true, block->getTerminator());
+					if (call->getCalledFunction()->getNameStr() == "get_group_id")
+						insertPrintf("group id: ", call, true, block->getTerminator());
+					if (call->getCalledFunction()->getNameStr() == "get_global_id")
+						insertPrintf("global id: ", call, true, block->getTerminator());
+					if (call->getCalledFunction()->getNameStr() == "get_local_id")
+						insertPrintf("local id: ", call, true, block->getTerminator());
+					if (call->getCalledFunction()->getNameStr() == "get_global_id_SIMD")
+						insertPrintf("global id SIMD: ", call, true, block->getTerminator());
+					if (call->getCalledFunction()->getNameStr() == "get_local_id_SIMD")
+						insertPrintf("local id SIMD: ", call, true, block->getTerminator());
+				}
+			}
+		//);
+
+		//BasicBlock* block = &f_SIMD->getEntryBlock();
+		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+			if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
+				insertPrintf("out-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
+				break;
+			}
+		}
+		int count = 0;
+		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+			if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
+				if (count == 0) { ++count; continue; }
+				insertPrintf("in-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
+			}
+		}
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "special.ll"); );
+
 
 		// eliminate barriers
 		FunctionPassManager FPM(module);

@@ -74,6 +74,8 @@
 #define PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE(x)
 #endif
 
+#define PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH 4
+
 using namespace llvm;
 
 namespace PacketizedOpenCLDriver {
@@ -463,12 +465,472 @@ namespace PacketizedOpenCLDriver {
 		return Function::Create(fType, Function::ExternalLinkage, packetKernelName, mod);
 	}
 
+#if 1
+	// We currently do not have a possibility to ask the packetizer what instructions are
+	// varying and which are uniform, so we have to rely on the domain-specific knowledge we have.
+	// This will be far from optimal, but at least cover the most common cases.
+	// The things we can test are the following:
+	// - constants
+	// - known arguments (localsize, globalsize, groupid, numgroups)
+	// - possibly all non-pointer parameters (__local keyword) (TODO: really? if so, implement!)
+	//
+	// TODO: do we need separate checks for casts, phis, and selects as in functions below?
+	bool isNonVaryingMultiplicationTerm(Value* value) {
+		assert (value);
+
+		if (isa<Constant>(value)) return true;
+
+		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
+		//       so we still have calls instead of argument accesses!
+		//if (isa<Argument>(value)) {
+		//	const std::string name = value->getNameStr();
+		//	if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_global_size") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_group_id") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_num_groups") != 0) return true;
+		//	return false;
+		//}
+
+		//if (!isa<Instruction>(value)) return false;
+		assert (isa<Instruction>(value));
+
+		if (CallInst* call = dyn_cast<CallInst>(value)) {
+			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_global_size") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_group_id") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_num_groups") return true;
+			return false;
+		}
+
+		// no constant, no callback -> only uniform if all operands are uniform
+		Instruction* inst = cast<Instruction>(value);
+		for (Instruction::op_iterator O=inst->op_begin(), OE=inst->op_end(); O!=OE; ++O) {
+			if (!isa<Value>(O)) continue;
+			Value* opVal = cast<Value>(O);
+			if (!isNonVaryingMultiplicationTerm(opVal)) return false;
+		}
+
+		return true;
+	}
+	// returns true if any term of a multiplication-chain ( x * y * z * ... ) is
+	// the local size argument
+	// TODO: implement generic function 'isSafeConsecutiveMultiplicationTerm' that checks for multiple of SIMD width
+	bool hasLocalSizeMultiplicationTerm(Value* value) {
+		assert (value);
+		// if the value is the "local_size"-argument, the entire multiplication term is safe
+		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
+		//       so we still have calls instead of argument accesses!
+		//if (isa<Argument>(value)) {
+		//	const std::string name = value->getNameStr();
+		//	if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
+		//	return false;
+		//}
+
+		if (CallInst* call = dyn_cast<CallInst>(value)) {
+			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
+			return false;
+		}
+
+
+		// if this is a cast, recurse into the casted operand
+		// TODO: other casts?
+		//if (isa<CastInst>(value)) return hasLocalSizeMultiplicationTerm(cast<UnaryInstruction>(value)->getOperand(0));
+		if (isa<BitCastInst>(value)) return hasLocalSizeMultiplicationTerm(cast<BitCastInst>(value)->getOperand(0));
+
+		// if this is a phi, recurse into all incoming operands to ensure safety
+		if (PHINode* phi = dyn_cast<PHINode>(value)) {
+			for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
+				Value* incVal = phi->getIncomingValue(i);
+				if (!hasLocalSizeMultiplicationTerm(incVal)) return false;
+			}
+			return true;
+		}
+
+		// same goes for selects (both incoming values have to be safe)
+		if (SelectInst* select = dyn_cast<SelectInst>(value)) {
+			return hasLocalSizeMultiplicationTerm(select->getTrueValue()) && hasLocalSizeMultiplicationTerm(select->getFalseValue());
+		}
+
+		// if it is none of the above and no binary operator, we are screwed anyway
+		if (!isa<BinaryOperator>(value)) return false;
+
+		BinaryOperator* binOp = cast<BinaryOperator>(value);
+		switch (binOp->getOpcode()) {
+			case Instruction::Mul: {
+				// Check if the result of the multiplication is a multiple of the SIMD width.
+				// Simpler version: check if any operand of the multiplication is the local size.
+				Value* op0 = binOp->getOperand(0);
+				Value* op1 = binOp->getOperand(1);
+				return hasLocalSizeMultiplicationTerm(op0) || hasLocalSizeMultiplicationTerm(op1);
+			}
+			default: {
+				return false;
+			}
+		}
+	}
+	// 'use' is required to know where we should place additional operations like the division
+	// by the simd width in case of a constant
+	bool isLinearModificationCalculation(Value* value, Instruction* use) {
+		assert (value);
+
+		outs() << "  testing consecutive modification calculation: " << *value << "\n";
+
+		if (isa<Constant>(value)) {
+			assert (isa<ConstantInt>(value));
+			const ConstantInt* constIntOp = cast<ConstantInt>(value);
+			const uint64_t constVal = *(constIntOp->getValue().getRawData());
+			if (constVal % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0) {
+				outs() << "    value is a constant NOT dividable by SIMD width (has to be replicated)!\n";
+				return false;
+			}
+
+			BinaryOperator::Create(Instruction::UDiv, value, ConstantInt::get(value->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", use);
+			outs() << "    value is a constant dividable by SIMD width (division inserted)!\n";
+			return true;
+		}
+
+		// if the value is an argument, the indexing is consecutive if it is
+		// the local or global id (and not the split id which holds 4 values)
+		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
+		//       so we still have calls instead of argument accesses!
+		//if (isa<Argument>(value)) {
+		//	const std::string name = value->getNameStr();
+		//	if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
+		//	if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
+		//	outs() << "    value is unsuited function parameter (neither local nor global ID)!\n";
+		//	return false;
+		//}
+
+		// otherwise, this has to be an instruction
+		assert (isa<Instruction>(value));
+
+		// If we find a call, it is only a valid modification if local size is queried.
+		// It is especially invalid if local/global id is used again.
+		if (CallInst* call = dyn_cast<CallInst>(value)) {
+			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
+			outs() << "    value is unsuited function parameter (only local size allowed)!\n";
+			return false;
+		}
+
+		// if this is a cast, recurse into the casted operand
+		// TODO: what about other casts?
+		//if (isa<CastInst>(value)) return isConsecutiveIndex(cast<UnaryInstruction>(value)->getOperand(0));
+		if (isa<BitCastInst>(value)) return isLinearModificationCalculation(cast<BitCastInst>(value)->getOperand(0), use);
+
+		// same for SExt/ZExt
+		if (isa<SExtInst>(value)) return isLinearModificationCalculation(cast<SExtInst>(value)->getOperand(0), use);
+		if (isa<ZExtInst>(value)) return isLinearModificationCalculation(cast<ZExtInst>(value)->getOperand(0), use);
+
+		// if this is a phi, recurse into all incoming operands to ensure safety
+		if (PHINode* phi = dyn_cast<PHINode>(value)) {
+			for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
+				Value* incVal = phi->getIncomingValue(i);
+				if (!isLinearModificationCalculation(incVal, phi->getIncomingBlock(i)->getTerminator())) return false;
+			}
+			return true;
+		}
+
+		// same goes for selects (both incoming values have to be safe)
+		if (SelectInst* select = dyn_cast<SelectInst>(value)) {
+			return isLinearModificationCalculation(select->getTrueValue(), select) && isLinearModificationCalculation(select->getFalseValue(), select);
+		}
+
+		// if it is none of the above and no binary operator, we cannot do anything
+		if (!isa<BinaryOperator>(value)) return false;
+
+		// This is the hard part:
+		// Analyze the computation-tree below the value and check whether
+		// it only consists of linear combinations where each term is a multiple
+		// of the SIMD width.
+		// We implement a simplified version that only checks if each term is a
+		// multiple of the local size.
+
+		BinaryOperator* binOp = cast<BinaryOperator>(value);
+		switch (binOp->getOpcode()) {
+			case Instruction::Sub: // fallthrough
+			case Instruction::Add: {
+				// recurse into subterms
+				Value* op0 = binOp->getOperand(0);
+				Value* op1 = binOp->getOperand(1);
+				// check if the usage of local/global id is okay (only one use of one id (local OR global) in all terms)
+				// example: arr[local id + 2] = 0+2 / 1+2 / 2+2 / 3+2 = 2 / 3 / 4 / 5 = consecutive
+				// example: arr[local id + local id] = 0+0 / 1+1 / 2+2 / 3+3 = 0 / 2 / 4 / 6 = non-consecutive
+				// TODO: this recomputes the same info for all terms on each level of recursion -> can be optimized
+				//const bool idUsageOkay = termUsesID(op0) ^ termUsesID(op1);
+				//return idUsageOkay && isConsecutiveModification(op0, binOp) && isConsecutiveModification(op1, binOp);
+				return isLinearModificationCalculation(op0, binOp) && isLinearModificationCalculation(op1, binOp);
+			}
+			case Instruction::Mul: {
+				// Check if the result of the multiplication is a multiple of the SIMD width.
+				// Simplified version (currently implemented): check if any operand of the multiplication is the local size.
+
+				// We also require all terms of the multiplication to be uniform.
+				// example: arr[local id + local size * 2] = 0+16*2 / 1+16*2 / 2+16*2 / 3+16*2 = 32 / 33 / 34 / 35 = consecutive
+				// example: arr[local id + local size * (2/3/4/5)] = 0+16*2 / 1+16*3 / 2+16*4 / 3+16*5 = 32 / 49 / 66 / 83 = non-consecutive
+
+				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp);
+			}
+			default: {
+				outs() << "    found unknown operation in consective modification calculation!\n";
+				return false;
+			}
+		}
+	}
+
+	inline bool constantIsDividableBySIMDWidth(Constant* c) {
+		assert (c);
+		assert (isa<ConstantInt>(c));
+		const ConstantInt* constIntOp = cast<ConstantInt>(c);
+		const uint64_t constVal = *(constIntOp->getValue().getRawData());
+		return (constVal % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
+	}
+
+	// TODO: other safe operations? ZExt? FPExt? Trunc? FPTrunc?
+	// TODO: loops? safe paths?
+	// TODO: phi, select
+	// TODO: calls?
+	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
+		outs() << "\nindexIsOnlyUsedWithLinearModifications(" << *I << ")\n";
+
+		// if this use is a GEP, this path is fine (don't go beyond GEPs)
+		if (isa<GetElementPtrInst>(I)) {
+			dependentGEPs.insert(cast<GetElementPtrInst>(I));
+			return true;
+		}
+
+//		// if this is a loop, this path is fine
+//		if (visited.find(I) != visited.end()) return true;
+//		visited.insert(I);
+//
+//		// if this use is inside safeInstVec already, we can stop recursion
+//		if (safePathVec.find(I) != safePathVec.end()) return true;
+
+		// check for safe operations (rest of path still has to be checked)
+		bool operandsAreSafe = false;
+
+		switch (I->getOpcode()) {
+			case Instruction::Add : //fallthrough
+			case Instruction::Sub : {
+				outs() << "  add/sub found!\n";
+				// add/sub is okay if other operand is dividable by simd width (currently: local size if not constant) and uniform
+
+				// get other operand
+				Value* op = I->getOperand(0) == parent ? I->getOperand(1) : I->getOperand(0);
+
+				// If operand is constant, we have to divide it by the SIMD width.
+				// If it is not dividable, it must not be optimized.
+				// example: arr[local id + 8] = 0+8 / 1+8 / 2+8 / 3+8 = 8 / 9 / 10 / 11 = 'SIMD position' 2
+				// optimized: arr[local id SIMD + 8] = 0+8 = 'SIMD position' 8 = wrong values
+				// optimized&divided: arr[local id SIMD + 8/4] = 0+2 = 'SIMD position' 2 = correct values
+				if (isa<Constant>(op)) {
+					outs() << "    has constant operand!\n";
+					if (!constantIsDividableBySIMDWidth(cast<Constant>(op))) break;
+
+					BinaryOperator* divOp = BinaryOperator::Create(Instruction::UDiv, op, ConstantInt::get(op->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", I);
+					I->replaceUsesOfWith(op, divOp);
+					operandsAreSafe = true;
+					break;
+				}
+
+				// Otherwise, check if other operand is dividable by simd width (currently: local size if not constant)
+				// This function tests an entire add/sub-tree above the operand
+				// whether each term is dividable.
+				operandsAreSafe = isLinearModificationCalculation(op, I);
+				break;
+			}
+
+			case Instruction::SExt    : // SExt is okay, fallthrough
+			case Instruction::FPToUI  : // FPToUI is okay, fallthrough
+			case Instruction::FPToSI  : // FPToSI is okay, fallthrough
+			case Instruction::UIToFP  : // UIToFP is okay, fallthrough
+			case Instruction::SIToFP  : // SIToFP is okay, fallthrough
+			case Instruction::FPExt   : // FPExt is okay, fallthrough
+			case Instruction::BitCast : {
+				outs() << "  cast found!\n";
+				assert (isa<Instruction>(I->getOperand(0)));
+				operandsAreSafe = true; //indexIsOnlyUsedWithLinearModifications(cast<Instruction>(I->getOperand(0)), I, safePathVec, visited);
+				break;
+			}
+
+			//case Instruction::Mul : useIsBad = false; break; // Mul is NOT okay!
+			//case Instruction::ICmp    : useIsBad = false; break; // ICmp is NOT okay! (can jump to different targets)
+			//case Instruction::FCmp    : useIsBad = false; break; // FCmp is NOT okay! (can jump to different targets)
+			//case Instruction::Ret     : useIsBad = false; break; // Ret is NOT okay! (can return different results)
+			//case Instruction::Br      : useIsBad = false; break; // Br is NOT okay! (can jump to different targets)
+			//case Instruction::Switch  : useIsBad = false; break; // Switch NOT okay! (can jump to different targets)
+
+			// These two cases are a little more complicated:
+			// If the local/global id is used in a phi/select, all other operands
+			// of the phi/select are allowed to use local/global id again (in
+			// contrast to additions).
+			// TODO: implement additional function to be called here instead of
+			// indexIsOnlyUsedWithLinearModifications that allows usage of ids.
+			// alternative: add a flag that enables this feature
+			case Instruction::PHI     : {
+				outs() << "  phi found!\n";
+				// recurse into all other incoming operands to ensure safety
+				PHINode* phi = cast<PHINode>(I);
+				bool phiIsSafe = true;
+				for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
+					Value* incVal = phi->getIncomingValue(i);
+					if (incVal == I) continue; // skip current value
+					if (isa<Constant>(incVal)) {
+						if (constantIsDividableBySIMDWidth(cast<Constant>(incVal))) continue;
+						else {
+							phiIsSafe = false;
+							break;
+						}
+					} else if (isa<Argument>(incVal)) {
+						phiIsSafe = false;
+						break;
+					} else {
+						assert (isa<Instruction>(incVal));
+						if (!indexIsOnlyUsedWithLinearModifications(cast<Instruction>(incVal), I, dependentGEPs, safePathVec, visited)) {
+							phiIsSafe = false;
+							break;
+						}
+					}
+				}
+				operandsAreSafe = phiIsSafe;
+				break;
+			}
+			case Instruction::Select  : {
+				outs() << "  select found!\n";
+				// same goes for selects (second incoming value also has to be safe)
+				SelectInst* select = cast<SelectInst>(I);
+				Value* otherVal = select->getTrueValue() == I ? select->getFalseValue() : select->getTrueValue();
+				if (isa<Constant>(otherVal)) {
+					if (constantIsDividableBySIMDWidth(cast<Constant>(otherVal))) operandsAreSafe = true;
+					break;
+				} else if (isa<Argument>(otherVal)) {
+					break; // not safe
+				} else {
+					assert (isa<Instruction>(otherVal));
+					operandsAreSafe = indexIsOnlyUsedWithLinearModifications(cast<Instruction>(otherVal), I, dependentGEPs, safePathVec, visited);
+					break;
+				}
+			}
+		}
+
+		if (!operandsAreSafe && I->getNumOperands() == 1) {
+			outs() << "  instruction only has one operand -> should be safe?!\n";
+			outs() << "    " << *I << "\n";
+			exit(0);
+		}
+
+		if (operandsAreSafe) outs() << "  operands safe for instruction: " << *I << "\n";
+		else outs() << "  operands NOT safe for instruction: " << *I << "\n";
+
+		if (!operandsAreSafe) return false;
+
+		// now recurse further into uses
+		// (in case of add/sub: make sure all further terms are also dividable)
+
+		for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
+			if (Instruction* useI = dyn_cast<Instruction>(U))
+				if (!indexIsOnlyUsedWithLinearModifications(useI, I, dependentGEPs, safePathVec, visited)) {
+					outs() << "  uses NOT safe for instruction: " << *I << "\n";
+					return false;
+				}
+		}
+
+		outs() << "  INSTRUCTION IS SAFE: " << *I << "\n";
+		return true;
+	}
+
+
+	bool indexIsMultipleOfOriginalLocalSize(Value* index, Instruction* use) {
+		assert (index);
+		outs() << "\nindexIsMultipleOfOriginalLocalSize(" << *index << ")\n";
+
+		if (isa<Constant>(index)) return false;
+		if (isa<Argument>(index)) return false;
+
+		assert (isa<Instruction>(index));
+		Instruction* indexInst = cast<Instruction>(index);
+
+		bool instructionIsSafe = false;
+
+		switch (indexInst->getOpcode()) {
+			case Instruction::Mul : // fallthrough
+			case Instruction::Add : // fallthrough
+			case Instruction::Sub : {
+				Value* op0 = indexInst->getOperand(0);
+				Value* op1 = indexInst->getOperand(1);
+				instructionIsSafe = indexIsMultipleOfOriginalLocalSize(op0, indexInst) && indexIsMultipleOfOriginalLocalSize(op1, indexInst);
+				break;
+			}
+			case Instruction::Call : {
+				CallInst* call = cast<CallInst>(indexInst);
+				instructionIsSafe = (call->getCalledFunction()->getNameStr() == "get_local_size");
+
+				// make sure each term that uses local or global size is divided by the SIMD width
+				// NOTE: global size does not make it safe, but also has to be fixed
+				if (instructionIsSafe || call->getCalledFunction()->getNameStr() == "get_global_size") {
+					BinaryOperator* divIndex = BinaryOperator::Create(Instruction::UDiv, call, ConstantInt::get(call->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", use);
+					use->replaceUsesOfWith(call, divIndex);
+				}
+				break;
+			}
+
+			case Instruction::SExt    :
+			case Instruction::FPToUI  :
+			case Instruction::FPToSI  :
+			case Instruction::UIToFP  :
+			case Instruction::SIToFP  :
+			case Instruction::FPExt   :
+			case Instruction::BitCast : {
+				instructionIsSafe = true;
+				break;
+			}
+
+			case Instruction::PHI : {
+				PHINode* phi = cast<PHINode>(indexInst);
+				bool phiIsSafe = true;
+				for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
+					Value* incVal = phi->getIncomingValue(i);
+					if (!indexIsMultipleOfOriginalLocalSize(incVal, phi)) {
+						phiIsSafe = false;
+						break;
+					}
+				}
+				instructionIsSafe = phiIsSafe;
+				break;
+			}
+			case Instruction::Select : {
+				SelectInst* select = cast<SelectInst>(indexInst);
+				instructionIsSafe = indexIsMultipleOfOriginalLocalSize(select->getTrueValue(), select) && indexIsMultipleOfOriginalLocalSize(select->getFalseValue(), select);
+				break;
+			}
+		}
+
+		if (!instructionIsSafe) return false;
+
+		for (Instruction::op_iterator O=indexInst->op_begin(), OE=indexInst->op_end(); O!=OE; ++O) {
+			assert (isa<Value>(O));
+			if (indexIsMultipleOfOriginalLocalSize(cast<Value>(O), indexInst)) return true;
+		}
+		return false;
+	}
+	void fixLocalSizeSIMDUsageInIndexCalculation(GetElementPtrInst* gep) {
+		assert (gep);
+		outs() << "\nfixLocalSizeSIMDUsageInIndexCalculation(" << *gep << ")\n";
+
+		assert (gep->getNumIndices() == 1);
+
+		Value* index = cast<Value>(gep->idx_begin());
+		assert (index->getType()->isIntegerTy());
+
+		indexIsMultipleOfOriginalLocalSize(index, gep);
+	}
+
+#else
 	// Helper for setupIndexUsage()
 	// Returns true, if all instructions that depend upon I are only constant, linear
 	// modifications of the index.
 	// Recursion stops at GEP instructions.
 	// Returns false in all cases where this cannot be verified
-	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
+	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
 		// if this use is a GEP, this path is fine (don't go beyond GEPs)
 		if (isa<GetElementPtrInst>(I)) return true;
 
@@ -511,6 +973,7 @@ namespace PacketizedOpenCLDriver {
 			//case Instruction::Switch  : useIsBad = false; break; // Switch NOT okay! (can jump to different targets)
 
 			case Instruction::PHI     : useIsBad = false; break; // PHI is okay
+			case Instruction::Select  : useIsBad = false; break; // Select is okay
 		}
 
 		if (useIsBad) return false;
@@ -525,6 +988,8 @@ namespace PacketizedOpenCLDriver {
 		safePathVec.insert(I);
 		return true;
 	}
+#endif
+
 
 	// Replace calls to oldF with index 'simdDim' by splitF in function f
 	// wherever the result of the call is not used directly in a load or store (via GEP),
@@ -540,6 +1005,8 @@ namespace PacketizedOpenCLDriver {
 		assert (oldFn->getReturnType()->isIntegerTy());
 		assert (splitFn->getReturnType()->isIntegerTy());
 		// TODO: check if signature matches (we are replacing oldF by splitFn...)
+
+		outs() << "\nsetupIndexUsages(" << oldFn->getNameStr() << ")\n";
 
 		std::vector<CallInst*> deleteVec;
 		std::set<Instruction*> safePathVec; // marks instructions whose use-subtrees are entirely safe
@@ -566,10 +1033,10 @@ namespace PacketizedOpenCLDriver {
 			for (CallInst::op_iterator OP=call->op_begin()+1, OPE=call->op_end(); OP!=OPE; ++OP) {
 				args.push_back(*OP);
 			}
-			CallInst* splitCall = CallInst::Create(splitFn, args.begin(), args.end(), call->getName()+"_split", call);
+			CallInst* splitCall = CallInst::Create(splitFn, args.begin(), args.end(), call->getCalledFunction()->getName()+"_split", call);
 			splitCall->setTailCall(true);
 
-			CallInst* simdCall = CallInst::Create(simdFn, args.begin(), args.end(), call->getName()+"_simd_tmp", call);
+			CallInst* simdCall = CallInst::Create(simdFn, args.begin(), args.end(), call->getCalledFunction()->getName()+"_simd_tmp", call);
 			simdCall->setTailCall(true);
 
 
@@ -582,8 +1049,19 @@ namespace PacketizedOpenCLDriver {
 				// attempt to analyze path
 				// TODO: entirely uniform paths are okay as well
 				std::set<Instruction*> visited;
-				if (indexIsOnlyUsedWithLinearModifications(useI, call, safePathVec, visited)) {
+				std::set<GetElementPtrInst*> dependentGEPs;
+				if (indexIsOnlyUsedWithLinearModifications(useI, call, dependentGEPs, safePathVec, visited)) {
+					// If any index calculation uses local_size, we have to divide the corresponding
+					// terms by the SIMD width because local_size is the unmodified value.
+					// This is safer than dividing local_size by the SIMD width everywhere
+					// because kernels might rely on the actual unmodified number of threads
+					// in a group.
+					for (std::set<GetElementPtrInst*>::iterator it=dependentGEPs.begin(), E=dependentGEPs.end(); it!=E; ++it) {
+						fixLocalSizeSIMDUsageInIndexCalculation(*it);
+					}
+
 					useI->replaceUsesOfWith(call, simdCall);
+					outs() << "  OPTIMIZED USE: " << *useI << "\n";
 					continue;
 				}
 #endif
