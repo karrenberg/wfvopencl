@@ -475,24 +475,15 @@ namespace PacketizedOpenCLDriver {
 	// - possibly all non-pointer parameters (__local keyword) (TODO: really? if so, implement!)
 	//
 	// TODO: do we need separate checks for casts, phis, and selects as in functions below?
+	// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
+	//       so we still have calls instead of argument accesses!
 	bool isNonVaryingMultiplicationTerm(Value* value) {
 		assert (value);
 
 		if (isa<Constant>(value)) return true;
+		if (isa<Argument>(value)) return false; // TODO: optimize for uniform arguments
 
-		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
-		//       so we still have calls instead of argument accesses!
-		//if (isa<Argument>(value)) {
-		//	const std::string name = value->getNameStr();
-		//	if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
-		//	if (std::strstr(name.c_str(), "get_global_size") != 0) return true;
-		//	if (std::strstr(name.c_str(), "get_group_id") != 0) return true;
-		//	if (std::strstr(name.c_str(), "get_num_groups") != 0) return true;
-		//	return false;
-		//}
-
-		//if (!isa<Instruction>(value)) return false;
-		assert (isa<Instruction>(value));
+		if (!isa<Instruction>(value)) return false; // TODO: actually, this function should never be called with basic blocks or so ^^
 
 		if (CallInst* call = dyn_cast<CallInst>(value)) {
 			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
@@ -685,7 +676,7 @@ namespace PacketizedOpenCLDriver {
 		return (constVal % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
 	}
 
-	// TODO: other safe operations? ZExt? FPExt? Trunc? FPTrunc?
+	// TODO: other safe operations? FPExt? Trunc? FPTrunc?
 	// TODO: loops? safe paths?
 	// TODO: phi, select
 	// TODO: calls?
@@ -740,6 +731,7 @@ namespace PacketizedOpenCLDriver {
 			}
 
 			case Instruction::SExt    : // SExt is okay, fallthrough
+			case Instruction::ZExt    : // ZExt is okay, fallthrough
 			case Instruction::FPToUI  : // FPToUI is okay, fallthrough
 			case Instruction::FPToSI  : // FPToSI is okay, fallthrough
 			case Instruction::UIToFP  : // UIToFP is okay, fallthrough

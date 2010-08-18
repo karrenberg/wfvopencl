@@ -1990,7 +1990,7 @@ namespace PacketizedOpenCLDriver {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd2.mod.ll"); );
 
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
 			BasicBlock* block = &f_SIMD->getEntryBlock();
 			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
 				if (CallInst* call = dyn_cast<CallInst>(I)) {
@@ -2010,23 +2010,23 @@ namespace PacketizedOpenCLDriver {
 						insertPrintf("local id SIMD: ", call, true, block->getTerminator());
 				}
 			}
-		//);
+		);
 
-		//BasicBlock* block = &f_SIMD->getEntryBlock();
-		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-			if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
-				insertPrintf("out-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
-				break;
-			}
-		}
-		int count = 0;
-		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-			if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
-				if (count == 0) { ++count; continue; }
-				insertPrintf("in-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
-			}
-		}
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "special.ll"); );
+//		BasicBlock* block = &f_SIMD->getEntryBlock();
+//		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+//			if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
+//				insertPrintf("out-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
+//				break;
+//			}
+//		}
+//		int count = 0;
+//		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+//			if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
+//				if (count == 0) { ++count; continue; }
+//				insertPrintf("in-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
+//			}
+//		}
+//		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "special.ll"); );
 
 
 		// eliminate barriers
