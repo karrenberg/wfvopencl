@@ -185,6 +185,7 @@ private:
 		}
 	}
 
+	// helper for getBarrierInfo()
 	unsigned collectBarriersDFS(BasicBlock* block, unsigned depth, BarrierVecType& barriers, unsigned& maxBarrierDepth, std::set<BasicBlock*>& visitedBlocks) {
 		assert (block);
 		if (visitedBlocks.find(block) != visitedBlocks.end()) return 0;
@@ -213,7 +214,15 @@ private:
 		}
 		DEBUG_LA( if (numBarriers > 0) outs() << "  successors of " << block->getNameStr() << " have " << numBarriers << " barriers!\n"; );
 
-		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+		// safety check required because we iterate in reversed order
+		if (block->empty()) {
+			DEBUG_LA( outs() << "collectBarriersDFS(" << block->getNameStr() << ", " << depth << ") -> " << numBarriers << "\n"; );
+			return numBarriers;
+		}
+
+		BasicBlock::iterator I = block->end();
+		do {
+			--I;
 			if (!isa<CallInst>(I)) continue;
 			CallInst* call = cast<CallInst>(I);
 
@@ -224,27 +233,16 @@ private:
 
 			BarrierInfo* bi = new BarrierInfo(call, block, depth);
 			barriers.push_back(bi);
+			DEBUG_LA( outs() << "    barrier found in block '" << block->getNameStr() << "': " << *call << "\n"; );
 
 			if (depth > maxBarrierDepth) maxBarrierDepth = depth;
-		}
+		} while (I != block->begin());
 
 		DEBUG_LA( outs() << "collectBarriersDFS(" << block->getNameStr() << ", " << depth << ") -> " << numBarriers << "\n"; );
 
 		return numBarriers;
 	}
-	void findContinuationBlocksDFS(const BasicBlock* block, std::set<const BasicBlock*>& copyBlocks, std::set<const BasicBlock*>& visitedBlocks) {
-		assert (block);
-		if (visitedBlocks.find(block) != visitedBlocks.end()) return;
-		visitedBlocks.insert(block);
-
-		copyBlocks.insert(block);
-
-		for (succ_const_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
-			const BasicBlock* succBB = *S;
-			findContinuationBlocksDFS(succBB, copyBlocks, visitedBlocks);
-		}
-	}
-
+	
 	// Traverse the function in DFS and collect all barriers in post-reversed order.
 	// Count how many barriers the function has and assign an id to each barrier
 	inline unsigned getBarrierInfo(Function* f, BarrierVecType& barriers, unsigned& maxBarrierDepth) {
@@ -262,6 +260,20 @@ private:
 
 		return numBarriers;
 	}
+
+	void findContinuationBlocksDFS(const BasicBlock* block, std::set<const BasicBlock*>& copyBlocks, std::set<const BasicBlock*>& visitedBlocks) {
+		assert (block);
+		if (visitedBlocks.find(block) != visitedBlocks.end()) return;
+		visitedBlocks.insert(block);
+
+		copyBlocks.insert(block);
+
+		for (succ_const_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
+			const BasicBlock* succBB = *S;
+			findContinuationBlocksDFS(succBB, copyBlocks, visitedBlocks);
+		}
+	}
+
 
 #ifndef USE_LLVM_DOMTREE_PASS
 	// We need these two functions because requiring domTree is not enoug
@@ -320,8 +332,9 @@ private:
 		LLVMContext& context = mod->getContext();
 
 		DEBUG_LA( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in block '" << parentBlock->getNameStr() << "'\n"; );
+		DEBUG_LA( outs() << "  barrier: " << *barrierInfo->barrier << "\n"; );
 
-		assert (barrier->getParent() == parentBlock);
+		assert (barrier->getParent() == parentBlock && "barrier worklist ordering wrong?");
 
 		//--------------------------------------------------------------------//
 		// get live values for this block
