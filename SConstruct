@@ -84,6 +84,7 @@ testApps = env.Split("""
 BinomialOption
 BitonicSort
 BlackScholes
+BlackScholesSimple
 DCT
 DwtHaar1D
 EigenValue
