@@ -2,18 +2,21 @@
 __kernel void TestLoopBarrier2(
    __global float* input,
    __global float* output,
-   const unsigned int count)
+   __local  float* shared)
 {
 	int i = get_global_id(0);
+	int l = get_local_id(0);
 
-	float x = input[i];
-	float f = x * x;
+	//shared[l] = 0.f;
 
-	for (unsigned j=0; j<10; ++j) {
-		f -= count;
-		//f += input[j];
+	//barrier(CLK_LOCAL_MEM_FENCE);
+
+	for (unsigned j=0, e=10; j<e; ++j) {
+		//shared[l] += input[l]+1.f;
+		shared[l] += 1.f;
+		barrier(CLK_LOCAL_MEM_FENCE);
+		//output[i] += (l == get_local_size(0)-1) ? 0.f : shared[l+1];
+		output[i] += shared[l];
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
-
-	output[i] = f;
 }

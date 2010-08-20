@@ -69,14 +69,17 @@
 // Use a static data size for simplicity
 //
 #define DATA_SIZE (1024)
+#define GROUP_NR (8)
+#define GROUP_SIZE (DATA_SIZE/GROUP_NR)
 
 ////////////////////////////////////////////////////////////////////////////////
 
 inline bool verifyResults(float* results, float* data, const unsigned count, const unsigned index) {
-	float correctRes = (data[index] * data[index]);
+	float correctRes = 0.f;
 
-	for (unsigned j=0; j<10; ++j) {
-		correctRes -= count;
+	for (unsigned j=0, e=10; j<e; ++j) {
+		correctRes += data[index]+1.f;
+		correctRes += (index+1)%GROUP_SIZE==0 ? 0.f : data[index+1];
 	}
 
 	const bool correct = results[index] == correctRes;
@@ -106,8 +109,8 @@ int main(int argc, char** argv)
     // Fill our data set with random float values
     //
     unsigned i = 0;
-    unsigned int count = DATA_SIZE;
-    for(i = 0; i < count; i++) {
+	const unsigned int dataSize = DATA_SIZE;
+    for(i = 0; i < dataSize; i++) {
         data[i] = rand() / (float)RAND_MAX;
 		//if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
 	}
@@ -176,8 +179,8 @@ int main(int argc, char** argv)
 
     // Create the input and output arrays in device memory for our calculation
     //
-    input = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(float) * count, NULL, NULL);
-    output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * count, NULL, NULL);
+    input = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(float) * dataSize, NULL, NULL);
+    output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * dataSize, NULL, NULL);
     if (!input || !output)
     {
         printf("Error: Failed to allocate device memory!\n");
@@ -186,7 +189,7 @@ int main(int argc, char** argv)
 
     // Write our data set into the input array in device memory
     //
-    err = clEnqueueWriteBuffer(commands, input, CL_TRUE, 0, sizeof(float) * count, data, 0, NULL, NULL);
+    err = clEnqueueWriteBuffer(commands, input, CL_TRUE, 0, sizeof(float) * dataSize, data, 0, NULL, NULL);
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to write to source array!\n");
@@ -195,10 +198,11 @@ int main(int argc, char** argv)
 
     // Set the arguments to our compute kernel
     //
+	const unsigned int groupSize = GROUP_SIZE;
     err = 0;
     err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &input);
     err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &output);
-    err |= clSetKernelArg(kernel, 2, sizeof(unsigned int), &count);
+	err |= clSetKernelArg(kernel, 2, groupSize * sizeof (cl_float), NULL);
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to set kernel arguments! %d\n", err);
@@ -207,18 +211,18 @@ int main(int argc, char** argv)
 
     // Get the maximum work group size for executing the kernel on the device
     //
-    err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
-    if (err != CL_SUCCESS)
-    {
-        printf("Error: Failed to retrieve kernel work group info! %d\n", err);
-        exit(1);
-    }
+//    err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
+//    if (err != CL_SUCCESS)
+//    {
+//        printf("Error: Failed to retrieve kernel work group info! %d\n", err);
+//        exit(1);
+//    }
+	local = groupSize;
 
     // Execute the kernel over the entire range of our 1d input data set
     // using the maximum number of work group items for this device
     //
-    global = count;
-	if (local > global) local = global;
+    global = dataSize;
     err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
     if (err)
     {
@@ -232,7 +236,7 @@ int main(int argc, char** argv)
 
     // Read back the results from the device to verify the output
     //
-    err = clEnqueueReadBuffer( commands, output, CL_TRUE, 0, sizeof(float) * count, results, 0, NULL, NULL );
+    err = clEnqueueReadBuffer( commands, output, CL_TRUE, 0, sizeof(float) * dataSize, results, 0, NULL, NULL );
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to read output array! %d\n", err);
@@ -242,19 +246,16 @@ int main(int argc, char** argv)
     // Validate our results
     //
     correct = 0;
-	for(i = 0; i < count; i++)
+	for(i = 0; i < dataSize; i++)
     {
-        if(verifyResults(results, data, count, i)) {
-			//printf("results[%d]: %f (correct)\n", i, results[i]);
+        if(verifyResults(results, data, dataSize, i)) {
             correct++;
-		} else {
-			//printf("results[%d]: %f (wrong, expected: %f * %f = %f)\n", i, results[i], data[i], data[i], data[i] * data[i]);
 		}
     }
 
     // Print a brief summary detailing the results
     //
-    printf("Computed '%d/%d' correct values!\n", correct, count);
+    printf("Computed '%d/%d' correct values!\n", correct, dataSize);
 
     // Shutdown and cleanup
     //

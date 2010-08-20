@@ -10,8 +10,8 @@ __kernel void TestLoopBarrier(
 	float f = x * x;
 
 	for (unsigned j=0; j<10; ++j) {
+		barrier(CLK_LOCAL_MEM_FENCE);
 		f -= count;
-		//f += input[j];
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
 

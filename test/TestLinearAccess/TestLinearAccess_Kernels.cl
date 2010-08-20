@@ -16,7 +16,7 @@ __kernel void TestLinearAccess(
 	int lsize = get_local_size(0);
 
 	int inidx = gid;
-	int outidx = lid + bid * lsize; // = gid
+	int outidx = lid + bid * lsize; // = gid = consecutive access, should not be split up
 	//int outidx = lid + bid * lsize * 4;
 	
 	output[outidx] = input[inidx];

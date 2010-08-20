@@ -68,8 +68,8 @@
 
 // Use a static data size for simplicity
 //
-#define DATA_SIZE (1024)
-#define GROUP_NR (8)
+#define DATA_SIZE (16)
+#define GROUP_NR (4)
 #define GROUP_SIZE (DATA_SIZE/GROUP_NR)
 
 ////////////////////////////////////////////////////////////////////////////////
