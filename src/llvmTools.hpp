@@ -564,19 +564,19 @@ namespace PacketizedOpenCLDriver {
 	bool isLinearModificationCalculation(Value* value, Instruction* use) {
 		assert (value);
 
-		outs() << "  testing consecutive modification calculation: " << *value << "\n";
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  testing consecutive modification calculation: " << *value << "\n"; );
 
 		if (isa<Constant>(value)) {
 			assert (isa<ConstantInt>(value));
 			const ConstantInt* constIntOp = cast<ConstantInt>(value);
 			const uint64_t constVal = *(constIntOp->getValue().getRawData());
 			if (constVal % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0) {
-				outs() << "    value is a constant NOT dividable by SIMD width (has to be replicated)!\n";
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is a constant NOT dividable by SIMD width (has to be replicated)!\n"; );
 				return false;
 			}
 
 			BinaryOperator::Create(Instruction::UDiv, value, ConstantInt::get(value->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", use);
-			outs() << "    value is a constant dividable by SIMD width (division inserted)!\n";
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is a constant dividable by SIMD width (division inserted)!\n"; );
 			return true;
 		}
 
@@ -588,7 +588,7 @@ namespace PacketizedOpenCLDriver {
 		//	const std::string name = value->getNameStr();
 		//	if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
 		//	if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
-		//	outs() << "    value is unsuited function parameter (neither local nor global ID)!\n";
+		//	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is unsuited function parameter (neither local nor global ID)!\n"; );
 		//	return false;
 		//}
 
@@ -599,7 +599,7 @@ namespace PacketizedOpenCLDriver {
 		// It is especially invalid if local/global id is used again.
 		if (CallInst* call = dyn_cast<CallInst>(value)) {
 			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
-			outs() << "    value is unsuited function parameter (only local size allowed)!\n";
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is unsuited function parameter (only local size allowed)!\n"; );
 			return false;
 		}
 
@@ -662,7 +662,7 @@ namespace PacketizedOpenCLDriver {
 				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp);
 			}
 			default: {
-				outs() << "    found unknown operation in consective modification calculation!\n";
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    found unknown operation in consective modification calculation!\n"; );
 				return false;
 			}
 		}
@@ -681,7 +681,7 @@ namespace PacketizedOpenCLDriver {
 	// TODO: phi, select
 	// TODO: calls?
 	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
-		outs() << "\nindexIsOnlyUsedWithLinearModifications(" << *I << ")\n";
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nindexIsOnlyUsedWithLinearModifications(" << *I << ")\n"; );
 
 		// if this use is a GEP, this path is fine (don't go beyond GEPs)
 		if (isa<GetElementPtrInst>(I)) {
@@ -702,7 +702,7 @@ namespace PacketizedOpenCLDriver {
 		switch (I->getOpcode()) {
 			case Instruction::Add : //fallthrough
 			case Instruction::Sub : {
-				outs() << "  add/sub found!\n";
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  add/sub found!\n"; );
 				// add/sub is okay if other operand is dividable by simd width (currently: local size if not constant) and uniform
 
 				// get other operand
@@ -714,7 +714,7 @@ namespace PacketizedOpenCLDriver {
 				// optimized: arr[local id SIMD + 8] = 0+8 = 'SIMD position' 8 = wrong values
 				// optimized&divided: arr[local id SIMD + 8/4] = 0+2 = 'SIMD position' 2 = correct values
 				if (isa<Constant>(op)) {
-					outs() << "    has constant operand!\n";
+					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    has constant operand!\n"; );
 					if (!constantIsDividableBySIMDWidth(cast<Constant>(op))) break;
 
 					BinaryOperator* divOp = BinaryOperator::Create(Instruction::UDiv, op, ConstantInt::get(op->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", I);
@@ -738,7 +738,7 @@ namespace PacketizedOpenCLDriver {
 			case Instruction::SIToFP  : // SIToFP is okay, fallthrough
 			case Instruction::FPExt   : // FPExt is okay, fallthrough
 			case Instruction::BitCast : {
-				outs() << "  cast found!\n";
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  cast found!\n"; );
 				assert (isa<Instruction>(I->getOperand(0)));
 				operandsAreSafe = true; //indexIsOnlyUsedWithLinearModifications(cast<Instruction>(I->getOperand(0)), I, safePathVec, visited);
 				break;
@@ -759,7 +759,7 @@ namespace PacketizedOpenCLDriver {
 			// indexIsOnlyUsedWithLinearModifications that allows usage of ids.
 			// alternative: add a flag that enables this feature
 			case Instruction::PHI     : {
-				outs() << "  phi found!\n";
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  phi found!\n"; );
 				// recurse into all other incoming operands to ensure safety
 				PHINode* phi = cast<PHINode>(I);
 				bool phiIsSafe = true;
@@ -787,7 +787,7 @@ namespace PacketizedOpenCLDriver {
 				break;
 			}
 			case Instruction::Select  : {
-				outs() << "  select found!\n";
+				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  select found!\n"; );
 				// same goes for selects (second incoming value also has to be safe)
 				SelectInst* select = cast<SelectInst>(I);
 				Value* otherVal = select->getTrueValue() == I ? select->getFalseValue() : select->getTrueValue();
@@ -805,13 +805,15 @@ namespace PacketizedOpenCLDriver {
 		}
 
 		if (!operandsAreSafe && I->getNumOperands() == 1) {
-			outs() << "  instruction only has one operand -> should be safe?!\n";
-			outs() << "    " << *I << "\n";
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  instruction only has one operand -> should be safe?!\n"; );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    " << *I << "\n"; );
 			exit(0);
 		}
 
-		if (operandsAreSafe) outs() << "  operands safe for instruction: " << *I << "\n";
-		else outs() << "  operands NOT safe for instruction: " << *I << "\n";
+		PACKETIZED_OPENCL_DRIVER_DEBUG(
+			if (operandsAreSafe) outs() << "  operands safe for instruction: " << *I << "\n";
+			else outs() << "  operands NOT safe for instruction: " << *I << "\n";
+		);
 
 		if (!operandsAreSafe) return false;
 
@@ -821,19 +823,19 @@ namespace PacketizedOpenCLDriver {
 		for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
 			if (Instruction* useI = dyn_cast<Instruction>(U))
 				if (!indexIsOnlyUsedWithLinearModifications(useI, I, dependentGEPs, safePathVec, visited)) {
-					outs() << "  uses NOT safe for instruction: " << *I << "\n";
+					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  uses NOT safe for instruction: " << *I << "\n"; );
 					return false;
 				}
 		}
 
-		outs() << "  INSTRUCTION IS SAFE: " << *I << "\n";
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  INSTRUCTION IS SAFE: " << *I << "\n"; );
 		return true;
 	}
 
 
 	bool indexIsMultipleOfOriginalLocalSize(Value* index, Instruction* use) {
 		assert (index);
-		outs() << "\nindexIsMultipleOfOriginalLocalSize(" << *index << ")\n";
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nindexIsMultipleOfOriginalLocalSize(" << *index << ")\n"; );
 
 		if (isa<Constant>(index)) return false;
 		if (isa<Argument>(index)) return false;
@@ -906,7 +908,7 @@ namespace PacketizedOpenCLDriver {
 	}
 	void fixLocalSizeSIMDUsageInIndexCalculation(GetElementPtrInst* gep) {
 		assert (gep);
-		outs() << "\nfixLocalSizeSIMDUsageInIndexCalculation(" << *gep << ")\n";
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nfixLocalSizeSIMDUsageInIndexCalculation(" << *gep << ")\n"; );
 
 		assert (gep->getNumIndices() == 1);
 
@@ -998,7 +1000,7 @@ namespace PacketizedOpenCLDriver {
 		assert (splitFn->getReturnType()->isIntegerTy());
 		// TODO: check if signature matches (we are replacing oldF by splitFn...)
 
-		outs() << "\nsetupIndexUsages(" << oldFn->getNameStr() << ")\n";
+		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nsetupIndexUsages(" << oldFn->getNameStr() << ")\n"; );
 
 		std::vector<CallInst*> deleteVec;
 		std::set<Instruction*> safePathVec; // marks instructions whose use-subtrees are entirely safe
@@ -1053,7 +1055,7 @@ namespace PacketizedOpenCLDriver {
 					}
 
 					useI->replaceUsesOfWith(call, simdCall);
-					outs() << "  OPTIMIZED USE: " << *useI << "\n";
+					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  OPTIMIZED USE: " << *useI << "\n"; );
 					continue;
 				}
 #endif
