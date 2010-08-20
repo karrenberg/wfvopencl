@@ -795,7 +795,6 @@ private:
 			ReturnInst::Create(context, ConstantInt::get(fTypeNew->getReturnType(), PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID, true), retBlock);
 		}
 
-		//DEBUG_LA( outs() << *newF << "\n"; );
 		DEBUG_LA( PacketizedOpenCLDriver::writeFunctionToFile(newF, "debug_cont_begin_beforesplitting.ll"); );
 
 		// map the live values of the original function to the new one
@@ -851,7 +850,9 @@ private:
 			assert (barrierInfo->continuation);
 			assert (barrierInfo->liveValueStructType);
 			continuationMap[barrierIndex] = barrierInfo;
+			//barrierInfo->continuation->viewCFG();
 		}
+		//continuationMap[0]->continuation->viewCFG();
 
 		assert (continuationMap.size() == numContinuationFunctions);
 
@@ -860,6 +861,8 @@ private:
 		// Check if all barriers in all functions (original and continuations) were eliminated.
 		//--------------------------------------------------------------------//
 		DEBUG_LA(
+			outs() << "\nTesting for remaining barriers in continuations... ";
+			bool err = false;
 			for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 				BarrierInfo* binfo = it->second;
 				Function* continuation = binfo->continuation;
@@ -873,10 +876,16 @@ private:
 
 						const Function* callee = call->getCalledFunction();
 						if (callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) {
-							errs() << "ERROR: barrier not eliminated in continuation '" << continuation->getNameStr() << "': " << *call << "\n";
+							errs() << "\nERROR: barrier not eliminated in continuation '" << continuation->getNameStr() << "': " << *call;
+							err = true;
 						}
 					}
 				}
+			}
+			if (!err) outs() << "done.\n";
+			else {
+				outs() << "\n";
+				assert (false && "there were barriers left in continuations! (bad ordering?)");
 			}
 		);
 
