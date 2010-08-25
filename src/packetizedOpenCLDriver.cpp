@@ -134,198 +134,8 @@ extern "C" {
 #define CL_PRIVATE 0x4 // does not exist in specification 1.0
 
 ///////////////////////////////////////////////////////////////////////////
-//                 OpenCL Runtime Implementation                         //
+//                     OpenCL Code Generation                            //
 ///////////////////////////////////////////////////////////////////////////
-
-#if 0
-	cl_uint dimensions;
-
-
-	// packetized implementation
-	//
-	cl_uint simdDimension;
-
-	inline __m128i get_global_id_SIMD(cl_uint D) {
-		assert (D < dimensions);
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
-		const size_t simd_id = currentGlobal[thread][D];
-#else
-		const size_t simd_id = currentGlobal[D];
-#endif
-		const unsigned id0 = simd_id * 4;
-		const unsigned id1 = id0 + 1;
-		const unsigned id2 = id0 + 2;
-		const unsigned id3 = id0 + 3;
-		return _mm_set_epi32(id3, id2, id1, id0);
-	}
-	inline __m128i get_local_id_SIMD(cl_uint D) {
-		assert (D < dimensions);
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
-		return currentLocal[thread][D];
-#else
-		return currentLocal[D];
-#endif
-	}
-
-	inline void setCurrentLocal(cl_uint D, __m128i id) {
-		assert (D < dimensions);
-		assert (((unsigned*)&id)[0] < get_local_size(D));
-		assert (((unsigned*)&id)[1] < get_local_size(D));
-		assert (((unsigned*)&id)[2] < get_local_size(D));
-		assert (((unsigned*)&id)[3] < get_local_size(D));
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		const unsigned thread = omp_get_thread_num();
-		assert (thread < PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
-		currentLocal[thread][D] = id;
-#else
-		currentLocal[D] = id;
-#endif
-	}
-
-	// called automatically by initializeOpenCL
-	inline cl_uint initializeThreads(const size_t* gThreads, const size_t* lThreads) {
-		
-		// set up global/local thread numbers
-		for (cl_uint i=0; i<dimensions; ++i) {
-			PACKETIZED_OPENCL_DRIVER_DEBUG(
-				if (lThreads[i] > gThreads[i]) {
-					errs() << "WARNING: local work size is larger than global work size for dimension " << i << "!\n";
-				}
-			);
-
-			const size_t globalThreadsDimI = gThreads[i];
-			const size_t localThreadsDimI = lThreads[i] < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ? PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : lThreads[i];
-
-			globalThreads[i] = globalThreadsDimI;
-			localThreads[i] = localThreadsDimI;
-		}
-
-		// safety checks
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			size_t globalThreadNum = 0;
-			size_t localThreadNum = 0;
-			bool* alignedGlobalDims = new bool[dimensions]();
-			bool* alignedLocalDims = new bool[dimensions]();
-
-			bool error = false;
-			for (cl_uint i=0; i<dimensions; ++i) {
-				const size_t globalThreadsDimI = gThreads[i];
-				const size_t localThreadsDimI = lThreads[i] < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ? PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : lThreads[i];
-
-				globalThreadNum += globalThreadsDimI;
-				alignedGlobalDims[i] = (globalThreadsDimI % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
-
-				localThreadNum += localThreadsDimI;
-				alignedLocalDims[i] = (localThreadsDimI % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
-
-				if (lThreads[i] > PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) errs() << "WARNING: local work size (" << lThreads[i] << ") is larger than " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << "!\n";
-				if (lThreads[i] < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) {
-					// TODO: fall back to scalar mode instead!
-					errs() << "WARNING: local work size enlarged from " << lThreads[i] << " to " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << "!\n";
-				}
-
-
-				if (i == simdDimension && !alignedGlobalDims[i]) {
-					errs() << "ERROR: size of chosen SIMD dimension " << i
-							<< " is globally not dividable by " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH
-							<< " (global dimension)!\n";
-					error = true;
-				}
-				if (i == simdDimension && !alignedLocalDims[i]) {
-					errs() << "ERROR: size of chosen SIMD dimension " << i
-							<< " is locally not dividable by " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH
-							<< " (work-group dimension)!\n";
-					error = true;
-				}
-				if (globalThreadsDimI % localThreadsDimI != 0) {
-					errs() << "ERROR: size of global dimension " << i
-							<< " not dividable by local dimension ("
-							<< globalThreadsDimI << " / " << localThreadsDimI
-							<< ")!\n";
-					error = true;
-				}
-			}
-
-			if (globalThreadNum % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0) {
-				errs() << "ERROR: global number of threads is not dividable by "
-						<< PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << "!\n";
-				error = true;
-			}
-			if (localThreadNum % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0) {
-				errs() << "ERROR: number of threads in a group is not dividable by "
-						<< PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << "!\n";
-				error = true;
-			}
-
-			delete [] alignedGlobalDims;
-			delete [] alignedLocalDims;
-
-			if (error) return CL_INVALID_GLOBAL_WORK_SIZE;
-		);
-
-		return CL_SUCCESS;
-	}
-	// simdDim ranges from 0 to num_dims-1 !
-	cl_uint initializeOpenCL(const cl_uint num_dims, const cl_uint simdDim, const size_t* gThreads, const size_t* lThreads) {
-		// print some information
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nAutomatic Packetization enabled!\n"; );
-
-		dimensions = num_dims;
-		simdDimension = simdDim;
-
-		globalThreads = new size_t[num_dims]();
-		localThreads = new size_t[num_dims]();
-
-#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP enabled!\n"; );
-		currentGlobal = new size_t*[PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS]();
-		currentLocal = new __m128i*[PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS]();
-		currentGroup = new size_t*[PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS]();
-
-		for (cl_uint i=0; i<PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS; ++i) {
-			currentGlobal[i] = new size_t[num_dims]();
-			currentLocal[i] = new __m128i[num_dims]();
-			currentGroup[i] = new size_t[num_dims]();
-
-			for (cl_uint j=0; j<num_dims; ++j) {
-				if (j == simdDimension) {
-					currentGlobal[i][j] = 0;
-					currentLocal[i][j] = _mm_set_epi32(0, 1, 2, 3);
-				} else {
-					currentGlobal[i][j] = 0;
-					currentLocal[i][j] = _mm_set_epi32(0, 0, 0, 0);
-				}
-				currentGroup[i][j] = 0;
-			}
-		}
-#else
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "OpenMP disabled!\n"; );
-		currentGlobal = new size_t[num_dims]();
-		currentLocal = new __m128i[num_dims]();
-		currentGroup = new size_t[num_dims]();
-
-		for (cl_uint i=0; i<num_dims; ++i) {
-			if (i == simdDimension) {
-				currentGlobal[i] = 0;
-				currentLocal[i] = _mm_set_epi32(3, 2, 1, 0);
-			} else {
-				currentGlobal[i] = 0;
-				currentLocal[i] = _mm_set_epi32(0, 0, 0, 0);
-			}
-			currentGroup[i] = 0;
-		}
-#endif
-
-		return initializeThreads(gThreads, lThreads);
-	}
-#endif
-
-
-// common functionality, with or without packetization/openmp
 namespace PacketizedOpenCLDriver {
 
 #ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
@@ -504,7 +314,7 @@ namespace PacketizedOpenCLDriver {
 	// Memory Access Optimization
 	// -----------------------------------------------------------------------//
 	
-#if 0
+#if 0 // deprecated -> moved to llvmTools (setupIndexUsage makes use of modified version of this)
 	// We currently do not have a possibility to ask the packetizer what instructions are
 	// varying and which are uniform, so we have to rely on the domain-specific knowledge we have.
 	// This will be far from optimal, but at least cover the most common cases.
@@ -942,7 +752,7 @@ namespace PacketizedOpenCLDriver {
 		// fix __fabs_f32
 		if (PacketizedOpenCLDriver::getFunction("__fabs_f32", mod)) {
 
-			// create llvm.fabs.f32 intrinsic
+			// create fabs intrinsic
 			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
@@ -950,6 +760,44 @@ namespace PacketizedOpenCLDriver {
 			assert (PacketizedOpenCLDriver::getFunction("fabs", mod));
 
 			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__fabs_f32", mod), PacketizedOpenCLDriver::getFunction("fabs", mod));
+		}
+		// fix __fmod_f32
+		if (PacketizedOpenCLDriver::getFunction("__fmod_f32", mod)) {
+
+			// create llvm.fmod.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("fmodf", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("fmodf", mod));
+			// TODO: replace by binary operator?
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__fmod_f32", mod), PacketizedOpenCLDriver::getFunction("fmodf", mod));
+		}
+		// fix __cos_f32
+		if (PacketizedOpenCLDriver::getFunction("__cos_f32", mod)) {
+
+			// create llvm.cos.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("llvm.cos.f32", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("llvm.cos.f32", mod));
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__cos_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.cos.f32", mod));
+		}
+		// fix __sin_f32
+		if (PacketizedOpenCLDriver::getFunction("__sin_f32", mod)) {
+
+			// create llvm.sin.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("llvm.sin.f32", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("llvm.sin.f32", mod));
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__sin_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.sin.f32", mod));
 		}
 	}
 
@@ -2390,6 +2238,36 @@ public:
 		// compile wrapper function (to be called in clEnqueueNDRangeKernel())
 		// NOTE: be sure that f_SIMD or f are inlined and f_wrapper was optimized to the max :p
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    compiling function '" << f_wrapper->getNameStr() << "'... "; );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(prog->module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(prog->module, "debug_kernel_final_before_compilation.mod.ll"); );
+//		prog->module = PacketizedOpenCLDriver::createModuleFromFile("KERNELTEST.bc");
+//		f_wrapper = prog->module->getFunction(f_wrapper->getNameStr());
+//		f = prog->module->getFunction(f->getNameStr());
+//		f_wrapper->viewCFG();
+#if 0
+		for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
+			for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+				if (isa<FPToUIInst>(I)) {
+					Value* castedVal = I->getOperand(0);
+					for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
+						if (isa<UIToFPInst>(U)) {
+							assert (U->getType() == castedVal->getType());
+							U->replaceAllUsesWith(castedVal);
+						}
+					}
+				}
+				if (isa<UIToFPInst>(I)) {
+					Value* castedVal = I->getOperand(0);
+					for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
+						if (isa<FPToUIInst>(U)) {
+							assert (U->getType() == castedVal->getType());
+							U->replaceAllUsesWith(castedVal);
+						}
+					}
+				}
+			}
+		}
+#endif
 		compiled_function = PacketizedOpenCLDriver::getPointerToFunction(prog->module, f_wrapper);
 		if (!compiled_function) {
 			errs() << "\nERROR: JIT compilation of kernel function failed!\n";
@@ -2958,8 +2836,9 @@ clGetDeviceInfo(cl_device_id    device,
 			break;
 		}
 		case CL_DEVICE_VENDOR: {
-			errs() << "ERROR: param_name '" << param_name << "' not implemented yet!\n";
-			assert (false && "NOT IMPLEMENTED!");
+			if (param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
+			if (param_value) *(std::string*)param_value = "Ralf Karrenberg, Saarland University"; // TODO: sth else? :P
+			if (param_value_size_ret) *param_value_size_ret = sizeof(char*);
 			return CL_INVALID_VALUE;
 		}
 		case CL_DRIVER_VERSION: {
@@ -3313,7 +3192,7 @@ clCreateProgramWithSource(cl_context        context,
                           const size_t *    lengths,
                           cl_int *          errcode_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	errcode_ret = CL_SUCCESS;
+	*errcode_ret = CL_SUCCESS;
 	_cl_program* p = new _cl_program();
 	p->context = context;
 	p->fileName = *strings;
@@ -3379,6 +3258,7 @@ clBuildProgram(cl_program           program,
 	//FIXME: hardcoded for testing ;)
 	llvm::Module* mod = PacketizedOpenCLDriver::createModuleFromFile(program->fileName);
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(mod, "debug_kernel_orig_orig_targetdata.mod.ll"); );
 
 	// TODO: do this here or only after packetization?
 	mod->setDataLayout(PACKETIZED_OPENCL_DRIVER_LLVM_DATA_LAYOUT_64);
@@ -3445,11 +3325,13 @@ clCreateKernel(cl_program      program,
 	llvm::Function* f = PacketizedOpenCLDriver::getFunction(new_kernel_name, module);
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
 
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "debug_kernel_orig_noopt.mod.ll"); );
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
 	PacketizedOpenCLDriver::inlineFunctionCalls(f, program->targetData);
 	PacketizedOpenCLDriver::optimizeFunction(f);
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "debug_kernel_orig.ll"); );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "debug_kernel_orig.mod.ll"); );
 
 	LLVMContext& context = module->getContext();
 
