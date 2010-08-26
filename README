@@ -2,7 +2,7 @@ required software:
 
 - scons
 - libglew1.5-dev
-- llvm
+- llvm2.8
 - packetizer
 - ATI Stream SDK v2.1
 
@@ -13,7 +13,7 @@ installation:
 - install stream sdk
 	- place ICD registration config files in /etc/OpenCL/vendors or use christophs hack :p
 	- set ATISTREAMSDKROOT and ATISTREAMSDKSAMPLESROOT environment variables to stream sdk root dir
-	- build stream sdk (ignore errors connected to CAL)
-- adjust 'setupenv.sh' and/or 'setupenvdebug.sh' to match your system
+	- build stream sdk (ignore errors related to CAL)
+- adjust 'setupenv.sh' and/or 'setupenvdebug.sh' to match your system (for llvm2.8 currently setupenvlatest/setupenvlatestdebug)
 - source 'setupenv.sh' or 'setupenvdebug.sh' to build in opt or debug mode
 - run scons

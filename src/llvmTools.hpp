@@ -80,6 +80,23 @@ using namespace llvm;
 
 namespace PacketizedOpenCLDriver {
 
+	// small helper function
+	inline bool constantEqualsInt(const Constant* c, const uint64_t intValue) {
+		assert (c);
+		assert (isa<ConstantInt>(c));
+		const ConstantInt* constIntOp = cast<ConstantInt>(c);
+		const uint64_t constVal = *(constIntOp->getValue().getRawData());
+		return (constVal == intValue);
+	}
+	inline bool constantIsDividableBySIMDWidth(const Constant* c) {
+		assert (c);
+		assert (isa<ConstantInt>(c));
+		const ConstantInt* constIntOp = cast<ConstantInt>(c);
+		const uint64_t constVal = *(constIntOp->getValue().getRawData());
+		return (constVal % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
+	}
+
+
 	// Generate a new function that only receives a void* argument.
 	// This void* is interpreted as a struct which holds exactly the values that
 	// would be passed as parameters to 'f'.
@@ -477,7 +494,7 @@ namespace PacketizedOpenCLDriver {
 	// TODO: do we need separate checks for casts, phis, and selects as in functions below?
 	// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
 	//       so we still have calls instead of argument accesses!
-	bool isNonVaryingMultiplicationTerm(Value* value) {
+	bool isNonVaryingMultiplicationTerm(Value* value, const unsigned simdDim) {
 		assert (value);
 
 		if (isa<Constant>(value)) return true;
@@ -490,6 +507,13 @@ namespace PacketizedOpenCLDriver {
 			if (call->getCalledFunction()->getNameStr() == "get_global_size") return true;
 			if (call->getCalledFunction()->getNameStr() == "get_group_id") return true;
 			if (call->getCalledFunction()->getNameStr() == "get_num_groups") return true;
+			// calls to local/global id are okay as long as they don't ask for the same dimension (=the simd dimension)
+			if (call->getCalledFunction()->getNameStr() == "get_local_id" ||
+			    call->getCalledFunction()->getNameStr() == "get_global_id") {
+				assert (isa<Constant>(call->getArgOperand(0)));
+				return !constantEqualsInt(cast<Constant>(call->getArgOperand(0)), simdDim);
+			}
+
 			return false;
 		}
 
@@ -498,7 +522,7 @@ namespace PacketizedOpenCLDriver {
 		for (Instruction::op_iterator O=inst->op_begin(), OE=inst->op_end(); O!=OE; ++O) {
 			if (!isa<Value>(O)) continue;
 			Value* opVal = cast<Value>(O);
-			if (!isNonVaryingMultiplicationTerm(opVal)) return false;
+			if (!isNonVaryingMultiplicationTerm(opVal, simdDim)) return false;
 		}
 
 		return true;
@@ -508,17 +532,13 @@ namespace PacketizedOpenCLDriver {
 	// TODO: implement generic function 'isSafeConsecutiveMultiplicationTerm' that checks for multiple of SIMD width
 	bool hasLocalSizeMultiplicationTerm(Value* value) {
 		assert (value);
-		// if the value is the "local_size"-argument, the entire multiplication term is safe
+		// if the value is the "local_size"- or "global_size"-argument, the entire multiplication term is safe
 		// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
 		//       so we still have calls instead of argument accesses!
-		//if (isa<Argument>(value)) {
-		//	const std::string name = value->getNameStr();
-		//	if (std::strstr(name.c_str(), "get_local_size") != 0) return true;
-		//	return false;
-		//}
 
 		if (CallInst* call = dyn_cast<CallInst>(value)) {
 			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_global_size") return true;
 			return false;
 		}
 
@@ -561,16 +581,13 @@ namespace PacketizedOpenCLDriver {
 	}
 	// 'use' is required to know where we should place additional operations like the division
 	// by the simd width in case of a constant
-	bool isLinearModificationCalculation(Value* value, Instruction* use) {
+	bool isLinearModificationCalculation(Value* value, Instruction* use, const unsigned simdDim) {
 		assert (value);
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  testing consecutive modification calculation: " << *value << "\n"; );
 
 		if (isa<Constant>(value)) {
-			assert (isa<ConstantInt>(value));
-			const ConstantInt* constIntOp = cast<ConstantInt>(value);
-			const uint64_t constVal = *(constIntOp->getValue().getRawData());
-			if (constVal % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0) {
+			if (!constantIsDividableBySIMDWidth(cast<Constant>(value))) {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is a constant NOT dividable by SIMD width (has to be replicated)!\n"; );
 				return false;
 			}
@@ -599,6 +616,7 @@ namespace PacketizedOpenCLDriver {
 		// It is especially invalid if local/global id is used again.
 		if (CallInst* call = dyn_cast<CallInst>(value)) {
 			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
+			if (call->getCalledFunction()->getNameStr() == "get_global_size") return true;
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is unsuited function parameter (only local size allowed)!\n"; );
 			return false;
 		}
@@ -606,24 +624,24 @@ namespace PacketizedOpenCLDriver {
 		// if this is a cast, recurse into the casted operand
 		// TODO: what about other casts?
 		//if (isa<CastInst>(value)) return isConsecutiveIndex(cast<UnaryInstruction>(value)->getOperand(0));
-		if (isa<BitCastInst>(value)) return isLinearModificationCalculation(cast<BitCastInst>(value)->getOperand(0), use);
+		if (isa<BitCastInst>(value)) return isLinearModificationCalculation(cast<BitCastInst>(value)->getOperand(0), use, simdDim);
 
 		// same for SExt/ZExt
-		if (isa<SExtInst>(value)) return isLinearModificationCalculation(cast<SExtInst>(value)->getOperand(0), use);
-		if (isa<ZExtInst>(value)) return isLinearModificationCalculation(cast<ZExtInst>(value)->getOperand(0), use);
+		if (isa<SExtInst>(value)) return isLinearModificationCalculation(cast<SExtInst>(value)->getOperand(0), use, simdDim);
+		if (isa<ZExtInst>(value)) return isLinearModificationCalculation(cast<ZExtInst>(value)->getOperand(0), use, simdDim);
 
 		// if this is a phi, recurse into all incoming operands to ensure safety
 		if (PHINode* phi = dyn_cast<PHINode>(value)) {
 			for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
 				Value* incVal = phi->getIncomingValue(i);
-				if (!isLinearModificationCalculation(incVal, phi->getIncomingBlock(i)->getTerminator())) return false;
+				if (!isLinearModificationCalculation(incVal, phi->getIncomingBlock(i)->getTerminator(), simdDim)) return false;
 			}
 			return true;
 		}
 
 		// same goes for selects (both incoming values have to be safe)
 		if (SelectInst* select = dyn_cast<SelectInst>(value)) {
-			return isLinearModificationCalculation(select->getTrueValue(), select) && isLinearModificationCalculation(select->getFalseValue(), select);
+			return isLinearModificationCalculation(select->getTrueValue(), select, simdDim) && isLinearModificationCalculation(select->getFalseValue(), select, simdDim);
 		}
 
 		// if it is none of the above and no binary operator, we cannot do anything
@@ -649,7 +667,7 @@ namespace PacketizedOpenCLDriver {
 				// TODO: this recomputes the same info for all terms on each level of recursion -> can be optimized
 				//const bool idUsageOkay = termUsesID(op0) ^ termUsesID(op1);
 				//return idUsageOkay && isConsecutiveModification(op0, binOp) && isConsecutiveModification(op1, binOp);
-				return isLinearModificationCalculation(op0, binOp) && isLinearModificationCalculation(op1, binOp);
+				return isLinearModificationCalculation(op0, binOp, simdDim) && isLinearModificationCalculation(op1, binOp, simdDim);
 			}
 			case Instruction::Mul: {
 				// Check if the result of the multiplication is a multiple of the SIMD width.
@@ -659,7 +677,7 @@ namespace PacketizedOpenCLDriver {
 				// example: arr[local id + local size * 2] = 0+16*2 / 1+16*2 / 2+16*2 / 3+16*2 = 32 / 33 / 34 / 35 = consecutive
 				// example: arr[local id + local size * (2/3/4/5)] = 0+16*2 / 1+16*3 / 2+16*4 / 3+16*5 = 32 / 49 / 66 / 83 = non-consecutive
 
-				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp);
+				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp, simdDim);
 			}
 			default: {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    found unknown operation in consective modification calculation!\n"; );
@@ -668,19 +686,11 @@ namespace PacketizedOpenCLDriver {
 		}
 	}
 
-	inline bool constantIsDividableBySIMDWidth(Constant* c) {
-		assert (c);
-		assert (isa<ConstantInt>(c));
-		const ConstantInt* constIntOp = cast<ConstantInt>(c);
-		const uint64_t constVal = *(constIntOp->getValue().getRawData());
-		return (constVal % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
-	}
-
 	// TODO: other safe operations? FPExt? Trunc? FPTrunc?
 	// TODO: loops? safe paths?
 	// TODO: phi, select
 	// TODO: calls?
-	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
+	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, const unsigned simdDim, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nindexIsOnlyUsedWithLinearModifications(" << *I << ")\n"; );
 
 		// if this use is a GEP, this path is fine (don't go beyond GEPs)
@@ -726,7 +736,7 @@ namespace PacketizedOpenCLDriver {
 				// Otherwise, check if other operand is dividable by simd width (currently: local size if not constant)
 				// This function tests an entire add/sub-tree above the operand
 				// whether each term is dividable.
-				operandsAreSafe = isLinearModificationCalculation(op, I);
+				operandsAreSafe = isLinearModificationCalculation(op, I, simdDim);
 				break;
 			}
 
@@ -740,7 +750,7 @@ namespace PacketizedOpenCLDriver {
 			case Instruction::BitCast : {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  cast found!\n"; );
 				assert (isa<Instruction>(I->getOperand(0)));
-				operandsAreSafe = true; //indexIsOnlyUsedWithLinearModifications(cast<Instruction>(I->getOperand(0)), I, safePathVec, visited);
+				operandsAreSafe = true; //indexIsOnlyUsedWithLinearModifications(cast<Instruction>(I->getOperand(0)), I, simdDim, safePathVec, visited);
 				break;
 			}
 
@@ -777,7 +787,7 @@ namespace PacketizedOpenCLDriver {
 						break;
 					} else {
 						assert (isa<Instruction>(incVal));
-						if (!indexIsOnlyUsedWithLinearModifications(cast<Instruction>(incVal), I, dependentGEPs, safePathVec, visited)) {
+						if (!indexIsOnlyUsedWithLinearModifications(cast<Instruction>(incVal), I, simdDim, dependentGEPs, safePathVec, visited)) {
 							phiIsSafe = false;
 							break;
 						}
@@ -798,17 +808,19 @@ namespace PacketizedOpenCLDriver {
 					break; // not safe
 				} else {
 					assert (isa<Instruction>(otherVal));
-					operandsAreSafe = indexIsOnlyUsedWithLinearModifications(cast<Instruction>(otherVal), I, dependentGEPs, safePathVec, visited);
+					operandsAreSafe = indexIsOnlyUsedWithLinearModifications(cast<Instruction>(otherVal), I, simdDim, dependentGEPs, safePathVec, visited);
 					break;
 				}
 			}
 		}
 
-		if (!operandsAreSafe && I->getNumOperands() == 1) {
-			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  instruction only has one operand -> should be safe?!\n"; );
-			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    " << *I << "\n"; );
-			exit(0);
-		}
+		PACKETIZED_OPENCL_DRIVER_DEBUG(
+			if (!operandsAreSafe && I->getNumOperands() == 1) {
+				outs() << "\n\n  instruction only has one operand -> should be safe?!\n";
+				outs() << "    " << *I << "\n";
+				exit(0);
+			}
+		);
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG(
 			if (operandsAreSafe) outs() << "  operands safe for instruction: " << *I << "\n";
@@ -821,8 +833,8 @@ namespace PacketizedOpenCLDriver {
 		// (in case of add/sub: make sure all further terms are also dividable)
 
 		for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
-			if (Instruction* useI = dyn_cast<Instruction>(U))
-				if (!indexIsOnlyUsedWithLinearModifications(useI, I, dependentGEPs, safePathVec, visited)) {
+			if (Instruction* useI = dyn_cast<Instruction>(*U))
+				if (!indexIsOnlyUsedWithLinearModifications(useI, I, simdDim, dependentGEPs, safePathVec, visited)) {
 					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  uses NOT safe for instruction: " << *I << "\n"; );
 					return false;
 				}
@@ -833,7 +845,8 @@ namespace PacketizedOpenCLDriver {
 	}
 
 
-	bool indexIsMultipleOfOriginalLocalSize(Value* index, Instruction* use) {
+	// NOTE: We assume that the local sizes of dimensions other than simdDim are also dividable by simd width
+	bool indexIsMultipleOfOriginalLocalSize(Value* index, Instruction* use, const unsigned simdDim) {
 		assert (index);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nindexIsMultipleOfOriginalLocalSize(" << *index << ")\n"; );
 
@@ -851,16 +864,20 @@ namespace PacketizedOpenCLDriver {
 			case Instruction::Sub : {
 				Value* op0 = indexInst->getOperand(0);
 				Value* op1 = indexInst->getOperand(1);
-				instructionIsSafe = indexIsMultipleOfOriginalLocalSize(op0, indexInst) && indexIsMultipleOfOriginalLocalSize(op1, indexInst);
+				instructionIsSafe = indexIsMultipleOfOriginalLocalSize(op0, indexInst, simdDim) && indexIsMultipleOfOriginalLocalSize(op1, indexInst, simdDim);
 				break;
 			}
 			case Instruction::Call : {
 				CallInst* call = cast<CallInst>(indexInst);
-				instructionIsSafe = (call->getCalledFunction()->getNameStr() == "get_local_size");
+				instructionIsSafe = call->getCalledFunction()->getNameStr() == "get_local_size" || 
+						call->getCalledFunction()->getNameStr() == "get_global_size";
 
 				// make sure each term that uses local or global size is divided by the SIMD width
 				// NOTE: global size does not make it safe, but also has to be fixed
-				if (instructionIsSafe || call->getCalledFunction()->getNameStr() == "get_global_size") {
+				// NOTE: We must not divide the result if the call is to a dimension other than simdDim
+				assert (isa<Constant>(call->getArgOperand(0)));
+				const bool callsSimdDim = constantEqualsInt(cast<Constant>(call->getArgOperand(0)), simdDim);
+				if ((instructionIsSafe || call->getCalledFunction()->getNameStr() == "get_global_size") && callsSimdDim) {
 					BinaryOperator* divIndex = BinaryOperator::Create(Instruction::UDiv, call, ConstantInt::get(call->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", use);
 					use->replaceUsesOfWith(call, divIndex);
 				}
@@ -883,7 +900,7 @@ namespace PacketizedOpenCLDriver {
 				bool phiIsSafe = true;
 				for (unsigned i=0, e=phi->getNumIncomingValues(); i<e; ++i) {
 					Value* incVal = phi->getIncomingValue(i);
-					if (!indexIsMultipleOfOriginalLocalSize(incVal, phi)) {
+					if (!indexIsMultipleOfOriginalLocalSize(incVal, phi, simdDim)) {
 						phiIsSafe = false;
 						break;
 					}
@@ -893,7 +910,7 @@ namespace PacketizedOpenCLDriver {
 			}
 			case Instruction::Select : {
 				SelectInst* select = cast<SelectInst>(indexInst);
-				instructionIsSafe = indexIsMultipleOfOriginalLocalSize(select->getTrueValue(), select) && indexIsMultipleOfOriginalLocalSize(select->getFalseValue(), select);
+				instructionIsSafe = indexIsMultipleOfOriginalLocalSize(select->getTrueValue(), select, simdDim) && indexIsMultipleOfOriginalLocalSize(select->getFalseValue(), select, simdDim);
 				break;
 			}
 		}
@@ -902,11 +919,11 @@ namespace PacketizedOpenCLDriver {
 
 		for (Instruction::op_iterator O=indexInst->op_begin(), OE=indexInst->op_end(); O!=OE; ++O) {
 			assert (isa<Value>(O));
-			if (indexIsMultipleOfOriginalLocalSize(cast<Value>(O), indexInst)) return true;
+			if (indexIsMultipleOfOriginalLocalSize(cast<Value>(O), indexInst, simdDim)) return true;
 		}
 		return false;
 	}
-	void fixLocalSizeSIMDUsageInIndexCalculation(GetElementPtrInst* gep) {
+	void fixLocalSizeSIMDUsageInIndexCalculation(GetElementPtrInst* gep, const unsigned simdDim) {
 		assert (gep);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nfixLocalSizeSIMDUsageInIndexCalculation(" << *gep << ")\n"; );
 
@@ -915,7 +932,7 @@ namespace PacketizedOpenCLDriver {
 		Value* index = cast<Value>(gep->idx_begin());
 		assert (index->getType()->isIntegerTy());
 
-		indexIsMultipleOfOriginalLocalSize(index, gep);
+		indexIsMultipleOfOriginalLocalSize(index, gep, simdDim);
 	}
 
 #else
@@ -924,7 +941,7 @@ namespace PacketizedOpenCLDriver {
 	// modifications of the index.
 	// Recursion stops at GEP instructions.
 	// Returns false in all cases where this cannot be verified
-	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
+	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, const unsigned simdDim, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
 		// if this use is a GEP, this path is fine (don't go beyond GEPs)
 		if (isa<GetElementPtrInst>(I)) return true;
 
@@ -974,8 +991,8 @@ namespace PacketizedOpenCLDriver {
 
 		// recurse into uses
 		for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
-			if (Instruction* useI = dyn_cast<Instruction>(U))
-				if (!indexIsOnlyUsedWithLinearModifications(useI, I, safePathVec, visited)) return false;
+			if (Instruction* useI = dyn_cast<Instruction>(*U))
+				if (!indexIsOnlyUsedWithLinearModifications(useI, I, simdDim, safePathVec, visited)) return false;
 		}
 
 		// all uses are okay
@@ -983,7 +1000,6 @@ namespace PacketizedOpenCLDriver {
 		return true;
 	}
 #endif
-
 
 	// Replace calls to oldF with index 'simdDim' by splitF in function f
 	// wherever the result of the call is not used directly in a load or store (via GEP),
@@ -1006,25 +1022,22 @@ namespace PacketizedOpenCLDriver {
 		std::set<Instruction*> safePathVec; // marks instructions whose use-subtrees are entirely safe
 
 		for (Function::use_iterator U=oldFn->use_begin(), UE=oldFn->use_end(); U!=UE; ++U) {
-			if (!isa<CallInst>(U)) continue;
-			CallInst* call = cast<CallInst>(U);
+			if (!isa<CallInst>(*U)) continue;
+			CallInst* call = cast<CallInst>(*U);
 			if (call->getParent()->getParent() != parent) continue; // ignore uses in other functions
 
 			// calls with other indices than 'simdDim' are not touched (they are
 			// uniform for the N threads of 'simdDim'.
 			// They will be replicated by packetizer if required.
-			const Value* dimVal = call->getOperand(1);
-			assert (isa<ConstantInt>(dimVal));
-			const ConstantInt* dimConst = cast<ConstantInt>(dimVal);
-			const uint64_t dimension = *(dimConst->getValue().getRawData());
-			if (dimension != simdDim) continue;
+			assert (isa<ConstantInt>(call->getArgOperand(0)));
+			if (!constantEqualsInt(cast<Constant>(call->getArgOperand(0)), simdDim)) continue;
 
 			// generate calls (we might still need the old one) to splitFn and simdFn
 			// TODO: where to place the new calls? maybe directly in front of use?
 			//       for now, place them at the same spot as the old call
 			//CallInst* splitCall = CallInst::Create(splitFn, call->op_begin()+1, call->op_end(), call->getName()+"_split", call);
 			std::vector<Value*> args;
-			for (CallInst::op_iterator OP=call->op_begin()+1, OPE=call->op_end(); OP!=OPE; ++OP) {
+			for (CallInst::op_iterator OP=call->op_begin(), OPE=call->op_end()-1; OP!=OPE; ++OP) {
 				args.push_back(*OP);
 			}
 			CallInst* splitCall = CallInst::Create(splitFn, args.begin(), args.end(), call->getCalledFunction()->getName()+"_split", call);
@@ -1036,27 +1049,29 @@ namespace PacketizedOpenCLDriver {
 
 			// iterate over uses of the original call
 			for (CallInst::use_iterator U2=call->use_begin(), UE2=call->use_end(); U2!=UE2; ) {
-				assert (isa<Instruction>(U2));
-				Instruction* useI = cast<Instruction>(U2++);
+				assert (isa<Instruction>(*U2));
+				Instruction* useI = cast<Instruction>(*U2++);
 
 #ifndef PACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING
 				// attempt to analyze path
 				// TODO: entirely uniform paths are okay as well
 				std::set<Instruction*> visited;
 				std::set<GetElementPtrInst*> dependentGEPs;
-				if (indexIsOnlyUsedWithLinearModifications(useI, call, dependentGEPs, safePathVec, visited)) {
+				if (indexIsOnlyUsedWithLinearModifications(useI, call, simdDim, dependentGEPs, safePathVec, visited)) {
 					// If any index calculation uses local_size, we have to divide the corresponding
 					// terms by the SIMD width because local_size is the unmodified value.
 					// This is safer than dividing local_size by the SIMD width everywhere
 					// because kernels might rely on the actual unmodified number of threads
 					// in a group.
 					for (std::set<GetElementPtrInst*>::iterator it=dependentGEPs.begin(), E=dependentGEPs.end(); it!=E; ++it) {
-						fixLocalSizeSIMDUsageInIndexCalculation(*it);
+						fixLocalSizeSIMDUsageInIndexCalculation(*it, simdDim);
 					}
 
 					useI->replaceUsesOfWith(call, simdCall);
 					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  OPTIMIZED USE: " << *useI << "\n"; );
 					continue;
+				} else {
+					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  COULD NOT OPTIMIZE USE OF CALL: " << *useI << "\n"; );
 				}
 #endif
 
@@ -1089,7 +1104,7 @@ namespace PacketizedOpenCLDriver {
 		}
 
 		for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
-			if (Instruction* useI = dyn_cast<Instruction>(U))
+			if (Instruction* useI = dyn_cast<Instruction>(*U))
 				findDependentGEPs(useI, gepVec, visited);
 		}
 	}
@@ -1142,8 +1157,8 @@ namespace PacketizedOpenCLDriver {
 		std::vector<GetElementPtrInst*> gepVec;
 		std::set<Instruction*> visited; // set is kept for all uses (must never walk the same path more than once)
 		for (Function::use_iterator U=splitF->use_begin(), UE=splitF->use_end(); U!=UE; ++U) {
-			if (!isa<CallInst>(U)) continue;
-			CallInst* call = cast<CallInst>(U);
+			if (!isa<CallInst>(*U)) continue;
+			CallInst* call = cast<CallInst>(*U);
 			if (call->getParent()->getParent() != f) continue; // ignore uses in other functions
 
 			findDependentGEPs(call, gepVec, visited);
@@ -1415,71 +1430,6 @@ namespace PacketizedOpenCLDriver {
 		if (!isa<PointerType>(type)) return 0;
 		const PointerType* pType = cast<PointerType>(type);
 		return pType->getAddressSpace();
-	}
-
-
-	void verifyModule(Module * module)
-	{
-		assert(module && "module must not be NULL");
-		std::string moduleName = module->getModuleIdentifier().c_str();
-
-		//check for references to other modules
-		for(Module::iterator func = module->begin(), E = module->end();
-				func != E;
-				++func)
-		{
-			for (Function::iterator block = func->begin();
-					block != func->end();
-					++block) {
-				for(BasicBlock::iterator inst = block->begin();
-						inst != block->end();
-						++inst) {
-
-					//calls
-					if (isa<CallInst>(inst)) {
-						CallInst * callInst = cast<CallInst>(inst);
-						Value * calledValue = callInst->getCalledValue();
-						if (!calledValue) {
-							//errs() << "ERROR: " << func->getNameStr() << " has call to NULL "; callInst->dump();
-						}
-
-						if (isa<Function>(calledValue)) {
-							Function * callee = cast<Function>(calledValue);
-							Module * calleeMod = callee->getParent();
-							std::string calleeModName = calleeMod->getModuleIdentifier();
-							std::string calleeName = callee->getNameStr();
-
-							if (callee && (calleeMod != module)) {
-								//errs() << "ERROR: In module '" << moduleName << "': Called function '" << calleeName << "' is in module '" << calleeModName << "'.\n";
-								inst->print(outs());
-								exit(-1);
-							}
-						}
-					}
-
-					//globals
-					for(unsigned iOperand = 0; iOperand < inst->getNumOperands(); ++iOperand)
-					{
-						Value * operand = inst->getOperand(iOperand);
-
-						if (isa<GlobalVariable>(operand)) {
-							GlobalVariable * gv = cast<GlobalVariable>(operand);
-							if (gv->getParent() != module) {
-								std::string parentModuleName = gv->getParent()->getModuleIdentifier().c_str();
-								//errs() << "ERROR: In module '" << moduleName << "': referencing global value '" << gv->getNameStr() << "' of module '" << parentModuleName << "'.\n";
-								exit(-1);
-							}
-						}
-					}
-				}
-			}
-		}
-
-		//use PacketizedOpenCLDrivers own verifier pass
-		std::string errorMessage;
-		if (verifyModule(*module, AbortProcessAction, &errorMessage)) {
-			errs() << errorMessage;
-		}
 	}
 
 

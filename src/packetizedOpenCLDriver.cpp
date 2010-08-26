@@ -612,8 +612,8 @@ namespace PacketizedOpenCLDriver {
 		const bool isPointerArg = isa<PointerType>(arg->getType());
 
 		for (Function::use_iterator U=f->use_begin(), UE=f->use_end(); U!=UE; ) {
-			if (!isa<CallInst>(U)) continue;
-			CallInst* call = cast<CallInst>(U++);
+			if (!isa<CallInst>(*U)) continue;
+			CallInst* call = cast<CallInst>(*U++);
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "replacing use: " << *call << "\n"; );
 
 			if (call->getParent()->getParent() != source) {
@@ -625,7 +625,7 @@ namespace PacketizedOpenCLDriver {
 			// and generate appropriate ExtractValueInst
 			if (isArrayArg) {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  array arg found!\n"; );
-				const Value* dimVal = call->getOperand(1);
+				const Value* dimVal = call->getArgOperand(0);
 				assert (isa<ConstantInt>(dimVal));
 				const ConstantInt* dimConst = cast<ConstantInt>(dimVal);
 				const uint64_t* dimension = dimConst->getValue().getRawData();
@@ -642,7 +642,7 @@ namespace PacketizedOpenCLDriver {
 				call->eraseFromParent();
 			} else if (isPointerArg) {
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  pointer arg found!\n"; );
-				Value* dimVal = call->getOperand(1);
+				Value* dimVal = call->getArgOperand(0);
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  dimVal: " << *dimVal << "\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  arg: " << *arg << "\n"; );
 				GetElementPtrInst* gep = GetElementPtrInst::Create(arg, dimVal, "", call);
@@ -703,8 +703,8 @@ namespace PacketizedOpenCLDriver {
 
 	inline CallInst* getWrappedKernelCall(Function* wrapper, Function* kernel) {
 		for (Function::use_iterator U=kernel->use_begin(), UE=kernel->use_end(); U!=UE; ++U) {
-			if (!isa<CallInst>(U)) continue;
-			CallInst* call = cast<CallInst>(U);
+			if (!isa<CallInst>(*U)) continue;
+			CallInst* call = cast<CallInst>(*U);
 			if (call->getParent()->getParent() == wrapper) return call;
 		}
 		assert (false && "could not find call to kernel - inlined already?");
@@ -762,8 +762,8 @@ namespace PacketizedOpenCLDriver {
 			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__fabs_f32", mod), PacketizedOpenCLDriver::getFunction("fabs", mod));
 		}
 		// fix __fmod_f32
-		if (PacketizedOpenCLDriver::getFunction("__fmod_f32", mod)) {
-
+		if (Function* fmodFun = PacketizedOpenCLDriver::getFunction("__fmod_f32", mod)) {
+#if 0
 			// create llvm.fmod.f32 intrinsic
 			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
@@ -771,9 +771,19 @@ namespace PacketizedOpenCLDriver {
 			params.push_back(floatType);
 			PacketizedOpenCLDriver::createExternalFunction("fmodf", floatType, params, mod);
 			assert (PacketizedOpenCLDriver::getFunction("fmodf", mod));
-			// TODO: replace by binary operator?
 
-			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__fmod_f32", mod), PacketizedOpenCLDriver::getFunction("fmodf", mod));
+			PacketizedOpenCLDriver::replaceAllUsesWith(fmodFun, PacketizedOpenCLDriver::getFunction("fmodf", mod));
+#else
+			for (Function::use_iterator U=fmodFun->use_begin(), UE=fmodFun->use_end(); U!=UE; ++U) {
+				assert (isa<CallInst>(*U));
+				CallInst* call = cast<CallInst>(*U);
+				Value* val0 = call->getArgOperand(0);
+				Value* val1 = call->getArgOperand(1);
+				BinaryOperator* subInst = BinaryOperator::Create(Instruction::FRem, val0, val1, "", call);
+				call->replaceAllUsesWith(subInst);
+				call->eraseFromParent();
+			}
+#endif
 		}
 		// fix __cos_f32
 		if (PacketizedOpenCLDriver::getFunction("__cos_f32", mod)) {
@@ -822,7 +832,7 @@ namespace PacketizedOpenCLDriver {
 						fnName.equals("get_local_size") ||
 						fnName.equals("get_group_id")) {
 					// get dimension
-					const Value* dimVal = call->getOperand(1);
+					const Value* dimVal = call->getArgOperand(0);
 					assert (isa<ConstantInt>(dimVal));
 					const ConstantInt* dimConst = cast<ConstantInt>(dimVal);
 					const uint64_t dimension = *dimConst->getValue().getRawData() +1; // uses count from 0, max_dim from 1
@@ -871,14 +881,14 @@ namespace PacketizedOpenCLDriver {
 		// e.g. GEP liveValueUnion, i32 0, i32 elementindex
 		// ---> GEP liveValueUnion, i32 local_id_flat, i32 elementindex
 		// TODO: move this to a new function
-		Value* liveValueStruct = newCall->getOperand(newCall->getNumOperands()-1); // live value union is last parameter to call
+		Value* liveValueStruct = newCall->getArgOperand(newCall->getNumArgOperands()-1); // live value union is last parameter to call
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "live value struct: " << *liveValueStruct << "\n"; );
 
 		// now get the bitcast-use of the union in this same block
 		BitCastInst* liveValueStructBc = NULL;
 		for (Value::use_iterator U=liveValueStruct->use_begin(), UE=liveValueStruct->use_end(); U!=UE; ++U) {
-			if (!isa<BitCastInst>(U)) continue;
-			BitCastInst* bc = cast<BitCastInst>(U);
+			if (!isa<BitCastInst>(*U)) continue;
+			BitCastInst* bc = cast<BitCastInst>(*U);
 			if (bc->getParent() != callBB) continue;
 			
 			liveValueStructBc = bc;
@@ -890,8 +900,8 @@ namespace PacketizedOpenCLDriver {
 		// Replace the first index of each GEP (=0 for pointer-step-through in the standard continuation case)
 		// by the correct local index.
 		for (BitCastInst::use_iterator U=liveValueStructBc->use_begin(), UE=liveValueStructBc->use_end(); U!=UE; ) {
-			if (!isa<GetElementPtrInst>(U)) { ++U; continue; }
-			GetElementPtrInst* gep = cast<GetElementPtrInst>(U++);
+			if (!isa<GetElementPtrInst>(*U)) { ++U; continue; }
+			GetElementPtrInst* gep = cast<GetElementPtrInst>(*U++);
 			std::vector<Value*> params;
 			for (GetElementPtrInst::op_iterator O=gep->idx_begin(), OE=gep->idx_end(); O!=OE; ++O) {
 				if (O == gep->idx_begin()) {
@@ -950,8 +960,8 @@ namespace PacketizedOpenCLDriver {
 		// TODO: we simply transform *all* uses because it would be more work to
 		// make all necessary information (barrier-call) available here.
 		for (Value::use_iterator U=liveValueStruct->use_begin(), UE=liveValueStruct->use_end(); U!=UE; ++U) {
-			assert (isa<BitCastInst>(U));
-			BitCastInst* liveValueStructBc = cast<BitCastInst>(U);
+			assert (isa<BitCastInst>(*U));
+			BitCastInst* liveValueStructBc = cast<BitCastInst>(*U);
 
 			for (unsigned i=0; i<num_dimensions; ++i) {
 				Value* dimIdx = ConstantInt::get(context, APInt(32, i));
@@ -977,8 +987,8 @@ namespace PacketizedOpenCLDriver {
 			// Replace the first index of each GEP (=0 for pointer-step-through in the standard continuation case)
 			// by the correct local index.
 			for (BitCastInst::use_iterator U=liveValueStructBc->use_begin(), UE=liveValueStructBc->use_end(); U!=UE; ) {
-				if (!isa<GetElementPtrInst>(U)) { ++U; continue; }
-				GetElementPtrInst* gep = cast<GetElementPtrInst>(U++);
+				if (!isa<GetElementPtrInst>(*U)) { ++U; continue; }
+				GetElementPtrInst* gep = cast<GetElementPtrInst>(*U++);
 				assert (liveValueStructBc->getParent()->getParent() == gep->getParent()->getParent());
 				std::vector<Value*> params;
 				for (GetElementPtrInst::op_iterator O=gep->idx_begin(), OE=gep->idx_end(); O!=OE; ++O) {
@@ -1045,8 +1055,6 @@ namespace PacketizedOpenCLDriver {
 			PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(arg++), continuation);
 #endif
 		}
-
-		PacketizedOpenCLDriver::fixFunctionNames(module);
 
 		return;
 	}
@@ -1442,8 +1450,6 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::replaceCallbacksByArgAccess(module->getFunction("get_local_id_split_SIMD"),  arg_local_id_split_simd, f);
 		#endif
 
-		PacketizedOpenCLDriver::fixFunctionNames(module);
-
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "debug_block_wrapper_final.ll"); );
 
 
@@ -1524,8 +1530,8 @@ namespace PacketizedOpenCLDriver {
 			assert (!continuation->use_empty());
 
 			for (Function::use_iterator U=continuation->use_begin(), UE=continuation->use_end(); U!=UE; ++U) {
-				assert (isa<CallInst>(U));
-				CallInst* call = cast<CallInst>(U);
+				assert (isa<CallInst>(*U));
+				CallInst* call = cast<CallInst>(*U);
 				if (call->getParent()->getParent() != f) continue; // ignore all uses in different functions
 
 				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    generating loop(s) around call: " << *call << "\n"; );
@@ -1595,8 +1601,8 @@ namespace PacketizedOpenCLDriver {
 
 				// add normal parameters and live value struct param
 				//(= start at last special param idx +1 for callee)
-				for (unsigned i=params.size()+1; i<call->getNumOperands(); ++i) {
-					Value* opV = call->getOperand(i);
+				for (unsigned i=params.size(); i<call->getNumArgOperands(); ++i) {
+					Value* opV = call->getArgOperand(i);
 					params.push_back(opV);
 					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "     * " << *opV << "\n"; );
 				}
@@ -1628,8 +1634,8 @@ namespace PacketizedOpenCLDriver {
 		assert (continuations.back() && continuations.back()->use_back());
 		assert (isa<CallInst>(continuations.back()->use_back()));
 		CallInst* someContinuationCall = cast<CallInst>(continuations.back()->use_back());
-		assert (someContinuationCall->getOperand(someContinuationCall->getNumOperands()-1));
-		Value* liveValueUnion = someContinuationCall->getOperand(someContinuationCall->getNumOperands()-1);
+		assert (someContinuationCall->getArgOperand(someContinuationCall->getNumArgOperands()-1));
+		Value* liveValueUnion = someContinuationCall->getArgOperand(someContinuationCall->getNumArgOperands()-1);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "liveValueUnion: " << *liveValueUnion << "\n"; );
 
 		assert (isa<AllocaInst>(liveValueUnion));
@@ -1771,7 +1777,7 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
 		PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "debug_kernel_final.ll"); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "debug_kernel_final.mod.ll"); );
 
@@ -1819,14 +1825,14 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::setupIndexUsages(f, lid, lid_simd, lid_split, simd_dim);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f << "\n"; );
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 
 		// packetize scalar function into SIMD function
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "debug_kernel_pre_packetization.ll"); );
 		PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(), kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, true, false);
 		f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << *f_SIMD << "\n"; );
 
@@ -1834,7 +1840,7 @@ namespace PacketizedOpenCLDriver {
 		std::set<GetElementPtrInst*> fixedGEPs;
 		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
 		PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd2.mod.ll"); );
 
 
@@ -1950,13 +1956,13 @@ namespace PacketizedOpenCLDriver {
 			}
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "debug_wrapper.ll"); );
-			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 
 			//PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_wrapper->getParent(), "debug_f_simd.mod.ll"); );
 			//std::set<GetElementPtrInst*> fixedGEPs;
 			//PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
 			//PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
-			//PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+			//PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 			//PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(f_wrapper->getParent(), "debug_f_simd2.mod.ll"); );
 
 			// - callbacks inside continuations have to be replaced by argument accesses
@@ -2003,12 +2009,12 @@ namespace PacketizedOpenCLDriver {
 			}
 			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
 			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "debug_arg_wrapper.ll"); );
-			PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+			PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 
 			//std::set<GetElementPtrInst*> fixedGEPs;
 			//PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
 			//PacketizedOpenCLDriver::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, fixedGEPs);
-			//PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+			//PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 
 			// generate loop(s) over blocksize(s) (BEFORE inlining!)
 			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f_SIMD);
@@ -2022,7 +2028,7 @@ namespace PacketizedOpenCLDriver {
 		PacketizedOpenCLDriver::inlineFunctionCalls(f_wrapper, targetData);
 		PacketizedOpenCLDriver::optimizeFunction(f_wrapper);
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "debug_kernel_wrapped_final.mod.ll"); );
 
@@ -2238,7 +2244,7 @@ public:
 		// compile wrapper function (to be called in clEnqueueNDRangeKernel())
 		// NOTE: be sure that f_SIMD or f are inlined and f_wrapper was optimized to the max :p
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    compiling function '" << f_wrapper->getNameStr() << "'... "; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::verifyModule(prog->module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*prog->module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(prog->module, "debug_kernel_final_before_compilation.mod.ll"); );
 //		prog->module = PacketizedOpenCLDriver::createModuleFromFile("KERNELTEST.bc");
 //		f_wrapper = prog->module->getFunction(f_wrapper->getNameStr());
@@ -3326,6 +3332,10 @@ clCreateKernel(cl_program      program,
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeModuleToFile(module, "debug_kernel_orig_noopt.mod.ll"); );
+
+	// before doing anything, replace function names generated by clc
+	PacketizedOpenCLDriver::fixFunctionNames(module);
+
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
 	PacketizedOpenCLDriver::inlineFunctionCalls(f, program->targetData);
 	PacketizedOpenCLDriver::optimizeFunction(f);
@@ -3920,7 +3930,7 @@ inline cl_int executeRangeKernel1DPacketOLD(cl_kernel kernel, const size_t globa
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG(
 			outs() << "  iteration " << i << " finished!\n";
-			PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
+			verifyModule(*kernel->get_program()->module);
 		);
 	}
 
@@ -3961,13 +3971,16 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	const cl_uint modified_local_work_size = (cl_uint)local_work_size;
 #else
+	if (local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) {
+		//errs() << "\nWARNING: group size of dimension " << kernel->get_best_simd_dim() << " is smaller than the SIMD width, will be set to global size!\n\n";
+	}
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	// TODO: simd width? simd width squared? other factor?
 	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
 		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : (cl_uint)local_work_size;
 	#else
 	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
-		modified_global_work_size : (cl_uint)local_work_size;
+		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : (cl_uint)local_work_size;
 	#endif
 #endif
 
@@ -3986,7 +3999,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	#endif
 	for (i=0; i<num_iterations; ++i) {
 		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "\niteration " << i << " (= group id)\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
 		//PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
 			////hardcoded debug output
@@ -3996,7 +4009,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 			//outs() << "  count: "  << tt->count  << "\n";
 			//outs() << "  shared: " << tt->shared << "\n";
 			//outs() << "  iteration " << i << " finished!\n";
-			//PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
+			//verifyModule(*kernel->get_program()->module);
 			//outs() << "  verification after execution successful!\n";
 		//);
 
@@ -4009,7 +4022,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 		);
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "iteration " << i << " finished!\n"; );
-		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 	}
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
@@ -4054,7 +4067,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
 			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << " (= group ids)\n"; );
-			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
 			const cl_uint group_id[2] = { i, j };
 
@@ -4067,7 +4080,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 			);
 
 			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "iteration " << i << "/" << j << " finished!\n"; );
-			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 		}
 	}
 
@@ -4116,7 +4129,7 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 		for (j=0; j<num_iterations_1; ++j) {
 			for (k=0; k<num_iterations_2; ++k) {
 				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << "/" << k << " (= group ids)\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
 				const cl_uint group_id[3] = { i, j, k };
 
@@ -4129,7 +4142,7 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 				);
 
 				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "iteration " << i << "/" << j << "/" << k << " finished!\n"; );
-				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module); );
+				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 			}
 		}
 	}
@@ -4189,8 +4202,8 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		const bool dividableBySimdWidth = simd_dim_work_size % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0;
 		if (!dividableBySimdWidth) {
 			errs() << "WARNING: group size of simd dimension not dividable by simdWidth\n";
+			//return CL_INVALID_WORK_GROUP_SIZE;
 		}
-		//errs() << "         group size of dimension " << kernel->get_best_simd_dim() << " will be set to " << PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH << " or entire global size!\n";
 	);
 #endif
 
@@ -4337,7 +4350,7 @@ for (i=0; i<num_iterations; ++i) {
 				//}
 				//outs() << "-------\n";
 
-				PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
+				verifyModule(*kernel->get_program()->module);
 				//outs() << "  verification before execution successful!\n";
 			);
 
@@ -4371,7 +4384,7 @@ for (i=0; i<num_iterations; ++i) {
 				//outs() << "-------\n";
 
 				outs() << "  iteration " << i << " finished!\n";
-				PacketizedOpenCLDriver::verifyModule(kernel->get_program()->module);
+				verifyModule(*kernel->get_program()->module);
 				//outs() << "  verification after execution successful!\n";
 			);
 		}

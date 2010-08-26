@@ -61,7 +61,7 @@ using namespace llvm;
 
 namespace {
 
-class VISIBILITY_HIDDEN ContinuationGenerator : public FunctionPass {
+class ContinuationGenerator : public FunctionPass {
 private:
 	struct BarrierInfo {
 		BarrierInfo(CallInst* call, BasicBlock* parentBB, unsigned d)
@@ -76,7 +76,7 @@ private:
 
 public:
 	static char ID; // Pass identification, replacement for typeid
-	ContinuationGenerator(const bool verbose_flag = false) : FunctionPass(&ID), verbose(verbose_flag), barrierFreeFunction(NULL) {}
+	ContinuationGenerator(const bool verbose_flag = false) : FunctionPass(ID), verbose(verbose_flag), barrierFreeFunction(NULL) {}
 	~ContinuationGenerator() { releaseMemory(); }
 
 	virtual bool runOnFunction(Function &f) {
@@ -170,7 +170,7 @@ private:
 
 	typedef SmallVector<BarrierInfo*, 4> BarrierVecType;
 
-	void mapBarrierInfo(Function* f, Function* newF, DenseMap<const Value*, Value*>& valueMap, BarrierVecType& barriers, const unsigned maxBarrierDepth) {
+	void mapBarrierInfo(Function* f, Function* newF, ValueMap<const Value*, Value*>& valueMap, BarrierVecType& barriers, const unsigned maxBarrierDepth) {
 		assert (f && newF);
 		assert (!valueMap.empty());
 		DEBUG_LA( outs() << "\nmapping barrier info from function '" << f->getNameStr() << "' to new function '" << newF->getNameStr() << "'...\n"; );
@@ -491,7 +491,7 @@ private:
 		//--------------------------------------------------------------------//
 		// create mappings of live-in values to arguments for copying of blocks
 		DEBUG_LA( outs() << "\nlive value mappings:\n"; );
-		DenseMap<const Value*, Value*> valueMap;
+		ValueMap<const Value*, Value*> valueMap;
 		DenseMap<const Value*, Value*> liveValueToArgMap;
 		// CA has to point to first live value parameter of continuation
 		CA = --continuation->arg_end();
@@ -590,8 +590,8 @@ private:
 			// remove all incoming values from this block to phis
 			DEBUG_LA( outs() << "block: " << blockCopy->getNameStr() << "\n"; );
 			for (BasicBlock::use_iterator U=blockCopy->use_begin(), UE=blockCopy->use_end(); U!=UE; ++U) {
-				if (!isa<PHINode>(U)) continue;
-				PHINode* phi = cast<PHINode>(U);
+				if (!isa<PHINode>(*U)) continue;
+				PHINode* phi = cast<PHINode>(*U);
 				DEBUG_LA( outs() << "phi: " << *phi << "\n"; );
 				if (phi->getBasicBlockIndex(blockCopy) != -1) phi->removeIncomingValue(blockCopy, false);
 			}
@@ -649,8 +649,8 @@ private:
 					Instruction* newInst = cast<Instruction>(newLiveVal);
 					DEBUG_LA( outs() << "live value is defined in copied block: " << (*copyBlocks.find(inst->getParent()))->getNameStr() << "\n"; );
 					for (Instruction::use_iterator U=newInst->use_begin(), UE=newInst->use_end(); U!=UE; ) {
-						assert (isa<Instruction>(U));
-						Instruction* useI = cast<Instruction>(U++);
+						assert (isa<Instruction>(*U));
+						Instruction* useI = cast<Instruction>(*U++);
 						DEBUG_LA( outs() << "  testing use: " << *useI << "\n"; );
 #ifdef USE_LLVM_DOMTREE_PASS
 						if (domTree->dominates(newInst, useI)) continue;
@@ -776,7 +776,7 @@ private:
 		// specify mapping of parameters and set names of original parameters
 		// (special parameters come first, so we have to start at the first original parameter)
 		// NOTE: only iterate to second last param (data ptr was not in original function)
-		DenseMap<const Value*, Value*> valueMap;
+		ValueMap<const Value*, Value*> valueMap;
 		unsigned argIdx = 0;
 		for (Function::arg_iterator A2=f->arg_begin(), A=newF->arg_begin(), AE=--newF->arg_end(); A!=AE; ++A, ++argIdx) {
 			if (argIdx < specialParams.size()) continue; // don't increment A2

@@ -53,10 +53,10 @@
 using namespace llvm;
 
 namespace {
-	class VISIBILITY_HIDDEN LivenessAnalyzer : public FunctionPass {
+	class LivenessAnalyzer : public FunctionPass {
     public:
 		static char ID; // Pass identification, replacement for typeid
-		LivenessAnalyzer(const bool verbose_flag = false) : FunctionPass(&ID), verbose(verbose_flag) {}
+		LivenessAnalyzer(const bool verbose_flag = false) : FunctionPass(ID), verbose(verbose_flag) {}
 		~LivenessAnalyzer() { releaseMemory(); }
 
         virtual bool runOnFunction(Function &f) {
@@ -171,8 +171,8 @@ namespace {
 				if (instId >= frontierId) break;
 				DEBUG_LA( outs() << "checking uses of instruction " << instId << "\n"; );
 				for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
-					assert (isa<Instruction>(U));
-					Instruction* useI = cast<Instruction>(U);
+					assert (isa<Instruction>(*U));
+					Instruction* useI = cast<Instruction>(*U);
 
 					// if the use is in a different block, the value also
 					// needs to be marked as live (the use has to be dominated,
@@ -226,8 +226,8 @@ namespace {
 
 				bool survivesFrontier = false;
 				for (Value::use_iterator U=liveVal->use_begin(), UE=liveVal->use_end(); U!=UE && !survivesFrontier; ++U) {
-					assert (isa<Instruction>(U));
-					Instruction* useI = cast<Instruction>(U);
+					assert (isa<Instruction>(*U));
+					Instruction* useI = cast<Instruction>(*U);
 					// ignore uses in different (preceding) blocks
 					// if there was a use in a successing block, we would not
 					// iterate over the uses in the first place (see continue above)
@@ -249,7 +249,7 @@ namespace {
 		}
 
 		// this is so ugly... =)
-		void mapLiveValues(Function* f, Function* newF, DenseMap<const Value*, Value*>& valueMap) {
+		void mapLiveValues(Function* f, Function* newF, ValueMap<const Value*, Value*>& valueMap) {
 			assert (f && newF);
 			assert (!valueMap.empty());
 			DEBUG_LA( outs() << "\nmapping live values from function '" << f->getNameStr() << "' to new function '" << newF->getNameStr() << "'...\n"; );
@@ -332,8 +332,8 @@ namespace {
 			for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A) {
 				DEBUG_LA( outs() << "computing live values for argument: " << *A << "\n"; );
 				for (Instruction::use_iterator U=A->use_begin(), UE=A->use_end(); U!=UE; ++U) {
-					assert (isa<Instruction>(U));
-					Instruction* useI = cast<Instruction>(U);
+					assert (isa<Instruction>(*U));
+					Instruction* useI = cast<Instruction>(*U);
 
 					std::set<BasicBlock*> visitedBlocks;
 					computeLivenessInformation(useI->getParent(), A, useI, visitedBlocks);
@@ -346,8 +346,8 @@ namespace {
 				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
 					DEBUG_LA( outs() << "  computing live values for instruction: " << *I << "\n"; );
 					for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
-						assert (isa<Instruction>(U));
-						Instruction* useI = cast<Instruction>(U);
+						assert (isa<Instruction>(*U));
+						Instruction* useI = cast<Instruction>(*U);
 
 						DEBUG_LA( outs() << "    checking use: " << *useI << "\n"; );
 
