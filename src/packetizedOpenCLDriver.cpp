@@ -3980,7 +3980,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : (cl_uint)local_work_size;
 	#else
 	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
-		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : (cl_uint)local_work_size;
+		modified_global_work_size : (cl_uint)local_work_size;
 	#endif
 #endif
 
