@@ -9,6 +9,8 @@
  * @param blockSize size of the block
  */
 
+#define USE_PACKETIZER
+
 __kernel 
 void matrixTranspose(__global float * output,
                      __global float * input,
@@ -18,6 +20,23 @@ void matrixTranspose(__global float * output,
                      const    uint blockSize
                        )
 {
+#ifdef USE_PACKETIZER
+	/* copy from input to local memory */
+	block[get_local_id(1)*get_local_size(0) + get_local_id(0)] = input[get_global_id(1)*get_global_size(0) + get_global_id(0)];
+
+    /* wait until the whole block is filled */
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+    /* calculate the corresponding target location for transpose  by inverting x and y values*/
+	const uint targetGlobalIdx = get_group_id(1)*get_local_size(0) + get_local_id(1);
+	const uint targetGlobalIdy = get_group_id(0)*get_local_size(0) + get_local_id(0);
+
+    /* calculate the corresponding raster indices of source and target */
+	const uint targetIndex = targetGlobalIdy*get_global_size(1) + targetGlobalIdx;
+	const uint sourceIndex = get_local_id(1)*get_local_size(0)  + get_local_id(0);
+
+	output[targetIndex] = block[sourceIndex];
+#else
 	uint globalIdx = get_global_id(0);
 	uint globalIdy = get_global_id(1);
 	
@@ -42,4 +61,5 @@ void matrixTranspose(__global float * output,
 	uint sourceIndex  = localIdy       * blockSize + localIdx;
 	
 	output[targetIndex] = block[sourceIndex];
+#endif
 }

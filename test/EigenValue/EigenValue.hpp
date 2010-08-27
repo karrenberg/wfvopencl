@@ -151,7 +151,7 @@ public:
     EigenValue(std::string name)
         : SDKSample(name)    {
             seed = 123;
-            length = 64;
+            length = 1024;
             diagonal = NULL;
             offDiagonal = NULL;
             eigenIntervals[0] = NULL;
@@ -172,7 +172,7 @@ public:
     EigenValue(const char* name)
         : SDKSample(name)    {
             seed = 123;
-            length = 64;
+            length = 1024;
             diagonal = NULL;
             offDiagonal = NULL;
             eigenIntervals[0] = NULL;

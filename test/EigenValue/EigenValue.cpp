@@ -96,6 +96,12 @@ int EigenValue::setupEigenValue()
 {
     /* allocate and init memory used by host */
     /* allocate memory for diagonal elements of the matrix  of size lengthxlength*/
+
+	if(length < 256)
+	{
+		length = 256;
+	}
+
     cl_uint diagonalSizeBytes = length * sizeof(cl_float);
     diagonal = (cl_float *) malloc(diagonalSizeBytes);
 
@@ -248,22 +254,24 @@ EigenValue::setupCL(void)
         delete[] platforms;
     }
 
-    /*
-     * If we could find our platform, use it. Otherwise pass a NULL and get whatever the
-     * implementation thinks we should be using.
-     */
+    if(NULL == platform)
+    {
+        sampleCommon->error("NULL platform found so Exiting Application.");
+        return SDK_FAILURE;
+    }
 
+    /*
+     * If we could find our platform, use it. Otherwise use just available platform.
+     */
     cl_context_properties cps[3] = 
     {
         CL_CONTEXT_PLATFORM, 
         (cl_context_properties)platform, 
         0
     };
-    /* Use NULL for backward compatibility */
-    cl_context_properties* cprops = (NULL == platform) ? NULL : cps;
 
     context = clCreateContextFromType(
-                  cprops,
+                  cps,
                   dType,
                   NULL,
                   NULL,
@@ -389,7 +397,12 @@ EigenValue::setupCL(void)
     //streamsdk::SDKFile kernelFile;
     //std::string kernelPath = sampleCommon->getPath();
     //kernelPath.append("EigenValue_Kernels.cl");
-    //kernelFile.open(kernelPath.c_str());
+    //if(!kernelFile.open(kernelPath.c_str()))
+    //{
+        //std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+        //return SDK_FAILURE;
+    //}
+    //const char * source = kernelFile.source().c_str();
     const char * source = "EigenValue_Kernels.bc";//kernelFile.source().c_str();
     size_t sourceSize[] = { strlen(source) };
     program = clCreateProgramWithSource(
@@ -459,8 +472,8 @@ EigenValue::runCLKernels(void)
     size_t globalThreads[1];
     size_t localThreads[1];
 
-    globalThreads[0] = length;
-    localThreads[0]  = 1;
+	globalThreads[0] = length;
+    localThreads[0]  = 256;
 
     /* Check group size against kernelWorkGroupSize */
     status = clGetKernelWorkGroupInfo(kernel[0],
@@ -479,11 +492,17 @@ EigenValue::runCLKernels(void)
 
     if((cl_uint)(localThreads[0]) > kernelWorkGroupSize)
     {
-        std::cout<<"Out of Resources!" << std::endl;
-        std::cout<<"Group Size specified : "<<localThreads[0]<<std::endl;
-        std::cout<<"Max Group Size supported on the kernel : " 
-            <<kernelWorkGroupSize<<std::endl;
-        return SDK_FAILURE;
+		if(!quiet)
+		{
+			std::cout<<"Out of Resources!" << std::endl;
+			std::cout<<"Group Size specified : "<<localThreads[0]<<std::endl;
+			std::cout<<"Max Group Size supported on the kernel : " 
+				<<kernelWorkGroupSize<<std::endl;
+			std::cout<<"Changing the group size to " << kernelWorkGroupSize 
+                << std::endl;
+		}
+
+        localThreads[0] = kernelWorkGroupSize;
     }
 
     totalKernelTime = 0;
@@ -996,7 +1015,7 @@ EigenValue::verifyResults()
         {
             verificationEigenIntervals[i] = (cl_float *) malloc(eigenIntervalsSizeBytes);
 
-            if(eigenIntervals[i] == NULL)
+            if(verificationEigenIntervals[i] == NULL)
             {
                 sampleCommon->error("Failed to allocate host memory. (verificationEigenIntervals)");
                 return SDK_FAILURE;
