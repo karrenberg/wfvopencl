@@ -1654,7 +1654,7 @@ namespace PacketizedOpenCLDriver {
 	}
 #else
 	/// adopted from: llvm-2.7/tools/opt
-	// breaks Mandelbrot :p
+	// breaks packetized OpenCL Mandelbrot/Histogram and packetized Mandelbrot shader :p
 	void optimizeFunction(Function* f) {
 		assert (f);
 		assert (f->getParent());

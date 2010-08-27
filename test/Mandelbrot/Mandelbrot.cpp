@@ -615,6 +615,8 @@ int Mandelbrot::verifyResults()
         mandelbrotCPUReference(verificationOutput, scale, maxIterations, width);
         sampleCommon->stopTimer(refTimer);
         referenceKernelTime = sampleCommon->readTimer(refTimer);
+		std::cout << "Reference Kernel Time: " << referenceKernelTime << "\n";
+		std::cout << "Total Kernel Time    : " << totalKernelTime << "\n";
 
         // compare the results and see if they match 
         if(memcmp(output, verificationOutput, width*height*sizeof(cl_int)) == 0)
