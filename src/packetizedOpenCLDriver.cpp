@@ -40,6 +40,10 @@
 #include "Packetizer/api.h" // packetizer
 #endif
 
+#ifdef PACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING
+#include "JITProfiling.h"
+#endif
+
 #include "llvmTools.hpp" // LLVM functionality
 
 #include "livenessAnalyzer.h"
@@ -2278,6 +2282,24 @@ public:
 		if (!compiled_function) {
 			errs() << "\nERROR: JIT compilation of kernel function failed!\n";
 		}
+#ifdef PACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING
+		iJIT_Method_Load ml;
+		ml.method_id = iJIT_GetNewMethodID();
+		const unsigned mnamesize = f_wrapper->getNameStr().size();
+		char* mname = new char[mnamesize]();
+		for (unsigned i=0; i<mnamesize; ++i) {
+			mname[i] = f_wrapper->getNameStr().c_str()[i];
+		}
+		ml.method_name = mname;
+		ml.method_load_address = const_cast<void*>(compiled_function);
+		ml.method_size = 42;
+		ml.line_number_size = 0;
+		ml.line_number_table = NULL;
+		ml.class_id = 0;
+		ml.class_file_name = NULL;
+		ml.source_file_name = NULL;
+		iJIT_NotifyEvent(iJVM_EVENT_TYPE_METHOD_LOAD_FINISHED, (void*)&ml);
+#endif
 		PACKETIZED_OPENCL_DRIVER_DEBUG( if (compiled_function) outs() << "done.\n"; );
 
 		// get argument information
@@ -3230,6 +3252,12 @@ CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clReleaseProgram()\n"; );
+#ifdef PACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING
+	int success = iJIT_NotifyEvent(iJVM_EVENT_TYPE_SHUTDOWN, NULL);
+	if (success != 1) {
+		errs() << "ERROR: termination of profiling failed!\n";
+	}
+#endif
 	return CL_SUCCESS;
 }
 
@@ -4012,7 +4040,6 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 			//verifyModule(*kernel->get_program()->module);
 			//outs() << "  verification after execution successful!\n";
 		//);
-
 		typedPtr(
 			argument_struct,
 			1U, // get_work_dim

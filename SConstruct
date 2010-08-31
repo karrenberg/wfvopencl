@@ -5,9 +5,12 @@ import os
 # build variables
 debug         = ARGUMENTS.get('debug', 0)
 debug_runtime = ARGUMENTS.get('debug-runtime', 0)
+profile       = ARGUMENTS.get('profile', 0)
 use_openmp    = ARGUMENTS.get('openmp', 0)
 packetize     = ARGUMENTS.get('packetize', 0)
 split         = ARGUMENTS.get('split', 0)
+
+compile_static_lib_driver = ARGUMENTS.get('static', 0)
 
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
@@ -38,6 +41,10 @@ if int(debug_runtime):
 if not int(debug) and not int(debug_runtime):
 	cxxflags=cxxflags+env.Split("-O3 -DNDEBUG")
 
+if int(profile):
+	cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING")
+	compile_static_lib_driver=1
+
 if int(use_openmp):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_OPENMP -fopenmp")
 	env.Append(LINKFLAGS = env.Split("-fopenmp"))
@@ -64,12 +71,19 @@ env.Append(LIBPATH = llvm_vars.get('LIBPATH'))
 
 # set up libraries
 driverLibs = llvm_vars.get('LIBS') + env.Split('Packetizer')
-appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut GLEW') # glut, GLEW not required for all
+appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut GLEW') # glut, GLEW not required for all, but this is easier :P
 
+if int(profile):
+	driverLibs=driverLibs+env.Split("JITProfiling") # also requires dl, pthread
+	env.Append(CPPPATH = [os.path.join(env['ENV']['VTUNE_GLOBAL_DIR'], 'analyzer/include')])
+	env.Append(LIBPATH = [os.path.join(env['ENV']['VTUNE_GLOBAL_DIR'], 'analyzer/bin')])
 
 # build Packetized OpenCL Driver
 driverSrc = env.Glob('src/*.cpp')
-PacketizedOpenCLDriver = env.SharedLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
+if int(compile_static_lib_driver):
+	PacketizedOpenCLDriver = env.StaticLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
+else:
+	PacketizedOpenCLDriver = env.SharedLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 
 
 # build AMD-ATI SDKUtil as a static library (required for test applications)
@@ -109,9 +123,14 @@ Test2D
 TestLinearAccess
 """)
 
-for a in testApps:
-	App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
-	env.Depends(App, SDKUtil)
+if int(compile_static_lib_driver):
+	for a in testApps:
+		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
+		env.Depends(App, SDKUtil)
+else:
+	for a in testApps:
+		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
+		env.Depends(App, SDKUtil)
 
 ###
 ### build bitcode from OpenCL files ###
