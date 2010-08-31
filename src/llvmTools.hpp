@@ -283,8 +283,6 @@ namespace PacketizedOpenCLDriver {
 
 		// create the call to f
 		CallInst* call = builder.CreateCall(f, extractedArgs.begin(), extractedArgs.end(), "");
-		call->addAttribute(1, Attribute::NoCapture);
-		call->addAttribute(1, Attribute::NoAlias);
 
 		// the function returns void
 		builder.CreateRetVoid();
