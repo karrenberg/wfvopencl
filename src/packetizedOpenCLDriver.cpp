@@ -68,11 +68,12 @@
 #define PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS PACKETIZED_OPENCL_DRIVER_NUM_CORES
 
 
-// these are assumed to be set via build script
+// these defines are assumed to be set via build script:
 //#define PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 //#define PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 //#define PACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING
 //#define PACKETIZED_OPENCL_DRIVER_OPTIMIZE_MEM_ACCESS
+//#define PACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING
 //#define NDEBUG
 //----------------------------------------------------------------------------//
 

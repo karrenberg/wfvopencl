@@ -42,8 +42,10 @@ if not int(debug) and not int(debug_runtime):
 	cxxflags=cxxflags+env.Split("-O3 -DNDEBUG")
 
 if int(profile):
-	cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING")
-	compile_static_lib_driver=1
+	cxxflags=cxxflags+env.Split("-g")
+	# disabled until we have 64bit VTune libraries
+	#cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING")
+	#compile_static_lib_driver=1
 
 if int(use_openmp):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_OPENMP -fopenmp")
@@ -73,10 +75,11 @@ env.Append(LIBPATH = llvm_vars.get('LIBPATH'))
 driverLibs = llvm_vars.get('LIBS') + env.Split('Packetizer')
 appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut GLEW') # glut, GLEW not required for all, but this is easier :P
 
-if int(profile):
-	driverLibs=driverLibs+env.Split("JITProfiling") # also requires dl, pthread
-	env.Append(CPPPATH = [os.path.join(env['ENV']['VTUNE_GLOBAL_DIR'], 'analyzer/include')])
-	env.Append(LIBPATH = [os.path.join(env['ENV']['VTUNE_GLOBAL_DIR'], 'analyzer/bin')])
+# disabled until we have 64bit VTune libraries
+#if int(profile):
+	#driverLibs=driverLibs+env.Split("dl pthread JITProfiling")
+	#env.Append(CPPPATH = [os.path.join(env['ENV']['VTUNE_GLOBAL_DIR'], 'analyzer/include')])
+	#env.Append(LIBPATH = [os.path.join(env['ENV']['VTUNE_GLOBAL_DIR'], 'analyzer/bin')])
 
 # build Packetized OpenCL Driver
 driverSrc = env.Glob('src/*.cpp')
