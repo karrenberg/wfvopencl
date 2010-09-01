@@ -155,6 +155,9 @@ public:
 		}
 	}
 
+	typedef DenseMap<unsigned, BarrierInfo*> ContinuationMapType;
+	inline ContinuationMapType* getContinuationMap() { return &continuationMap; }
+
 private:
 	const bool verbose;
 	LoopInfo* loopInfo;
@@ -166,7 +169,7 @@ private:
 	SpecialParamVecType specialParams;
 	SpecialParamNameVecType specialParamNames;
 
-	DenseMap<unsigned, BarrierInfo*> continuationMap;
+	ContinuationMapType continuationMap;
 
 	typedef SmallVector<BarrierInfo*, 4> BarrierVecType;
 
@@ -315,6 +318,173 @@ private:
 		return false;
 	}
 #endif
+
+	Function* createWrapper(Function* origFunction, ContinuationMapType& cMap, Module* mod, TargetData* targetData) {
+		const unsigned numContinuationFunctions = cMap.size();
+		const FunctionType* fTypeOld = origFunction->getFunctionType();
+		const std::string& functionName = origFunction->getNameStr();
+
+		LLVMContext& context = mod->getContext();
+
+		Function* wrapper = Function::Create(fTypeOld, Function::ExternalLinkage, functionName+"_barrierswitch", mod); // TODO: check linkage type
+
+		IRBuilder<> builder(context);
+
+		// create entry block
+		BasicBlock* entryBB = BasicBlock::Create(context, "entry", wrapper);
+
+		// create blocks for while loop
+		BasicBlock* headerBB = BasicBlock::Create(context, "while.header", wrapper);
+		BasicBlock* latchBB = BasicBlock::Create(context, "while.latch", wrapper);
+
+		// create call blocks (switch targets)
+		BasicBlock** callBBs = new BasicBlock*[numContinuationFunctions]();
+		for (unsigned i=0; i<numContinuationFunctions; ++i) {
+			std::stringstream sstr;
+			sstr << "switch." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
+			callBBs[i] = BasicBlock::Create(context, sstr.str(), wrapper);
+		}
+
+		// create exit block
+		BasicBlock* exitBB = BasicBlock::Create(context, "exit", wrapper);
+
+
+		//--------------------------------------------------------------------//
+		// fill entry block
+		//--------------------------------------------------------------------//
+		builder.SetInsertPoint(entryBB);
+
+		// generate union for live value structs
+		unsigned unionSize = 0;
+		for (ContinuationMapType::iterator it=cMap.begin(), E=cMap.end(); it!=E; ++it) {
+			BarrierInfo* bit = it->second;
+			StructType* liveValueStructType = bit->liveValueStructType;
+			assert (liveValueStructType);
+			const unsigned typeSize = targetData->getTypeAllocSize(liveValueStructType);
+			if (unionSize < typeSize) unionSize = typeSize;
+		}
+		DEBUG_LA( outs() << "union size for live value structs: " << unionSize << "\n"; );
+		// allocate memory for union
+		Value* allocSize = ConstantInt::get(context, APInt(32, unionSize));
+		Value* dataPtr = builder.CreateAlloca(Type::getInt8Ty(context), allocSize, "liveValueUnion");
+
+		builder.CreateBr(headerBB);
+
+		//--------------------------------------------------------------------//
+		// fill header
+		//--------------------------------------------------------------------//
+		builder.SetInsertPoint(headerBB);
+		PHINode* current_barrier_id_phi = builder.CreatePHI(Type::getInt32Ty(context), "current_barrier_id");
+		current_barrier_id_phi->addIncoming(ConstantInt::getNullValue(Type::getInt32Ty(context)), entryBB);
+
+		SwitchInst* switchI = builder.CreateSwitch(current_barrier_id_phi, exitBB, numContinuationFunctions);
+		for (unsigned i=0; i<numContinuationFunctions; ++i) {
+			// add case for each continuation
+			switchI->addCase(ConstantInt::get(context, APInt(32, i)), callBBs[i]);
+		}
+
+
+		//--------------------------------------------------------------------//
+		// fill call blocks
+		//--------------------------------------------------------------------//
+		CallInst** calls = new CallInst*[numContinuationFunctions]();
+		for (unsigned i=0; i<numContinuationFunctions; ++i) {
+			BasicBlock* block = callBBs[i];
+			builder.SetInsertPoint(block);
+
+			// extract arguments from live value struct (dataPtr)
+			BarrierInfo* binfo = cMap[i];
+			const StructType* sType = binfo->liveValueStructType;
+			const unsigned numLiveVals = sType->getNumElements(); // 0 for begin-fn
+			Value** contArgs = new Value*[numLiveVals]();
+
+			Value* bc = builder.CreateBitCast(dataPtr, PointerType::getUnqual(sType)); // cast data pointer to correct pointer to struct type
+
+			for (unsigned j=0; j<numLiveVals; ++j) {
+				std::vector<Value*> indices;
+				indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
+				indices.push_back(ConstantInt::get(context, APInt(32, j)));
+				Value* gep = builder.CreateGEP(bc, indices.begin(), indices.end(), "");
+				DEBUG_LA( outs() << "load gep(" << j << "): " << *gep << "\n"; );
+				LoadInst* load = builder.CreateLoad(gep, false, "");
+				contArgs[j] = load;
+			}
+
+
+			// create the calls to the continuations
+			// the first block holds the call to the (remainder of the) original function,
+			// which receives the original arguments plus the data pointer.
+			// All other blocks receive the extracted live-in values plus the data pointer.
+			SmallVector<Value*, 4> args;
+
+			// special parameters (insert dummies -> have to be replaced externally after the pass is finished)
+			for (SpecialParamVecType::iterator it=specialParams.begin(), E=specialParams.end(); it!=E; ++it) {
+				args.push_back(UndefValue::get(*it));
+			}
+			// begin-fn: original parameters
+			// others  : live values
+			if (i == 0) {
+				for (Function::arg_iterator A=wrapper->arg_begin(), AE=wrapper->arg_end(); A!=AE; ++A) {
+					assert (isa<Value>(A));
+					args.push_back(cast<Value>(A));
+				}
+			} else {
+				for (unsigned j=0; j<numLiveVals; ++j) {
+					args.push_back(contArgs[j]);
+				}
+			}
+			args.push_back(dataPtr); // data ptr
+
+			DEBUG_LA(
+				outs() << "\narguments for call to continuation '" << binfo->continuation->getNameStr() << "':\n";
+				for (SmallVector<Value*, 4>::iterator it=args.begin(), E=args.end(); it!=E; ++it) {
+					outs() << " * " << **it << "\n";
+				}
+				outs() << "\n";
+			);
+
+			std::stringstream sstr;
+			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
+			calls[i] = builder.CreateCall(cMap[i]->continuation, args.begin(), args.end(), sstr.str());
+			DEBUG_LA( outs() << "created call for continuation '" << cMap[i]->continuation->getNameStr() << "':" << *calls[i] << "\n"; );
+
+			builder.CreateBr(latchBB);
+
+			delete [] contArgs;
+		}
+
+		//--------------------------------------------------------------------//
+		// fill latch
+		//--------------------------------------------------------------------//
+		builder.SetInsertPoint(latchBB);
+
+		// create phi for next barrier id coming from each call inside the switch
+		PHINode* next_barrier_id_phi = builder.CreatePHI(Type::getInt32Ty(context), "next_barrier_id");
+		for (unsigned i=0; i<numContinuationFunctions; ++i) {
+			next_barrier_id_phi->addIncoming(calls[i], callBBs[i]);
+		}
+
+		// add the phi as incoming value to the phi in the loop header
+		current_barrier_id_phi->addIncoming(next_barrier_id_phi, latchBB);
+
+		// create check whether id is the special end id ( = is negative)
+		// if yes, exit the loop, otherwise go on iterating
+		Value* cond = builder.CreateICmpSLT(next_barrier_id_phi, ConstantInt::getNullValue(Type::getInt32Ty(context)), "exitcond");
+		builder.CreateCondBr(cond, exitBB, headerBB);
+
+		//--------------------------------------------------------------------//
+		// fill exit
+		//--------------------------------------------------------------------//
+		//CallInst::CreateFree(dataPtr, exitBB); //not possible with builder
+		builder.SetInsertPoint(exitBB);
+		builder.CreateRetVoid();
+
+
+		delete [] calls;
+		delete [] callBBs;
+
+		return wrapper;
+	}
 
 	// generates a continuation function that is called at the point of the barrier
 	void createContinuation(BarrierInfo* barrierInfo, const std::string& newFunName, TargetData* targetData) {
@@ -863,7 +1033,7 @@ private:
 		DEBUG_LA(
 			outs() << "\nTesting for remaining barriers in continuations... ";
 			bool err = false;
-			for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
+			for (ContinuationMapType::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 				BarrierInfo* binfo = it->second;
 				Function* continuation = binfo->continuation;
 				assert (continuation);
@@ -890,175 +1060,9 @@ private:
 		);
 
 
-
-
-		// TODO: move stuff below into own function
-
-
-
-		// create the wrapper
-
-
-		Function* wrapper = Function::Create(fTypeOld, Function::ExternalLinkage, functionName+"_barrierswitch", mod); // TODO: check linkage type
-
-		IRBuilder<> builder(context);
-
-		// create entry block
-		BasicBlock* entryBB = BasicBlock::Create(context, "entry", wrapper);
-
-		// create blocks for while loop
-		BasicBlock* headerBB = BasicBlock::Create(context, "while.header", wrapper);
-		BasicBlock* latchBB = BasicBlock::Create(context, "while.latch", wrapper);
-
-		// create call blocks (switch targets)
-		BasicBlock** callBBs = new BasicBlock*[numContinuationFunctions]();
-		for (unsigned i=0; i<numContinuationFunctions; ++i) {
-			std::stringstream sstr;
-			sstr << "switch." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max size for continuations :p
-			callBBs[i] = BasicBlock::Create(context, sstr.str(), wrapper);
-		}
-
-		// create exit block
-		BasicBlock* exitBB = BasicBlock::Create(context, "exit", wrapper);
-
-
-		//--------------------------------------------------------------------//
-		// fill entry block
-		//--------------------------------------------------------------------//
-		builder.SetInsertPoint(entryBB);
-
-		// generate union for live value structs
-		unsigned unionSize = 0;
-		for (DenseMap<unsigned, BarrierInfo*>::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
-			BarrierInfo* bit = it->second;
-			StructType* liveValueStructType = bit->liveValueStructType;
-			assert (liveValueStructType);
-			const unsigned typeSize = targetData->getTypeAllocSize(liveValueStructType);
-			if (unionSize < typeSize) unionSize = typeSize;
-		}
-		DEBUG_LA( outs() << "union size for live value structs: " << unionSize << "\n"; );
-		// allocate memory for union
-		Value* allocSize = ConstantInt::get(context, APInt(32, unionSize));
-		Value* dataPtr = builder.CreateAlloca(Type::getInt8Ty(context), allocSize, "liveValueUnion");
-
-		builder.CreateBr(headerBB);
-
-		//--------------------------------------------------------------------//
-		// fill header
-		//--------------------------------------------------------------------//
-		builder.SetInsertPoint(headerBB);
-		PHINode* current_barrier_id_phi = builder.CreatePHI(Type::getInt32Ty(context), "current_barrier_id");
-		current_barrier_id_phi->addIncoming(ConstantInt::getNullValue(Type::getInt32Ty(context)), entryBB);
-
-		SwitchInst* switchI = builder.CreateSwitch(current_barrier_id_phi, exitBB, numContinuationFunctions);
-		for (unsigned i=0; i<numContinuationFunctions; ++i) {
-			// add case for each continuation
-			switchI->addCase(ConstantInt::get(context, APInt(32, i)), callBBs[i]);
-		}
-
-
-		//--------------------------------------------------------------------//
-		// fill call blocks
-		//--------------------------------------------------------------------//
-		CallInst** calls = new CallInst*[numContinuationFunctions]();
-		for (unsigned i=0; i<numContinuationFunctions; ++i) {
-			BasicBlock* block = callBBs[i];
-			builder.SetInsertPoint(block);
-
-			// extract arguments from live value struct (dataPtr)
-			BarrierInfo* binfo = continuationMap[i];
-			const StructType* sType = binfo->liveValueStructType;
-			const unsigned numLiveVals = sType->getNumElements(); // 0 for begin-fn
-			Value** contArgs = new Value*[numLiveVals]();
-
-			Value* bc = builder.CreateBitCast(dataPtr, PointerType::getUnqual(sType)); // cast data pointer to correct pointer to struct type
-			
-			for (unsigned j=0; j<numLiveVals; ++j) {
-				std::vector<Value*> indices;
-				indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
-				indices.push_back(ConstantInt::get(context, APInt(32, j)));
-				Value* gep = builder.CreateGEP(bc, indices.begin(), indices.end(), "");
-				DEBUG_LA( outs() << "load gep(" << j << "): " << *gep << "\n"; );
-				LoadInst* load = builder.CreateLoad(gep, false, "");
-				contArgs[j] = load;
-			}
-
-
-			// create the call to f
-			// the first block holds the call to the (remainder of the) original function,
-			// which receives the original arguments plus the data pointer.
-			// All other blocks receive the extracted live-in values plus the data pointer.
-			SmallVector<Value*, 4> args;
-
-			// special parameters (insert dummies -> have to be replaced externally after the pass is finished)
-			for (SpecialParamVecType::iterator it=specialParams.begin(), E=specialParams.end(); it!=E; ++it) {
-				args.push_back(UndefValue::get(*it));
-			}
-			// begin-fn: original parameters
-			// others  : live values
-			if (i == 0) {
-				for (Function::arg_iterator A=wrapper->arg_begin(), AE=wrapper->arg_end(); A!=AE; ++A) {
-					assert (isa<Value>(A));
-					args.push_back(cast<Value>(A));
-				}
-			} else {
-				for (unsigned j=0; j<numLiveVals; ++j) {
-					args.push_back(contArgs[j]);
-				}
-			}
-			args.push_back(dataPtr); // data ptr
-
-			DEBUG_LA(
-				outs() << "\narguments for call to continuation '" << binfo->continuation->getNameStr() << "':\n";
-				for (SmallVector<Value*, 4>::iterator it=args.begin(), E=args.end(); it!=E; ++it) {
-					outs() << " * " << **it << "\n";
-				}
-				outs() << "\n";
-			);
-
-			std::stringstream sstr;
-			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
-			calls[i] = builder.CreateCall(continuationMap[i]->continuation, args.begin(), args.end(), sstr.str());
-			DEBUG_LA( outs() << "created call for continuation '" << continuationMap[i]->continuation->getNameStr() << "':" << *calls[i] << "\n"; );
-
-			builder.CreateBr(latchBB);
-
-			delete [] contArgs;
-		}
-
-		//--------------------------------------------------------------------//
-		// fill latch
-		//--------------------------------------------------------------------//
-		builder.SetInsertPoint(latchBB);
-
-		// create phi for next barrier id coming from each call inside the switch
-		PHINode* next_barrier_id_phi = builder.CreatePHI(Type::getInt32Ty(context), "next_barrier_id");
-		for (unsigned i=0; i<numContinuationFunctions; ++i) {
-			next_barrier_id_phi->addIncoming(calls[i], callBBs[i]);
-		}
-
-		// add the phi as incoming value to the phi in the loop header
-		current_barrier_id_phi->addIncoming(next_barrier_id_phi, latchBB);
-
-		// create check whether id is the special end id ( = is negative)
-		// if yes, exit the loop, otherwise go on iterating
-		Value* cond = builder.CreateICmpSLT(next_barrier_id_phi, ConstantInt::getNullValue(Type::getInt32Ty(context)), "exitcond");
-		builder.CreateCondBr(cond, exitBB, headerBB);
-
-		//--------------------------------------------------------------------//
-		// fill exit
-		//--------------------------------------------------------------------//
-		//CallInst::CreateFree(dataPtr, exitBB); //not possible with builder
-		builder.SetInsertPoint(exitBB);
-		builder.CreateRetVoid();
-
-
-		delete [] calls;
-		delete [] callBBs;
-
 		DEBUG_LA( outs() << "replaced all barriers by continuations!\n"; );
 
-		return wrapper;
+		return createWrapper(f, continuationMap, mod, targetData);
 	}
 
 
