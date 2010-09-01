@@ -203,10 +203,11 @@ namespace PacketizedOpenCLDriver {
 
 		Packetizer::runPacketizer(packetizer, mod);
 
-		if (!PacketizedOpenCLDriver::getFunction(targetKernelName, mod)) {
-			errs() << "ERROR: packetized target function not found in module!\n";
-			return false;
-		}
+		// will never fire (prototype declared)
+		//if (!PacketizedOpenCLDriver::getFunction(targetKernelName, mod)) {
+			//errs() << "ERROR: packetized target function not found in module!\n";
+			//return false;
+		//}
 
 		return true;
 	}
@@ -1835,7 +1836,11 @@ namespace PacketizedOpenCLDriver {
 
 		// packetize scalar function into SIMD function
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "debug_kernel_pre_packetization.ll"); );
-		PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(), kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, true, false);
+		const bool success = PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(), kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, true, false);
+		if (!success) {
+			errs() << "ERROR: packetization of kernel failed!\n";
+			return NULL;
+		}
 		f_SIMD = PacketizedOpenCLDriver::getFunction(kernel_simd_name, module); //pointer not valid anymore!
 		PACKETIZED_OPENCL_DRIVER_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
@@ -3357,6 +3362,8 @@ clCreateKernel(cl_program      program,
 	strs << "__OpenCL_" << kernel_name << "_kernel";
 	const std::string new_kernel_name = strs.str();
 
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "new kernel name: " << new_kernel_name << "\n"; );
+
 	llvm::Function* f = PacketizedOpenCLDriver::getFunction(new_kernel_name, module);
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
 
@@ -4000,23 +4007,31 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 #ifdef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
 	const cl_uint modified_local_work_size = (cl_uint)local_work_size;
 #else
-	if (local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) {
-		//errs() << "\nWARNING: group size of dimension " << kernel->get_best_simd_dim() << " is smaller than the SIMD width, will be set to global size!\n\n";
-	}
+	PACKETIZED_OPENCL_DRIVER_DEBUG(
+		if (local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) {
+			errs() << "\nWARNING: group size of dimension " << kernel->get_best_simd_dim() << " is smaller than the SIMD width, will be set to global size!\n\n";
+		}
+	);
+
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	// TODO: simd width? simd width squared? other factor?
 	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
-		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : (cl_uint)local_work_size;
+		PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH*PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH : local_work_size % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0 ?
+			local_work_size+(local_work_size % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) : (cl_uint)local_work_size;
 	#else
 	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH ?
-		modified_global_work_size : (cl_uint)local_work_size;
+		modified_global_work_size : local_work_size % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH != 0 ?
+			local_work_size+(local_work_size % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH) : (cl_uint)local_work_size;
 	#endif
+
 #endif
 
 	//
 	// execute the kernel
 	//
 	const cl_uint num_iterations = modified_global_work_size / modified_local_work_size; // = total # threads per block
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  modified_global_work_size: " << modified_global_work_size << "\n"; );
+	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  modified_local_work_size: " << modified_local_work_size << "\n"; );
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
 
 	assert (num_iterations > 0 && "should give error message before executeRangeKernel!");
@@ -4029,18 +4044,20 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	for (i=0; i<num_iterations; ++i) {
 		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "\niteration " << i << " (= group id)\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "  verification before execution successful!\n"; );
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
-			////hardcoded debug output
-			//struct t { cl_uint* input; cl_uint* output; cl_ushort* shared; cl_uint count; } __attribute__((packed))* tt = (t*)kernel->get_argument_struct();
-			//outs() << "  input: "  << tt->input  << "\n";
-			//outs() << "  output: " << tt->output << "\n";
-			//outs() << "  count: "  << tt->count  << "\n";
-			//outs() << "  shared: " << tt->shared << "\n";
-			//outs() << "  iteration " << i << " finished!\n";
-			//verifyModule(*kernel->get_program()->module);
-			//outs() << "  verification after execution successful!\n";
-		//);
+//		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME(
+//			//hardcoded debug output
+//			struct t { cl_int* numSteps; cl_float* randArray; cl_float* output; cl_float* callA; cl_float* callB;  } __attribute__((packed))* tt = (t*)kernel->get_argument_struct();
+//			outs() << "  numSteps: "  << tt->numSteps  << "\n";
+//			outs() << "  randArray: " << tt->randArray << "\n";
+//			outs() << "  output: "  << tt->output  << "\n";
+//			outs() << "  callA: " << tt->callA << "\n";
+//			outs() << "  callB: " << tt->callB << "\n";
+//			outs() << "  iteration " << i << " finished!\n";
+//			verifyModule(*kernel->get_program()->module);
+//		);
+
 		typedPtr(
 			argument_struct,
 			1U, // get_work_dim
@@ -4051,6 +4068,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 
 		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "iteration " << i << " finished!\n"; );
 		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
+		PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "  verification after execution successful!\n"; );
 	}
 
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
