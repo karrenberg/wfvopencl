@@ -16,129 +16,518 @@
  - GeForce 9400M
 */
 
-// you will use GPU mode, try!
-#define USE_GPU //also for packetization
+#include "AmbientOcclusionRenderer.hpp"
 
 
-
-//#define USE_TEXTURE
-
-#include <stdio.h>
-#include <iostream>
-#include <sys/time.h>
-#include <cstdlib>
-#include <string.h>
-
-#if defined(__APPLE__) || defined(__MACOSX)
-#include <OpenCL/cl.h>
-#include <GLUT/GLUT.h>
-#else
-#include <CL/cl.h>
-#include <GL/glut.h>
-#endif
+AmbientOcclusionRenderer* clAmbientOcclusionRenderer;
+cl_uchar* teximage;
 
 
-unsigned int tex;
-unsigned char* teximage;
-int width = 256;
-int height = 256;
-cl_device_id device_id;
-cl_context context;
-cl_program program;
-cl_kernel kernel;
-cl_command_queue cmdqueue;
-cl_mem hDevMem;
-
-void executekernel(cl_device_id device_id, cl_command_queue hCmdQueue, cl_kernel hKernel, size_t dim1, size_t dim2)
+int AmbientOcclusionRenderer::setupAmbientOcclusionRenderer()
 {
-	int err;
-	// Get the maximum work-group size for executing the kernel on the device
-	//size_t local;
-	//err = clGetKernelWorkGroupInfo(hKernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
-	//if (err != CL_SUCCESS)
-	//{
-	//	printf("Error: clGetKernelWorkGroupInfo Failed\n");
-	//	exit(1);
-	//}
-	
-	// execute kernel
-	const size_t dim[2] = {dim1, dim2};
-#ifdef USE_GPU
-	const size_t local2[2] = {16, 16};
-#else
-	const size_t local2[2] = {1, 1};
-#endif
-	err = clEnqueueNDRangeKernel(hCmdQueue, hKernel, 2, NULL, (size_t*)(dim), local2, 0, NULL, NULL);
-	if (err != CL_SUCCESS)
-	{
-		printf("Error: clEnqueueNDRangeKernel Failed\n");
-		exit(1);
-	}
-	
+    return SDK_SUCCESS;
 }
 
-void createProgram(cl_device_id device_id, cl_context hContext, const char* programSource, cl_program& hProgram, cl_kernel& hKernel)
+
+int AmbientOcclusionRenderer::setupCL()
 {
-	int err;
-	size_t len;
-	char buffer[4096];
-	// create & compile program
-	hProgram = clCreateProgramWithSource(hContext, 1, (const char **) &programSource, NULL, &err);
-	if (!hProgram || err != CL_SUCCESS)
-	{
-		printf("Error: Failed to Create program with source\n");
-		exit(1);
-	}
+    cl_int status = CL_SUCCESS;
+
+    cl_device_type dType;
+
+    if(deviceType.compare("cpu") == 0)
+    {
+        dType = CL_DEVICE_TYPE_CPU;
+    }
+    else //deviceType = "gpu" 
+    {
+        dType = CL_DEVICE_TYPE_GPU;
+    }
+
+    /*
+     * Have a look at the available platforms and pick either
+     * the AMD one if available or a reasonable default.
+     */
+
+    cl_uint numPlatforms;
+    cl_platform_id platform = NULL;
+    status = clGetPlatformIDs(0, NULL, &numPlatforms);
+    if(!sampleCommon->checkVal(status,
+                               CL_SUCCESS,
+                               "clGetPlatformIDs failed."))
+    {
+        return SDK_FAILURE;
+    }
+    if (0 < numPlatforms) 
+    {
+        cl_platform_id* platforms = new cl_platform_id[numPlatforms];
+        status = clGetPlatformIDs(numPlatforms, platforms, NULL);
+        if(!sampleCommon->checkVal(status,
+                                   CL_SUCCESS,
+                                   "clGetPlatformIDs failed."))
+        {
+            return SDK_FAILURE;
+        }
+        for (unsigned i = 0; i < numPlatforms; ++i) 
+        {
+            char pbuf[100];
+            status = clGetPlatformInfo(platforms[i],
+                                       CL_PLATFORM_VENDOR,
+                                       sizeof(pbuf),
+                                       pbuf,
+                                       NULL);
+
+            if(!sampleCommon->checkVal(status,
+                                       CL_SUCCESS,
+                                       "clGetPlatformInfo failed."))
+            {
+                return SDK_FAILURE;
+            }
+
+            platform = platforms[i];
+            if (!strcmp(pbuf, "Advanced Micro Devices, Inc.")) 
+            {
+                break;
+            }
+        }
+        delete[] platforms;
+    }
+
+    if(NULL == platform)
+    {
+        sampleCommon->error("NULL platform found so Exiting Application.");
+        return SDK_FAILURE;
+    }
+
+    /*
+     * If we could find our platform, use it. Otherwise use just available platform.
+     */
+
+    cl_context_properties cps[3] = 
+    {
+        CL_CONTEXT_PLATFORM, 
+        (cl_context_properties)platform, 
+        0
+    };
+
+    context = clCreateContextFromType(
+        cps,
+        dType,
+        NULL,
+        NULL,
+        &status);
+
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateContextFromType failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    size_t deviceListSize;
+
+    /* First, get the size of device list data */
+    status = clGetContextInfo(
+        context, 
+        CL_CONTEXT_DEVICES, 
+        0, 
+        NULL, 
+        &deviceListSize);
+    if(!sampleCommon->checkVal(
+        status, 
+        CL_SUCCESS,
+        "clGetContextInfo failed."))
+        return SDK_FAILURE;
+
+    /* Now allocate memory for device list based on the size we got earlier */
+    devices = (cl_device_id*)malloc(deviceListSize);
+    if(devices==NULL) {
+        sampleCommon->error("Failed to allocate memory (devices).");
+        return SDK_FAILURE;
+    }
+
+    /* Now, get the device list data */
+    status = clGetContextInfo(
+        context, 
+        CL_CONTEXT_DEVICES, 
+        deviceListSize, 
+        devices, 
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetContextInfo failed."))
+        return SDK_FAILURE;
+
+
+    /* Create command queue */
+
+    commandQueue = clCreateCommandQueue(
+        context,
+        devices[0],
+        0,
+        &status);
+
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateCommandQueue failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+
+    /*
+    * Create and initialize memory objects
+    */
+
+    /* Create memory object for output image */
+    hDevMem = clCreateBuffer(
+        context,
+        CL_MEM_WRITE_ONLY,
+        width * height * 4,
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (hDevMem)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* create a CL program using the kernel source */
+    //streamsdk::SDKFile kernelFile;
+    //std::string kernelPath = sampleCommon->getPath();
+    //kernelPath.append("AmbientOcclusionRenderer_Kernels.cl");
+    //if(!kernelFile.open(kernelPath.c_str()))
+    //{
+        //std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+        //return SDK_FAILURE;
+    //}
+    //const char * source = kernelFile.source().c_str();
+    const char * source = "AmbientOcclusionRenderer_Kernels.bc";
+    size_t sourceSize[] = { strlen(source) };
+    program = clCreateProgramWithSource(
+        context,
+        1,
+        &source,
+        sourceSize,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateProgramWithSource failed."))
+        return SDK_FAILURE;
+
+    /* create a cl program executable for all the devices specified */
+    status = clBuildProgram(
+        program,
+        1,
+        &devices[0],
+        NULL,
+        NULL,
+        NULL);
+    if(status != CL_SUCCESS)
+    {
+        if(status == CL_BUILD_PROGRAM_FAILURE)
+        {
+            cl_int logStatus;
+            char * buildLog = NULL;
+            size_t buildLogSize = 0;
+            logStatus = clGetProgramBuildInfo (program, 
+                devices[0], 
+                CL_PROGRAM_BUILD_LOG, 
+                buildLogSize, 
+                buildLog, 
+                &buildLogSize);
+            if(!sampleCommon->checkVal(
+                logStatus,
+                CL_SUCCESS,
+                "clGetProgramBuildInfo failed."))
+                return SDK_FAILURE;
+
+            buildLog = (char*)malloc(buildLogSize);
+            if(buildLog == NULL)
+            {
+                sampleCommon->error("Failed to allocate host memory. (buildLog)");
+                return SDK_FAILURE;
+            }
+            memset(buildLog, 0, buildLogSize);
+
+            logStatus = clGetProgramBuildInfo (program, 
+                devices[0], 
+                CL_PROGRAM_BUILD_LOG, 
+                buildLogSize, 
+                buildLog, 
+                NULL);
+            if(!sampleCommon->checkVal(
+                logStatus,
+                CL_SUCCESS,
+                "clGetProgramBuildInfo failed."))
+            {
+                free(buildLog);
+                return SDK_FAILURE;
+            }
+
+            std::cout << " \n\t\t\tBUILD LOG\n";
+            std::cout << " ************************************************\n";
+            std::cout << buildLog << std::endl;
+            std::cout << " ************************************************\n";
+            free(buildLog);
+        }
+
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clBuildProgram failed."))
+            return SDK_FAILURE;
+    }
+
+    /* get a kernel object handle for a kernel with the given name */
+    kernel = clCreateKernel(
+        program,
+        "AmbientOcclusionRenderer",
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateKernel failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    return SDK_SUCCESS;
+}
+
+
+int AmbientOcclusionRenderer::runCLKernels()
+{
+    cl_int status;
+
+    /* 
+    * Enqueue a kernel run call.
+    */
+    size_t globalThreads[] = {height, width};
+    size_t localThreads[] = {16, 16};
+
+    //if(localThreads[0] > maxWorkItemSizes[0] ||
+       //localThreads[0] > maxWorkGroupSize)
+    //{
+        //std::cout << "Unsupported: Device"
+            //"does not support requested number of work items.";
+        //return SDK_FAILURE;
+    //}
+
+	/* only kernel argument - output */
+	status = clSetKernelArg(
+			kernel, 
+			0, 
+			sizeof(cl_mem), 
+			(void *)&hDevMem);
+	if(!sampleCommon->checkVal(
+				status,
+				CL_SUCCESS,
+				"clSetKernelArg failed. (outputBuffer)"))
+		return SDK_FAILURE;
+
+    status = clEnqueueNDRangeKernel(
+        commandQueue,
+        kernel,
+        2,
+        NULL,
+        globalThreads,
+        localThreads,
+        0,
+        NULL,
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueNDRangeKernel failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+
+	clEnqueueReadBuffer(commandQueue, hDevMem, CL_TRUE, 0, width*height*4, teximage, 0, NULL, NULL);
+	clFinish(commandQueue);
+
+    return SDK_SUCCESS;
+}
+
+
+int AmbientOcclusionRenderer::initialize()
+{
+    /* Call base class Initialize to get default configuration */
+    if(!this->SDKSample::initialize())
+        return SDK_FAILURE;
+
+    streamsdk::Option *num_pixels_x = new streamsdk::Option;
+    if(!num_pixels_x)
+    {
+        std::cout << "error. Failed to allocate memory (num_pixels_x)\n";
+        return SDK_FAILURE;
+    }
+
+    num_pixels_x->_sVersion = "x";
+    num_pixels_x->_lVersion = "width";
+    num_pixels_x->_description = "Width of window";
+    num_pixels_x->_type = streamsdk::CA_ARG_INT;
+    num_pixels_x->_value = &width;
+
+    sampleArgs->AddOption(num_pixels_x);
+    delete num_pixels_x;
+
+
+    streamsdk::Option *num_iterations = new streamsdk::Option;
+    if(!num_iterations)
+    {
+        std::cout << "error. Failed to allocate memory (num_iterations)\n";
+        return SDK_FAILURE;
+    }
+
+    num_iterations->_sVersion = "i";
+    num_iterations->_lVersion = "iterations";
+    num_iterations->_description = "Number of iterations";
+    num_iterations->_type = streamsdk::CA_ARG_INT;
+    num_iterations->_value = &iterations;
+
+    sampleArgs->AddOption(num_iterations);
+    delete num_iterations;
+
+    return SDK_SUCCESS;
+}
+
+int AmbientOcclusionRenderer::setup()
+{
+    if(setupAmbientOcclusionRenderer() != SDK_SUCCESS)
+        return SDK_FAILURE;
+
+    int timer = sampleCommon->createTimer();
+    sampleCommon->resetTimer(timer);
+    sampleCommon->startTimer(timer);
+
+    if(setupCL() != SDK_SUCCESS)
+        return SDK_FAILURE;
+
+    sampleCommon->stopTimer(timer);
+    /* Compute setup time */
+    setupTime = (double)(sampleCommon->readTimer(timer));
+
+    return SDK_SUCCESS;
+}
+
+int AmbientOcclusionRenderer::run()
+{
+	/*
+	int argc = 1;
+	char* argv[] = {"."};
+	glutInit(&argc, argv);
+	glutInitWindowSize(width, height);
+	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE);
+	glutCreateWindow("OpenCL AO");
+	initGL();
+		
+	glutIdleFunc(idle);
+	glutDisplayFunc(displayGLWindow);
+	glutKeyboardFunc(keyboard);
+	glutMainLoop();
+	*/
+    return SDK_SUCCESS;
+}
+
+void AmbientOcclusionRenderer::printStats()
+{
+	std::string strArray[2] = {"WxH" , "SetupTime(sec)"};
+	std::string stats[2];
+
+	stats[0]  = sampleCommon->toString(width, std::dec)
+		+"x"+sampleCommon->toString(height, std::dec);
+	stats[1]  = sampleCommon->toString(setupTime, std::dec);
+
+	this->SDKSample::printStats(strArray, stats, 3);
+}
+
+
+int AmbientOcclusionRenderer::cleanup()
+{
+    /* Releases OpenCL resources (Context, Memory etc.) */
+    cl_int status;
+
+    status = clReleaseKernel(kernel);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseKernel failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clReleaseProgram(program);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseProgram failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clReleaseMemObject(hDevMem);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clReleaseCommandQueue(commandQueue);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseCommandQueue failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clReleaseContext(context);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseContext failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    return SDK_SUCCESS;
+}
+
+AmbientOcclusionRenderer::~AmbientOcclusionRenderer()
+{
+    /* release program resources */
+    if(devices)
+    {
+        free(devices);
+        devices = NULL;
+    }
+
+    if(hDevMem)
+    {
+        free(hDevMem);
+        hDevMem = NULL;
+    }
 	
-	err = clBuildProgram(hProgram, 0, NULL, NULL, NULL, NULL);
-	if (err != CL_SUCCESS)
+	if (teximage)
 	{
-		printf("Error: Failed to build program executable\n");
-		clGetProgramBuildInfo(hProgram, device_id, CL_PROGRAM_BUILD_LOG,
-							  sizeof(buffer), buffer, &len);
-		printf("%s\n", buffer);
-		exit(1);
-	}
-	
-	// create kernel
-	hKernel = clCreateKernel(hProgram, "AmbientOcclusionRenderer", &err);
-	if (!hKernel || err != CL_SUCCESS)
-	{
-		printf("Error: Failed to create kernel\n");
-		exit(1);
+		delete [] teximage;
+		teximage = NULL;
 	}
 }
 
-void initCL(cl_device_id& device_id, cl_context& hContext, cl_command_queue& hCmdQueue)
+int AmbientOcclusionRenderer::verifyResults()
 {
-#ifdef USE_GPU
-	const int gpu = 0;//1; //hacked ;)
-#else
-	const int gpu = 0;
-#endif
-	int err=CL_SUCCESS;
-	size_t len;
-	char buffer[2048];
-	clGetDeviceIDs(NULL, gpu==1 ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_CPU, 1, &device_id, NULL);
-	if (err != CL_SUCCESS)
-	{
-		printf("Error: Failed to get device ID\n");
-		exit(1);
-	}
-	clGetDeviceInfo(device_id, CL_DEVICE_NAME, sizeof(buffer), buffer, &len);
-	printf("CL_DEVICE_NAME: %s\n", buffer);
-	clGetDeviceInfo(device_id, CL_DEVICE_VENDOR, sizeof(buffer), buffer, &len);
-	printf("CL_DEVICE_VENDOR: %s\n", buffer);
-	
-	hContext = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
-	if (err != CL_SUCCESS)
-	{
-		printf("Error: Failed to create context\n");
-		exit(1);
-	}
-	
-	// create a command queue for our device
-	hCmdQueue = clCreateCommandQueue(hContext, device_id, 0, 0);
 }
 
 
@@ -156,73 +545,6 @@ void initGL()
 #endif
 }
 
-#if 0
-void init(const char* path)
-{
-	printf("\n\n");
-	initCL(device_id, context, cmdqueue);
-	
-	char pathbuf[1024];
-	sprintf(pathbuf, "%sao.cl",path);
-	FILE* fp;
-	if ((fp = fopen(pathbuf, "rt")) == 0)
-	{
-		printf("Error: Failed to open ao.cl\n");
-		exit(1);
-	}
-	fseek(fp, 0, SEEK_END);
-	int srcSize = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	char* srcPrg = new char[srcSize+1];
-	memset(srcPrg, 0, srcSize+1);
-	fread(srcPrg, 1, srcSize, fp);
-	createProgram(device_id, context, srcPrg, program, kernel);
-	
-	hDevMem = clCreateBuffer(context, CL_MEM_WRITE_ONLY, width * height * 4, 0, 0);
-	int err;
-	err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&hDevMem);
-	if (err != CL_SUCCESS)
-	{
-		printf("Error: Failed to set kernel args\n");
-		exit(1);
-	}
-	
-	teximage = new unsigned char[width * height * 4];
-}
-#else
-void init(const char* path)
-{
-	printf("\n\n");
-	initCL(device_id, context, cmdqueue);
-
-	int err;
-
-	// Create the compute program from the source buffer
-    //
-    const char * srcPrg = "AmbientOcclusionRenderer_Kernels.bc";
-	createProgram(device_id, context, srcPrg, program, kernel);
-
-	hDevMem = clCreateBuffer(context, CL_MEM_WRITE_ONLY, width * height * 4, 0, 0);
-	err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&hDevMem);
-	if (err != CL_SUCCESS)
-	{
-		printf("Error: Failed to set kernel args\n");
-		exit(1);
-	}
-
-	teximage = new unsigned char[width * height * 4];
-}
-#endif
-
-void deinit()
-{
-	delete [] teximage;
-	clReleaseMemObject(hDevMem);
-	clReleaseProgram(program);
-	clReleaseKernel(kernel);
-	clReleaseCommandQueue(cmdqueue);
-	clReleaseContext(context);
-}
 
 double gettimeofday_sec()
 {
@@ -231,13 +553,11 @@ double gettimeofday_sec()
     return tv.tv_sec + (double)tv.tv_usec*1e-6;
 }
 
-void display()
+void displayGLWindow()
 {
 	double stm = gettimeofday_sec();
 	
-	executekernel(device_id, cmdqueue, kernel, width, height);
-	clEnqueueReadBuffer(cmdqueue, hDevMem, CL_TRUE, 0, width*height*4, teximage, 0, NULL, NULL);
-	clFinish(cmdqueue);
+	clAmbientOcclusionRenderer->runCLKernels();
 		
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 #ifdef USE_TEXTURE
@@ -257,7 +577,7 @@ void display()
 	glDisable(GL_TEXTURE_2D);
 #else
 	glRasterPos2d(-1,-1);
-	glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, teximage);
+	glDrawPixels(clAmbientOcclusionRenderer->getWidth(), clAmbientOcclusionRenderer->getHeight(), GL_RGBA, GL_UNSIGNED_BYTE, teximage);
 #endif
 	glutSwapBuffers();
 	
@@ -279,26 +599,36 @@ void idle()
 
 int main (int argc, char* argv[])
 {
-	std::string exepath(argv[0]);
-	size_t p = exepath.rfind("/");
-	if (p != std::string::npos) {
-		exepath.erase(exepath.begin()+p+1, exepath.end());
-	}
-	else {
-		exepath = std::string("");
-	}
-	init(exepath.c_str());
+	clAmbientOcclusionRenderer = new AmbientOcclusionRenderer("OpenCL AmbientOcclusionRenderer");
+	teximage = new unsigned char[clAmbientOcclusionRenderer->getWidth() * clAmbientOcclusionRenderer->getHeight() * 4];
+
+	//AmbientOcclusionRenderer clAmbientOcclusionRenderer("OpenCL AmbientOcclusionRenderer");
+	//me = &clAmbientOcclusionRenderer;
+
+	if(clAmbientOcclusionRenderer->initialize() != SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(!clAmbientOcclusionRenderer->parseCommandLine(argc, argv))
+        return SDK_FAILURE;
+    if(clAmbientOcclusionRenderer->setup() != SDK_SUCCESS)
+        return SDK_FAILURE;
+    //if(clAmbientOcclusionRenderer.run() != SDK_SUCCESS)
+        //return SDK_FAILURE;
 	
 	glutInit(&argc, argv);
-	glutInitWindowSize(width, height);
+	glutInitWindowSize(clAmbientOcclusionRenderer->getWidth(), clAmbientOcclusionRenderer->getHeight());
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE);
 	glutCreateWindow("OpenCL AO");
 	initGL();
 		
 	glutIdleFunc(idle);
-	glutDisplayFunc(display);
+	glutDisplayFunc(displayGLWindow);
 	glutKeyboardFunc(keyboard);
 	glutMainLoop();
-	deinit();
-    return 0;
+
+	clAmbientOcclusionRenderer->printStats();
+
+    if(clAmbientOcclusionRenderer->cleanup()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+
+    return SDK_SUCCESS;
 }

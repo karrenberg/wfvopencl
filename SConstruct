@@ -100,6 +100,7 @@ env.Depends(SDKUtil, PacketizedOpenCLDriver)
 testApps = env.Split("""
 AmbientOcclusionRenderer
 BinomialOption
+BinomialOptionSimple
 BitonicSort
 BlackScholes
 BlackScholesSimple
