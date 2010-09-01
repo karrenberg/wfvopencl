@@ -480,7 +480,6 @@ namespace PacketizedOpenCLDriver {
 		return Function::Create(fType, Function::ExternalLinkage, packetKernelName, mod);
 	}
 
-#if 1
 	// We currently do not have a possibility to ask the packetizer what instructions are
 	// varying and which are uniform, so we have to rely on the domain-specific knowledge we have.
 	// This will be far from optimal, but at least cover the most common cases.
@@ -932,72 +931,6 @@ namespace PacketizedOpenCLDriver {
 
 		indexIsMultipleOfOriginalLocalSize(index, gep, simdDim);
 	}
-
-#else
-	// Helper for setupIndexUsage()
-	// Returns true, if all instructions that depend upon I are only constant, linear
-	// modifications of the index.
-	// Recursion stops at GEP instructions.
-	// Returns false in all cases where this cannot be verified
-	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, const unsigned simdDim, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
-		// if this use is a GEP, this path is fine (don't go beyond GEPs)
-		if (isa<GetElementPtrInst>(I)) return true;
-
-		// if this is a loop, this path is fine
-		if (visited.find(I) != visited.end()) return true;
-		visited.insert(I);
-
-		// if this use is inside safeInstVec already, we can stop recursion
-		if (safePathVec.find(I) != safePathVec.end()) return true;
-
-		// check for safe operations (rest of path still has to be checked)
-		// TODO: other cases? ZExt? FPExt? Trunc? FPTrunc?
-		bool useIsBad = true;
-
-		switch (I->getOpcode()) {
-			case Instruction::Add : //fallthrough
-			case Instruction::Sub : {
-				// add/sub is okay if other operand is constant
-				// TODO: uniform is also okay
-
-				// get other operand
-				Value* op = I->getOperand(0) == parent ? I->getOperand(1) : I->getOperand(0);
-				// if operand is constant, the use is okay :)
-				if (isa<Constant>(op)) useIsBad = false;
-				break;
-			}
-
-			case Instruction::SExt    : useIsBad = false; break; // SExt is okay
-			//case Instruction::ICmp    : useIsBad = false; break; // ICmp is NOT okay! (can jump to different targets)
-			//case Instruction::FCmp    : useIsBad = false; break; // FCmp is NOT okay! (can jump to different targets)
-			case Instruction::FPToUI  : useIsBad = false; break; // FPToUI is okay
-			case Instruction::FPToSI  : useIsBad = false; break; // FPToSI is okay
-			case Instruction::UIToFP  : useIsBad = false; break; // UIToFP is okay
-			case Instruction::SIToFP  : useIsBad = false; break; // SIToFP is okay
-			case Instruction::FPExt   : useIsBad = false; break; // FPExt is okay
-			case Instruction::BitCast : useIsBad = false; break; // BitCast is okay
-
-			//case Instruction::Ret     : useIsBad = false; break; // Ret is NOT okay! (can return different results)
-			//case Instruction::Br      : useIsBad = false; break; // Br is NOT okay! (can jump to different targets)
-			//case Instruction::Switch  : useIsBad = false; break; // Switch NOT okay! (can jump to different targets)
-
-			case Instruction::PHI     : useIsBad = false; break; // PHI is okay
-			case Instruction::Select  : useIsBad = false; break; // Select is okay
-		}
-
-		if (useIsBad) return false;
-
-		// recurse into uses
-		for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
-			if (Instruction* useI = dyn_cast<Instruction>(*U))
-				if (!indexIsOnlyUsedWithLinearModifications(useI, I, simdDim, safePathVec, visited)) return false;
-		}
-
-		// all uses are okay
-		safePathVec.insert(I);
-		return true;
-	}
-#endif
 
 	// Replace calls to oldF with index 'simdDim' by splitF in function f
 	// wherever the result of the call is not used directly in a load or store (via GEP),
