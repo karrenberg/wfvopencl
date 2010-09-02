@@ -88,7 +88,7 @@ namespace {
 
         void print(raw_ostream& o, const Module *M=NULL) const {
 			for (LiveValueMapType::const_iterator it=liveValueMap.begin(), E=liveValueMap.end(); it!=E; ++it) {
-				BasicBlock* block = it->first;
+				const BasicBlock* block = it->first;
 				LiveValueSetType liveValues = it->second;
 				LiveSetType* liveInValues = liveValues.first;
 				LiveSetType* liveOutValues = liveValues.second;
@@ -117,7 +117,7 @@ namespace {
 
 		typedef std::set<Value*> LiveSetType;
 		typedef std::pair< LiveSetType*, LiveSetType* > LiveValueSetType;
-		typedef std::map< BasicBlock*, LiveValueSetType > LiveValueMapType;
+		typedef std::map< const BasicBlock*, LiveValueSetType > LiveValueMapType;
 
 		inline LiveValueSetType* getBlockLiveValues(BasicBlock* block) {
 			assert (block);
@@ -126,14 +126,14 @@ namespace {
 
 			return &(it->second);
 		}
-		inline LiveSetType* getBlockLiveInValues(BasicBlock* block) {
+		inline LiveSetType* getBlockLiveInValues(const BasicBlock* block) {
 			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
 
 			return it->second.first;
 		}
-		inline LiveSetType* getBlockLiveOutValues(BasicBlock* block) {
+		inline LiveSetType* getBlockLiveOutValues(const BasicBlock* block) {
 			assert (block);
 			LiveValueMapType::iterator it = liveValueMap.find(block);
 			if (it == liveValueMap.end()) return NULL;
@@ -142,11 +142,11 @@ namespace {
 		}
 
 		// create map which holds order of instructions
-		unsigned createInstructionOrdering(BasicBlock* block, Instruction* frontier, std::map<Instruction*, unsigned>& instMap) const {
+		unsigned createInstructionOrdering(const BasicBlock* block, const Instruction* frontier, std::map<const Instruction*, unsigned>& instMap) const {
 			unsigned frontierId = 0;
 			unsigned i=0;
 			DEBUG_LA( outs() << "instructions:\n"; );
-			for (BasicBlock::iterator I=block->begin(), E=block->end(); I!=E; ++I) {
+			for (BasicBlock::const_iterator I=block->begin(), E=block->end(); I!=E; ++I) {
 				if (frontier == I) frontierId = i;
 				instMap[I] = i++;
 				DEBUG_LA( outs() << " (" << i-1 << ")" << (frontier == I ? "*" : " ") << *I << "\n"; );
@@ -161,7 +161,7 @@ namespace {
 			DEBUG_LA( outs() << "\ngetBlockInternalLiveValues(" << block->getNameStr() << ")\n"; );
 
 			// create map which holds order of instructions
-			std::map<Instruction*, unsigned> instMap;
+			std::map<const Instruction*, unsigned> instMap;
 			const unsigned frontierId = createInstructionOrdering(block, inst, instMap);
 
 			// check each use of each instruction if it lies "behind" inst
@@ -172,7 +172,7 @@ namespace {
 				DEBUG_LA( outs() << "checking uses of instruction " << instId << "\n"; );
 				for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
 					assert (isa<Instruction>(*U));
-					Instruction* useI = cast<Instruction>(*U);
+					const Instruction* useI = cast<Instruction>(*U);
 
 					// if the use is in a different block, the value also
 					// needs to be marked as live (the use has to be dominated,
@@ -201,7 +201,7 @@ namespace {
 			// have uses behind the frontier (they die before the frontier)
 
 			// create map which holds order of instructions
-			std::map<Instruction*, unsigned> instMap;
+			std::map<const Instruction*, unsigned> instMap;
 			const unsigned frontierId = createInstructionOrdering(block, frontier, instMap);
 
 			for (LiveSetType::iterator it=liveInVals.begin(), E=liveInVals.end(); it!=E;) {
@@ -227,7 +227,7 @@ namespace {
 				bool survivesFrontier = false;
 				for (Value::use_iterator U=liveVal->use_begin(), UE=liveVal->use_end(); U!=UE && !survivesFrontier; ++U) {
 					assert (isa<Instruction>(*U));
-					Instruction* useI = cast<Instruction>(*U);
+					const Instruction* useI = cast<Instruction>(*U);
 					// ignore uses in different (preceding) blocks
 					// if there was a use in a successing block, we would not
 					// iterate over the uses in the first place (see continue above)
@@ -260,7 +260,7 @@ namespace {
 				LiveSetType* liveOutSet = getBlockLiveOutValues(BB);
 
 				if (liveInSet) {
-					Value** tmpVals = new Value*[liveInSet->size()]();
+					const Value** tmpVals = new const Value*[liveInSet->size()]();
 					int i=0;
 					for (LiveSetType::iterator it=liveInSet->begin(), E=liveInSet->end(); it!=E; ++it) {
 						tmpVals[i++] = *it;
@@ -268,7 +268,7 @@ namespace {
 					liveInSet->clear();
 					--i;
 					for ( ; i>=0; --i) {
-						Value* val = tmpVals[i];
+						const Value* val = tmpVals[i];
 						DEBUG_LA( if (!isa<BasicBlock>(val)) outs() << "  mapped live-in value: " << *val << " -> " << *(valueMap[val]) << "\n"; );
 						DEBUG_LA( if (isa<BasicBlock>(val)) outs() << "  mapped live-in value: " << val->getNameStr() << " -> " << (valueMap[val])->getNameStr() << "\n"; );
 						liveInSet->insert(valueMap[val]);
@@ -282,7 +282,7 @@ namespace {
 				}
 
 				if (liveOutSet) {
-					Value** tmpVals = new Value*[liveOutSet->size()]();
+					const Value** tmpVals = new const Value*[liveOutSet->size()]();
 					int i=0;
 					for (LiveSetType::iterator it=liveOutSet->begin(), E=liveOutSet->end(); it!=E; ++it) {
 						tmpVals[i++] = *it;
@@ -290,7 +290,7 @@ namespace {
 					liveOutSet->clear();
 					--i;
 					for ( ; i>=0; --i) {
-						Value* val = tmpVals[i];
+						const Value* val = tmpVals[i];
 						//DEBUG_LA( if (!isa<BasicBlock>(val)) outs() << "mapped live-out value: " << *val << " -> " << *(valueMap[val]) << "\n"; );
 						//DEBUG_LA( if (isa<BasicBlock>(val)) outs() << "mapped live-out value: " << val->getNameStr() << " -> " << (valueMap[val])->getNameStr() << "\n"; );
 						liveOutSet->insert(valueMap[val]);
@@ -301,7 +301,7 @@ namespace {
 			}
 
 			// map basic blocks in map
-			BasicBlock** tmpBlocks = new BasicBlock*[liveValueMap.size()]();
+			const BasicBlock** tmpBlocks = new const BasicBlock*[liveValueMap.size()]();
 			LiveValueSetType* tmpSets = new LiveValueSetType[liveValueMap.size()]();
 			int i=0;
 			for (LiveValueMapType::iterator it=liveValueMap.begin(), E=liveValueMap.end(); it!=E; ++it) {
