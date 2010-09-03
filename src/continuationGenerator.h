@@ -41,6 +41,9 @@
 #include "livenessAnalyzer.h"
 #include "llvmTools.hpp"
 
+#include <stack>
+#include "llvm/ADT/SetVector.h"
+
 #ifdef DEBUG
 #define DEBUG_LA(x) do { x } while (false)
 #else
@@ -185,7 +188,17 @@ private:
 
 	ContinuationMapType continuationMap;
 
+	typedef DenseMap<const CallInst*, unsigned> BarrierIndicesMapType;
+	BarrierIndicesMapType barrierIndices;
+
 	typedef SmallVector<BarrierInfo*, 4> BarrierVecType;
+
+	inline bool isBarrier(const Value* value) const {
+		if (!isa<CallInst>(value)) return false;
+		const CallInst* call = cast<CallInst>(value);
+		const Function* callee = call->getCalledFunction();
+		return callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER);
+	}
 
 	void mapBarrierInfo(Function* f, Function* newF, ValueMap<const Value*, Value*>& valueMap, BarrierVecType& barriers, ValueMap<const Value*, Value*>& barrierMapping, const unsigned maxBarrierDepth) {
 		assert (f && newF);
@@ -308,21 +321,51 @@ private:
 			findContinuationBlocksDFSOrdered(succBB, copyBlocks, visitedBlocks);
 		}
 	}
-	void findContinuationBlocksDFS(const BasicBlock* block, std::set<const BasicBlock*>& copyBlocks, std::set<const BasicBlock*>& visitedBlocks) {
+	void findContinuationBlocksDFS(BasicBlock* block, SetVector<BasicBlock*>& copyBlocks, std::set<const BasicBlock*>& visitedBlocks) {
 		assert (block);
 		if (visitedBlocks.find(block) != visitedBlocks.end()) return;
 		visitedBlocks.insert(block);
 
 		copyBlocks.insert(block);
 
-		for (succ_const_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
-			const BasicBlock* succBB = *S;
+		// if we find a barrier, there is no need to copy the rest of the
+		// blocks below as well (requires upfront splitting of all barrier-blocks)
+		Instruction* lastInst = --block->end();
+		if (isBarrier(lastInst)) return;
+
+		for (succ_iterator S=succ_begin(block), E=succ_end(block); S!=E; ++S) {
+			BasicBlock* succBB = *S;
 			findContinuationBlocksDFS(succBB, copyBlocks, visitedBlocks);
 		}
 	}
 
 
+	typedef SetVector<Value*> LiveSetType;
+	/// definedInRegion - Return true if the specified value is defined in the
+    /// cloned region.
+	/// From: llvm-2.8svn/lib/Transforms/Utils/CodeExtractor.cpp:definedInRegion()
+    bool definedInRegion(Value *V, SetVector<BasicBlock*>& region) const {
+      if (Instruction *I = dyn_cast<Instruction>(V))
+        if (region.count(I->getParent()))
+          return true;
+      return false;
+    }
+
+    /// definedInCaller - Return true if the specified value is defined in the
+    /// function being code cloned, but not in the region being cloned.
+    /// These values must be passed in as live-ins to the function.
+	/// From: llvm-2.8svn/lib/Transforms/Utils/CodeExtractor.cpp:definedInCaller()
+    bool definedOutsideRegion(Value *V, SetVector<BasicBlock*>& region) const {
+      if (isa<Argument>(V)) return true;
+      if (Instruction *I = dyn_cast<Instruction>(V))
+        if (!region.count(I->getParent()))
+          return true;
+      return false;
+    }
+
+
 	// generates a continuation function that is called at the point of the barrier
+	// mapping of live values is stored in valueMap
 	void createContinuation(BarrierInfo* barrierInfo, const std::string& newFunName, TargetData* targetData) {
 		assert (barrierInfo && targetData);
 		const unsigned barrierIndex = barrierInfo->id;
@@ -343,58 +386,9 @@ private:
 		assert (barrier->getParent() == parentBlock && "barrier worklist ordering wrong?");
 
 		//--------------------------------------------------------------------//
-		// get live values for this block
-		// NOTE: This only fetches live values of former parent block
-		//       in order to prevent recalculating live value information for
-		//       entire function.
-		// For this, it does not matter if blocks are split already.
-		//--------------------------------------------------------------------//
-		const LivenessAnalyzer::LiveSetType* liveInValuesOrig = livenessAnalyzer->getBlockLiveInValues(parentBlock);
-		const LivenessAnalyzer::LiveSetType* liveOutValuesOrig = livenessAnalyzer->getBlockLiveOutValues(parentBlock);
-		assert (liveInValuesOrig);
-		assert (liveOutValuesOrig);
-
-		// before splitting, get block-internal live values
-		// (values that are defined inside block and live over the barrier)
-		LivenessAnalyzer::LiveSetType internalLiveValues;
-		//LivenessAnalyzer::LiveSetType internalNonLiveValues;
-		livenessAnalyzer->getBlockInternalLiveInValues(barrier, internalLiveValues);
-
-		// we have to copy the live-in value set before modifying it
-		LivenessAnalyzer::LiveSetType* liveInValues = new LivenessAnalyzer::LiveSetType();
-		liveInValues->insert(liveInValuesOrig->begin(), liveInValuesOrig->end());
-
-		// merge block-internal live values with liveInValues
-		liveInValues->insert(internalLiveValues.begin(), internalLiveValues.end());
-		// remove all values that die in same block but above barrier
-		livenessAnalyzer->removeBlockInternalNonLiveInValues(barrier, *liveInValues, *liveOutValuesOrig);
-
-		DEBUG_LA(
-			outs() << "\n\nFinal Live-In values of block '" << parentBlock->getNameStr() << "':\n";
-			for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
-				outs() << " * " << **it << "\n";
-			}
-			outs() << "\n\nOriginal Live-In values of block '" << parentBlock->getNameStr() << "':\n";
-			for (LivenessAnalyzer::LiveSetType::iterator it=liveInValuesOrig->begin(), E=liveInValuesOrig->end(); it!=E; ++it) {
-				outs() << " * " << **it << "\n";
-			}
-			outs() << "\nInternal Live-In values of block '" << parentBlock->getNameStr() << "':\n";
-			for (LivenessAnalyzer::LiveSetType::iterator it=internalLiveValues.begin(), E=internalLiveValues.end(); it!=E; ++it) {
-				outs() << " * " << **it << "\n";
-			}
-			outs() << "\nOriginal Live-Out values of block '" << parentBlock->getNameStr() << "':\n";
-			for (LivenessAnalyzer::LiveSetType::iterator it=liveOutValuesOrig->begin(), E=liveOutValuesOrig->end(); it!=E; ++it) {
-				outs() << " * " << **it << "\n";
-			}
-			outs() << "\n";
-		);
-
-
-
-
-		//--------------------------------------------------------------------//
-		// split block at the position of the barrier
+		// First of all, split block at the position of the barrier
 		// (barrier has to be in "upper block")
+		// This makes a lot of things easier :)
 		//--------------------------------------------------------------------//
 		// find instruction that precedes barrier (= split point)
 		Instruction* splitInst = NULL;
@@ -404,80 +398,155 @@ private:
 		}
 		// 'newBlock' is the first of the new continuation, 'parentBlock' the one with the barrier
 		BasicBlock* newBlock = parentBlock->splitBasicBlock(splitInst, parentBlock->getNameStr()+".postbarrier");
-		
-		
-		//--------------------------------------------------------------------//
-		// create struct with live-in values of newBlock
-		//--------------------------------------------------------------------//
-		std::vector<const Type*> params;
-		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
-			params.push_back((*it)->getType());
-		}
-		StructType* sType = StructType::get(context, params, false);
-		DEBUG_LA( outs() << "new struct type: " << *sType << "\n"; );
-		DEBUG_LA( outs() << "type size in bits : " << targetData->getTypeSizeInBits(sType) << "\n"; );
-		DEBUG_LA( outs() << "alloc size in bits: " << targetData->getTypeAllocSizeInBits(sType) << "\n"; );
-		DEBUG_LA( outs() << "alloc size        : " << targetData->getTypeAllocSize(sType) << "\n"; );
-
-		// pointer to union for live value struct for next call is the last parameter
-		Argument* nextContLiveValStructPtr = --(f->arg_end());
-		DEBUG_LA( outs() << "pointer to union: " << *nextContLiveValStructPtr << "\n"; );
-
-		// bitcast data pointer to correct struct type for GEP below
-		BitCastInst* bc = new BitCastInst(nextContLiveValStructPtr, PointerType::getUnqual(sType), "", barrier);
-
-		// store values
-		unsigned i=0;
-		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it) {
-			std::vector<Value*> indices;
-			indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
-			indices.push_back(ConstantInt::get(context, APInt(32, i++)));
-			GetElementPtrInst* gep = GetElementPtrInst::Create(bc, indices.begin(), indices.end(), "", barrier);
-			DEBUG_LA( outs() << "store gep(" << i-1 << "): " << *gep << "\n"; );
-			const unsigned align = 16;
-			new StoreInst(*it, gep, false, align, barrier);
-		}
-
 
 		//--------------------------------------------------------------------//
-		// delete the edge from parentBlock to newBlock
+		// Delete the edge from parentBlock to newBlock
 		//--------------------------------------------------------------------//
 		assert (parentBlock->getTerminator()->use_empty());
 		parentBlock->getTerminator()->eraseFromParent();
 
 		//--------------------------------------------------------------------//
-		// create return that returns the id for the next call
+		// Create return that returns the id for the next call.
+		// This is required to have a correct function for findContinuationBlocksDFS()
+		// Note that afterwards, no instruction must be inserted before barrier,
+		// but all before returnInst (important for generation of stores)
 		//--------------------------------------------------------------------//
 		const Type* returnType = Type::getInt32Ty(context);
-		ReturnInst::Create(context, ConstantInt::get(returnType, barrierIndex, true), barrier);
+		ReturnInst* returnInst = ReturnInst::Create(context, ConstantInt::get(returnType, barrierIndex, true), barrier);
 
 		//--------------------------------------------------------------------//
-		// (dead code elimination should remove newBlock and all blocks below
-		// that are dead.)
+		// Erase the barrier.
+		// After this, only stores have to be generated to finish the old
+		// function's modification.
 		//--------------------------------------------------------------------//
-		// nothing to do here
-
-		//--------------------------------------------------------------------//
-		// erase barrier
-		//--------------------------------------------------------------------//
-		//if (!barrier->use_empty()) barrier->replaceAllUsesWith(Constant::getNullValue(barrier->getType()));
 		assert (barrier->use_empty() && "barriers must not have any uses!");
 		barrier->eraseFromParent();
 
+		DEBUG_LA( verifyFunction(*f); );
 
 
 		//--------------------------------------------------------------------//
-		// create new function with the following signature:
+		// Find all blocks 'below' parentBlock inside the new function (DFS)
+		// Make sure the edge between parentBlock and newBlock has been removed!
+		//--------------------------------------------------------------------//
+		SetVector<BasicBlock*> copyBlocks;
+		std::set<const BasicBlock*> visitedBlocks;
+		findContinuationBlocksDFS(newBlock, copyBlocks, visitedBlocks);
+
+		DEBUG_LA(
+			outs() << "\nblocks that need to be cloned into the continuation:\n";
+			for (SetVector<BasicBlock*>::iterator it=copyBlocks.begin(), E=copyBlocks.end(); it!=E; ++it) {
+				outs() << " * " << (*it)->getNameStr() << "\n";
+			}
+			outs() << "\n";
+		);
+
+
+		//--------------------------------------------------------------------//
+		// compute dominator tree of modified original function
+		// (somehow does not work with functionpassmanager here)
+		//--------------------------------------------------------------------//
+		DominatorTree* oldDomTree = new DominatorTree();
+		oldDomTree->runOnFunction(*f);
+
+
+		//--------------------------------------------------------------------//
+		// Collect live values to store at barrier/load in new function
+		//--------------------------------------------------------------------//
+		LiveSetType liveInValues;
+		LiveSetType liveOutValues; // probably not even needed...
+
+		/// From: llvm-2.8svn/lib/Transforms/Utils/CodeExtractor.cpp:findInputsOutputs()
+		for (SetVector<BasicBlock*>::const_iterator ci = copyBlocks.begin(), ce = copyBlocks.end(); ci != ce; ++ci) {
+			BasicBlock *BB = *ci;
+
+			for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
+				// If a used value is defined outside the region, it's an input.  If an
+				// instruction is used outside the region, it's an output.
+				for (User::op_iterator O = I->op_begin(), E = I->op_end(); O != E; ++O) {
+					if (definedOutsideRegion(*O, copyBlocks)) liveInValues.insert(*O);
+					else if (Instruction* opI = dyn_cast<Instruction>(O)) {
+						// Check if the operand does not dominate I after the splitting.
+						// If so, consider it live-in (live across loop boundaries).
+						// Ignore the operands if they belong to a phi
+						if (!isa<PHINode>(I) && !oldDomTree->dominates(opI, I)) liveInValues.insert(*O);
+					}
+				}
+
+				// Consider uses of this instruction (outputs).
+				for (Value::use_iterator UI = I->use_begin(), E = I->use_end(); UI != E; ++UI) {
+					if (!definedInRegion(*UI, copyBlocks)) {
+						liveOutValues.insert(I);
+						break;
+					}
+				}
+
+			} // for: insts
+		} // for: basic blocks
+
+		delete oldDomTree;
+
+		DEBUG_LA(
+			outs() << "\nlive-in values of continuation-entry-block '" << newBlock->getNameStr() << "'\n";
+			for (LiveSetType::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
+				outs() << " * " << **it << "\n";
+			}
+			outs() << "\n";
+		);
+
+		//--------------------------------------------------------------------//
+		// Create live-value struct-type from live-in values of newBlock
+		//--------------------------------------------------------------------//
+		std::vector<const Type*> params;
+		for (LiveSetType::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
+			params.push_back((*it)->getType());
+		}
+		const bool isPacked = false; // true ???
+		StructType* sType = StructType::get(context, params, isPacked);
+		DEBUG_LA( outs() << "new struct type   : " << *sType << "\n"; );
+		DEBUG_LA( outs() << "type size in bits : " << targetData->getTypeSizeInBits(sType) << "\n"; );
+		DEBUG_LA( outs() << "alloc size in bits: " << targetData->getTypeAllocSizeInBits(sType) << "\n"; );
+		DEBUG_LA( outs() << "alloc size        : " << targetData->getTypeAllocSize(sType) << "\n"; );
+
+		//--------------------------------------------------------------------//
+		// Generate stores of the live values before the return where the barrier
+		// was (in the old function).
+		// After this, the modification of the old function is finished.
+		//--------------------------------------------------------------------//
+		// pointer to union for live value struct for next call is the last parameter
+		Argument* nextContLiveValStructPtr = --(f->arg_end());
+		DEBUG_LA( outs() << "pointer to union: " << *nextContLiveValStructPtr << "\n"; );
+
+		// bitcast data pointer to correct struct type for GEP below
+		BitCastInst* bc = new BitCastInst(nextContLiveValStructPtr, PointerType::getUnqual(sType), "", returnInst);
+
+		// generate the gep/store combinations for each live value
+		unsigned i=0;
+		for (LiveSetType::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it) {
+			std::vector<Value*> indices;
+			indices.push_back(ConstantInt::getNullValue(Type::getInt32Ty(context)));
+			indices.push_back(ConstantInt::get(context, APInt(32, i++)));
+			GetElementPtrInst* gep = GetElementPtrInst::Create(bc, indices.begin(), indices.end(), "", returnInst);
+			DEBUG_LA( outs() << "store gep(" << i-1 << "): " << *gep << "\n"; );
+			const unsigned align = 16;
+			new StoreInst(*it, gep, false, align, returnInst);
+		}
+
+		outs() << *f << "\n";
+		DEBUG_LA( verifyFunction(*f); );
+
+
+		//--------------------------------------------------------------------//
+		// create new function (the continuation) with the following signature:
 		// - returns int (id of next continuation)
 		// - special parameters
 		// - live-in value parameters
 		// - last parameter: void* data (union where live values for next
 		//                   continuation are stored before returning)
 		//
-		// - original parameters of f not required (included in live vals if necessary)
+		// - original parameters of f not required (included in live vals if live)
 		//--------------------------------------------------------------------//
 		params.clear();
-		//params.insert(params.end(), f->getFunctionType()->subtype_begin(), f->getFunctionType()->subtype_end()); // original parameters
 		params.insert(params.end(), specialParams.begin(), specialParams.end());   // special parameters
 		params.insert(params.end(), sType->element_begin(), sType->element_end()); // live values
 		params.push_back(Type::getInt8PtrTy(context)); // data ptr
@@ -493,10 +562,10 @@ private:
 		DEBUG_LA( outs() << "\nnew continuation declaration: " << *continuation << "\n"; );
 
 		//--------------------------------------------------------------------//
-		// create mappings of values
+		// Create mappings of live-in values to arguments for copying of blocks
 		//--------------------------------------------------------------------//
-		// create mappings of live-in values to arguments for copying of blocks
-		DEBUG_LA( outs() << "\nlive value mappings:\n"; );
+		// We need a second value map only for the arguments because valueMap
+		// is given to CloneFunctionInto, which may overwrite these.
 		ValueMap<const Value*, Value*>* valueMap = new ValueMap<const Value*, Value*>();
 		DenseMap<const Value*, Value*> liveValueToArgMap;
 		// CA has to point to first live value parameter of continuation
@@ -504,7 +573,8 @@ private:
 		for (unsigned i=0, e=sType->getNumContainedTypes(); i<e; ++i) {
 			--CA;
 		}
-		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++CA) {
+		DEBUG_LA( outs() << "\nlive value mappings:\n"; );
+		for (LiveSetType::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it, ++CA) {
 			const Value* liveVal = *it;
 			(*valueMap)[liveVal] = CA;
 			liveValueToArgMap[liveVal] = CA;
@@ -513,25 +583,11 @@ private:
 
 
 		//--------------------------------------------------------------------//
-		// copy all blocks 'below' parentBlock inside the new function (DFS)
-		// and map all uses of live values to the loads generated in the last step
-		//--------------------------------------------------------------------//
-		std::set<const BasicBlock*> copyBlocks;
-		std::set<const BasicBlock*> visitedBlocks;
-		findContinuationBlocksDFS(newBlock, copyBlocks, visitedBlocks);
-
-		DEBUG_LA(
-			outs() << "\ncloning blocks into continuation...\n";
-			for (std::set<const BasicBlock*>::iterator it=copyBlocks.begin(), E=copyBlocks.end(); it!=E; ++it) {
-				outs() << " * " << (*it)->getNameStr() << "\n";
-			}
-			outs() << "\n";
-		);
-
 		// HACK: Copy over entire function and remove all unnecessary blocks.
 		//       This is required because CloneBasicBlock does not perform any
 		//       remapping. RemapInstructions thus has to be called by hand and
 		//       is not available via includes (as of llvm-2.8svn ~May/June 2010 :p).
+		//--------------------------------------------------------------------//
 
 		// Therefore, we need to have dummy-mappings for all arguments of the
 		// old function that do not map to a live value.
@@ -550,6 +606,7 @@ private:
 
 
 
+		//--------------------------------------------------------------------//
 		// remap values that were no arguments
 		// NOTE: apparently, CloneFunctionInto does not look into the valueMap
 		//       if it directly finds all references. Due to the fact that we
@@ -559,10 +616,11 @@ private:
 		// NOTE: actually, this is good behaviour - we must not remap values
 		//       that are defined in a block that also appears in the
 		//       continuation, e.g. in loops.
-		// TODO: Are we sure that the ordering is always correct with LiveSetType
-		//       being a set? :p
+		//--------------------------------------------------------------------//
 
+		//--------------------------------------------------------------------//
 		// erase all blocks that do not belong to this continuation
+		//--------------------------------------------------------------------//
 		BasicBlock* dummyBB = BasicBlock::Create(context, "dummy", continuation);
 		// iterate over blocks of original fun, but work on blocks of continuation fun
 		// -> can't find out block in old fun for given block in new fun via map ;)
@@ -570,16 +628,16 @@ private:
 			assert ((*valueMap).find(BB) != (*valueMap).end());
 			BasicBlock* blockOrig = BB++;
 			BasicBlock* blockCopy = cast<BasicBlock>((*valueMap)[blockOrig]);
-			if (copyBlocks.find(blockOrig) != copyBlocks.end()) continue;
+			if (copyBlocks.count(blockOrig)) continue; // current block is copied
 
-			// block must not be "copied" -> delete it
+			// current block must not be "copied" -> delete it
 
 			// but first, replace all uses of instructions of block by dummies
 			// or arguments in case of live values...
 			BasicBlock::iterator IO=blockOrig->begin(); // mapping uses values from old function...
 			for (BasicBlock::iterator I=blockCopy->begin(), IE=blockCopy->end(); I!=IE; ++I, ++IO) {
 				DEBUG_LA( outs() << "replacing uses of inst: " << *I << "\n"; );
-				if (liveInValues->find(IO) != liveInValues->end()) {
+				if (liveInValues.count(IO)) {
 					DEBUG_LA( outs() << "  is a live value, replaced with argument: " << *liveValueToArgMap[IO] << "\n"; );
 					I->replaceAllUsesWith(liveValueToArgMap[IO]);
 				} else {
@@ -612,32 +670,35 @@ private:
 		assert (dummyBB->use_empty());
 		dummyBB->eraseFromParent();
 
+		//--------------------------------------------------------------------//
 		// if necessary, make new block the entry block of the continuation
 		// (= move to front of block list)
+		//--------------------------------------------------------------------//
 		BasicBlock* entryBlock = cast<BasicBlock>((*valueMap)[newBlock]);
 		if (entryBlock != &continuation->getEntryBlock()) {
 			entryBlock->moveBefore(&continuation->getEntryBlock());
 		}
 
 
+		//--------------------------------------------------------------------//
 		// Make sure all uses of live values that are not dominated anymore are
 		// rewired to arguments.
 		// NOTE: This can't be done before blocks are deleted ;).
+		//--------------------------------------------------------------------//
 
-		// compute dominator tree (somehow does not work with functionpassmanager)
+		// compute dominator tree of continuation
 		DominatorTree* domTree = new DominatorTree();
 		domTree->runOnFunction(*continuation);
-		DEBUG_LA( domTree->print(outs(), mod); );
 
-		// set arg_iterator to first live value arg (first args are special values
+		// set arg_iterator to first live value arg (first args are special values)
 		Function::arg_iterator A2 = continuation->arg_begin();
 		std::advance(A2, specialParams.size());
-		for (LivenessAnalyzer::LiveSetType::iterator it=liveInValues->begin(), E=liveInValues->end(); it!=E; ++it, ++A2) {
-			const Value* liveVal = *it;
+		for (LiveSetType::iterator it=liveInValues.begin(), E=liveInValues.end(); it!=E; ++it, ++A2) {
+			Value* liveVal = *it;
 			DEBUG_LA( outs() << "live value: " << *liveVal << "\n"; );
 			if (isa<Argument>(liveVal)) continue;
 
-			// if all uses already replaced above, skip this value
+			// if all uses were already replaced above, skip this value
 			if ((*valueMap).find(liveVal) == (*valueMap).end()) {
 				DEBUG_LA( outs() << "  all uses already replaced!\n"; );
 				continue;
@@ -648,10 +709,10 @@ private:
 
 			// if the value is defined in one of the copied blocks, we must only
 			// replace those uses that are not dominated by their definition anymore
-			if (const Instruction* inst = dyn_cast<Instruction>(liveVal)) {
-				if (copyBlocks.find(inst->getParent()) != copyBlocks.end()) {
+			if (Instruction* inst = dyn_cast<Instruction>(liveVal)) {
+				if (copyBlocks.count(inst->getParent())) {
 					Instruction* newInst = cast<Instruction>(newLiveVal);
-					DEBUG_LA( outs() << "live value is defined in copied block: " << (*copyBlocks.find(inst->getParent()))->getNameStr() << "\n"; );
+					DEBUG_LA( outs() << "live value is defined in copied block: " << inst->getParent()->getNameStr() << "\n"; );
 					for (Instruction::use_iterator U=newInst->use_begin(), UE=newInst->use_end(); U!=UE; ) {
 						assert (isa<Instruction>(*U));
 						Instruction* useI = cast<Instruction>(*U++);
@@ -667,7 +728,7 @@ private:
 			newLiveVal->replaceAllUsesWith(A2);
 		}
 
-		//DEBUG_LA( outs() << *continuation << "\n"; );
+		DEBUG_LA( outs() << *continuation << "\n"; );
 		DEBUG_LA( outs() << "continuation '" << continuation->getNameStr() << "' generated successfully!\n\n"; );
 
 		DEBUG_LA(
@@ -889,6 +950,143 @@ private:
 		//DEBUG_LA( outs() << "original function:\n" << *continuation << "\n"; );
 	}
 
+	inline bool functionHasBarrier(Function* f) {
+		for (Function::const_iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
+			for (BasicBlock::const_iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+				if (!isa<CallInst>(I)) continue;
+				if (isBarrier(I)) return true;
+			}
+		}
+		return false;
+	}
+	inline CallInst* findBarrier(Function* f) {
+		// TODO: reverse iterations
+		for (Function::iterator BB=f->begin(), BBE=f->end(); BB!=BBE; ++BB) {
+			for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+				if (!isa<CallInst>(I)) continue;
+				if (isBarrier(I)) return cast<CallInst>(I);
+			}
+		}
+		return NULL;
+	}
+
+	//
+	// TODO:
+	// - check if continuation has been generated before, if no, save it in continuation map, if yes, delete it
+	// - together with continuation, store the order of its live values in the struct
+	// - in order to find out this order we need to have value mappings from ExtractCodeRegion
+	Function* createContinuationNEW(CallInst* barrier, const unsigned barrierIndex, Function* currentFn, ContinuationMapType& continuationMap) {
+		assert (barrier && currentFn);
+		Module* mod = currentFn->getParent();
+		assert (mod);
+		BasicBlock* parentBlock = barrier->getParent();
+		assert (parentBlock);
+
+		LLVMContext& context = mod->getContext();
+
+		DEBUG_LA( outs() << "\ngenerating continuation for barrier " << barrierIndex << " in function '" << currentFn->getNameStr() << "'\n"; );
+		DEBUG_LA( outs() << "  barrier: " << *barrier << "\n"; );
+
+		//--------------------------------------------------------------------//
+		// split block at the position of the barrier
+		// (barrier has to be in "upper block")
+		//--------------------------------------------------------------------//
+		// find instruction that precedes barrier (= split point)
+		Instruction* splitInst = NULL;
+		BasicBlock::iterator I = --(parentBlock->end());
+		while (barrier != I) {
+			splitInst = I--;
+		}
+		// 'newBlock' is the first of the new continuation, 'parentBlock' the one with the barrier
+		BasicBlock* newBlock = parentBlock->splitBasicBlock(splitInst, parentBlock->getNameStr()+".postbarrier");
+
+
+		//--------------------------------------------------------------------//
+		// ExtractCodeRegion approach
+		//--------------------------------------------------------------------//
+
+		// dominator tree has to be rebuilt for every barrier (CFG changes every time)
+		DominatorTree* domTree = new DominatorTree();
+		domTree->runOnFunction(*currentFn);
+
+		// collect all blocks 'below' parentBlock (DFS)
+		std::vector<BasicBlock*> copyBlocks;
+		std::set<BasicBlock*> visitedBlocks;
+		findContinuationBlocksDFSOrdered(newBlock, copyBlocks, visitedBlocks);
+
+		DEBUG_LA( outs() << "\nblocks for ExtractCodeRegion:\n"; );
+		std::vector<BasicBlock*> region;
+		for (std::vector<BasicBlock*>::iterator it=copyBlocks.begin(), E=copyBlocks.end(); it!=E; ++it) {
+			region.push_back(*it);
+			DEBUG_LA( outs() << " * " << (*it)->getNameStr() << "\n"; );
+		}
+
+		const bool aggregateArgs = true;
+
+		Function* continuation = ExtractCodeRegion(*domTree, region, aggregateArgs);
+
+		//--------------------------------------------------------------------//
+		//--------------------------------------------------------------------//
+
+		// The live value struct itself is also saved as a live value by ExtractCodeRegion...
+		// This leads to a bad struct layout (continuation expects struct without it)
+		// -> change type
+		Argument* nextContLiveValStructPtr = --(currentFn->arg_end());
+		removeLiveValStructFromExtractedFnArgType(continuation, nextContLiveValStructPtr, context, barrier);
+
+		// get call to new fun
+		assert (continuation->getNumUses() == 1);
+		CallInst* secCall = cast<CallInst>(continuation->use_back());
+
+		//--------------------------------------------------------------------//
+		// erase branch to block with old return statement
+		//--------------------------------------------------------------------//
+		secCall->getParent()->getTerminator()->eraseFromParent();
+
+		//--------------------------------------------------------------------//
+		// instead, create return that returns the id for the next call
+		//--------------------------------------------------------------------//
+		const Type* returnType = Type::getInt32Ty(context);
+		ReturnInst::Create(context, ConstantInt::get(returnType, barrierIndex, true), secCall);
+
+		//--------------------------------------------------------------------//
+		// erase call (new function is actually not used, it should already exist :p)
+		// and arg struct (last use was the call)
+		//--------------------------------------------------------------------//
+		assert (secCall->getNumOperands() == 2);
+		assert (isa<AllocaInst>(secCall->getArgOperand(0)));
+		AllocaInst* argStruct = cast<AllocaInst>(secCall->getArgOperand(0));
+		secCall->eraseFromParent();
+		assert (argStruct->use_empty());
+		argStruct->eraseFromParent();
+
+		//--------------------------------------------------------------------//
+		// erase barrier
+		//--------------------------------------------------------------------//
+		assert (barrier->use_empty() && "barriers must not have any uses!");
+		barrier->eraseFromParent();
+
+		//DEBUG_LA( outs() << "continuation:\n" << *continuation << "\n"; );
+		//DEBUG_LA( outs() << "source function:\n" << *currentFn << "\n"; );
+		return continuation;
+	}
+
+	void storeBarrierMapping(Function* f, ValueMap<const Value*, Value*>& valueMap) {
+		// we have a "forward" mapping oldFn -> newFn, so we have to loop over
+		// all barriers of the old function, check if the barrier also exists
+		// in the new one, and insert it if it does exist.
+		for (BarrierIndicesMapType::iterator it=barrierIndices.begin(), E=barrierIndices.end(); it!=E; ++it) {
+			unsigned index = it->second;
+			const CallInst* barrierOrig = it->first;
+
+			if (!valueMap.count(barrierOrig)) continue;
+
+			assert (isa<CallInst>(valueMap[barrierOrig]));
+			CallInst* barrierNew = cast<CallInst>(valueMap[barrierOrig]);
+			barrierIndices[barrierNew] = index;
+		}
+	}
+
 	Function* eliminateBarriers(Function* f, BarrierVecType& barriers, const unsigned numBarriers, const unsigned maxBarrierDepth, SpecialParamVecType& specialParams, SpecialParamNameVecType& specialParamNames, TargetData* targetData) {
 		assert (f && targetData);
 		assert (f->getReturnType()->isVoidTy());
@@ -967,7 +1165,6 @@ private:
 		// are ordered nondeterministically unless they live in the same block,
 		// in which case their order is determined by their dominance relation.
 		//--------------------------------------------------------------------//
-		DenseMap<const CallInst*, unsigned> barrierIndices;
 		SmallVector<BarrierInfo*, 4> orderedBarriers;
 
 		// 0 is reserved for 'start'-function, so the last index is numBarriers and 0 is not used
@@ -986,13 +1183,14 @@ private:
 
 
 		//--------------------------------------------------------------------//
-		// call eliminateBarrier() for each barrier in newFunction
+		// call createContinuation() for each barrier in newFunction
 		//--------------------------------------------------------------------//
 		const unsigned numContinuationFunctions = numBarriers+1;
 		continuationMap[0] = new BarrierInfo(NULL, NULL, 0);
 		continuationMap[0]->continuation = newF;
 		continuationMap[0]->liveValueStructType = StructType::get(context, false);
 
+#if 0
 		// Loop over barriers and generate a continuation for each one.
 		// NOTE: newF is modified each time
 		//       (blocks split, loading/storing of live value structs, ...)
@@ -1009,8 +1207,6 @@ private:
 
 			assert (barrierInfo->continuation);
 			assert (barrierInfo->liveValueStructType);
-			//continuationMap[barrierIndex] = barrierInfo;
-			//barrierInfo->continuation->viewCFG();
 
 			// TODO: Don't just randomly pick one remaining barrier... there might be
 			//       nested loops etc.
@@ -1056,11 +1252,88 @@ private:
 					}
 				}
 			}
-
-			//barrierInfo->continuation->viewCFG();
 		}
-		//continuationMap[0]->continuation->viewCFG();
+#else
+		// TODO: ensure a better ordering from the start (e.g. push orderedBarriers onto stack)
+		// maybe make stack a dequeue (FIFO)
+		std::stack<CallInst*> workStack;
+		//if (CallInst* nextBarrier = findBarrier(newF)) workStack.push(nextBarrier);
 
+		for (SmallVector<BarrierInfo*, 4>::iterator it=orderedBarriers.begin(), E=orderedBarriers.end(); it!=E; ++it) {
+			BarrierInfo* barrierInfo = *it;
+			workStack.push(barrierInfo->barrier);
+		}
+
+		// TODO: Make sure we update the value map of each continuation once
+		//       we eliminated a secondary barrier.
+		while (!workStack.empty()) {
+			CallInst* currentBarrier = workStack.top();
+			workStack.pop();
+			
+			Function* currentFn = currentBarrier->getParent()->getParent();
+
+			assert (barrierIndices.find(currentBarrier) != barrierIndices.end() && "forgot to map barrier index of barriers in continuation?");
+			const unsigned barrierIndex = barrierIndices[currentBarrier];
+
+			std::stringstream sstr;
+			sstr << functionName << "_cont_" << barrierIndex;
+			BarrierInfo* barrierInfo = continuationMap[barrierIndex];
+
+			createContinuation(barrierInfo, sstr.str(), targetData);
+
+			Function* continuation = barrierInfo->continuation;
+
+			// store information about all barriers that remain in the new continuation
+			storeBarrierMapping(continuation, *barrierInfo->valueMap);
+
+
+			// If there is still a barrier in the just generated continuation,
+			// push the corresponding original barrier (in f) onto stack
+			// NOTE: We have a "forward" mapping oldFn -> newFn, so we have to loop over
+			// all barriers of the old function, check if the barrier also exists
+			// in the new one, and push it onto the stack if it does exist.
+			#if 0
+			if (CallInst* nextBarrier = findBarrier(continuation)) {
+				nextBarrier = barrierInfo->valueMap[nextBarrier];
+				workStack.push(nextBarrier);
+			}
+
+			// barriers in first function stay on top as long as it has barriers
+			if (CallInst* nextBarrier = findBarrier(currentFn)) {
+				if (currentFn != f) nextBarrier = barrierInfo->valueMap[nextBarrier];
+				workStack.push(nextBarrier);
+			}
+			#else
+			// loop over all of the original barriers and check whether any of
+			// them exists in the value map of the continuation
+			if (functionHasBarrier(continuation)) {
+				for (ContinuationMapType::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
+					BarrierInfo* binfo = it->second;
+					CallInst* barrierOrig = binfo->barrier;
+					CallInst* nextBarrier = cast<CallInst>((*barrierInfo->valueMap)[barrierOrig]);
+					if (!nextBarrier) continue;
+					workStack.push(nextBarrier);
+					break;
+				}
+			}
+			// barriers in first function stay on top as long as it has barriers
+			if (CallInst* nextBarrier = findBarrier(currentFn)) {
+				if (currentFn != f) {
+					for (ContinuationMapType::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
+						BarrierInfo* binfo = it->second;
+						CallInst* barrierOrig = binfo->barrier;
+						nextBarrier = cast<CallInst>((*barrierInfo->valueMap)[barrierOrig]);
+						if (!nextBarrier) continue;
+						workStack.push(nextBarrier);
+						break;
+					}
+				} else {
+					workStack.push(nextBarrier);
+				}
+			}
+			#endif
+		}
+#endif
 		assert (continuationMap.size() == numContinuationFunctions);
 
 
@@ -1079,11 +1352,8 @@ private:
 				for (Function::iterator BB=continuation->begin(), BBE=continuation->end(); BB!=BBE; ++BB) {
 					for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
 						if (!isa<CallInst>(I)) continue;
-						CallInst* call = cast<CallInst>(I);
-
-						const Function* callee = call->getCalledFunction();
-						if (callee->getName().equals(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER)) {
-							errs() << "\nERROR: barrier not eliminated in continuation '" << continuation->getNameStr() << "': " << *call << "\n";
+						if (isBarrier(I)) {
+							errs() << "\nERROR: barrier not eliminated in continuation '" << continuation->getNameStr() << "': " << *I << "\n";
 							err = true;
 						}
 					}
