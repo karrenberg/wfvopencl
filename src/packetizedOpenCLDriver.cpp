@@ -2148,13 +2148,14 @@ public:
 	inline void copy_data(
 			const void* values,
 			const size_t bytes,
-			const size_t offset=0)
+			const size_t dst_offset=0,
+			const size_t src_offset=0)
 	{
-		assert (bytes+offset <= size);
-		if (offset == 0) memcpy(data, values, bytes);
+		assert (bytes+dst_offset <= size);
+		if (dst_offset == 0) memcpy(data, (char*)values+src_offset, bytes);
 		else {
-			for (cl_uint i=offset; i<bytes; ++i) {
-				((char*)data)[i] = ((const char*)values)[i];
+			for (cl_uint i=src_offset; i<bytes; ++i) {
+				((char*)data)[i+dst_offset] = ((const char*)values)[i];
 			}
 		}
 	}
@@ -3641,7 +3642,28 @@ clEnqueueCopyBuffer(cl_command_queue    command_queue,
                     const cl_event *    event_wait_list,
                     cl_event *          event) CL_API_SUFFIX__VERSION_1_0
 {
-	assert (false && "NOT IMPLEMENTED!");
+	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
+	if (!src_buffer) return CL_INVALID_MEM_OBJECT;
+	if (!dst_buffer) return CL_INVALID_MEM_OBJECT;
+	if (src_buffer->get_size() < cb || src_buffer->get_size() < src_offset || src_buffer->get_size() < cb+src_offset) return CL_INVALID_VALUE;
+	if (dst_buffer->get_size() < cb || dst_buffer->get_size() < dst_offset || dst_buffer->get_size() < cb+dst_offset) return CL_INVALID_VALUE;
+	if (!event_wait_list && num_events_in_wait_list > 0) return CL_INVALID_EVENT_WAIT_LIST;
+	if (event_wait_list && num_events_in_wait_list == 0) return CL_INVALID_EVENT_WAIT_LIST;
+	if (command_queue->context != src_buffer->get_context()) return CL_INVALID_CONTEXT;
+	if (command_queue->context != dst_buffer->get_context()) return CL_INVALID_CONTEXT;
+	if (src_buffer == dst_buffer) {
+		if (dst_offset < src_offset) {
+			if (src_offset - (dst_offset+cb) < 0) return CL_MEM_COPY_OVERLAP;
+		} else {
+			if (dst_offset - (src_offset+cb) < 0) return CL_MEM_COPY_OVERLAP;
+		}
+	}
+
+	// This function should not copy itself but only queue a command that does so... I don't care ;).
+
+	void* src_data = src_buffer->get_data();
+	dst_buffer->copy_data(src_data, cb, dst_offset, src_offset);
+
 	return CL_SUCCESS;
 }
 
