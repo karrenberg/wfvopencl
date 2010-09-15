@@ -113,10 +113,12 @@ Histogram
 Mandelbrot
 MatrixTranspose
 NBody
+NBodySimple
 PrefixSum
 RadixSort
 Reduction
 ScanLargeArrays
+SHA1
 SimpleConvolution
 TestSimple
 TestBarrier
