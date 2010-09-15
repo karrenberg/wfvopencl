@@ -50,7 +50,7 @@ binomial_options(
     float profit = s * exp(vsdt * (2.0f * tid - (float)numSteps)) - x;
     callA[tid] = profit > 0 ? profit : 0.0f;
 
-    //barrier(CLK_LOCAL_MEM_FENCE);
+    barrier(CLK_LOCAL_MEM_FENCE);
 
     for(int j = numSteps; j > 0; j -= 2)
     {
@@ -58,13 +58,13 @@ binomial_options(
         {
             callB[tid] = puByr * callA[tid] + pdByr * callA[tid + 1];
         }
-        //barrier(CLK_LOCAL_MEM_FENCE);
+        barrier(CLK_LOCAL_MEM_FENCE);
 
         if(tid < j - 1)
         {
             callA[tid] = puByr * callB[tid] + pdByr * callB[tid + 1];
         }
-        //barrier(CLK_LOCAL_MEM_FENCE);
+        barrier(CLK_LOCAL_MEM_FENCE);
     }
 
     // write result for this block to global mem
