@@ -46,8 +46,13 @@
 
 #include "llvmTools.hpp" // LLVM functionality
 
+#include "callSiteBlockSplitter.h"
 #include "livenessAnalyzer.h"
 #include "continuationGenerator.h"
+
+#ifndef PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER
+	#define PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER "barrier"
+#endif
 
 //----------------------------------------------------------------------------//
 // Configuration
@@ -1680,6 +1685,7 @@ namespace PacketizedOpenCLDriver {
 	inline Function* createKernelSequential(Function* f, const std::string& kernel_name, const unsigned num_dimensions, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret) {
 		// eliminate barriers
 		FunctionPassManager FPM(module);
+		CallSiteBlockSplitter* CSBS = new CallSiteBlockSplitter(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER);
 		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
 		ContinuationGenerator* CG = new ContinuationGenerator(true);
 		// set "special" parameter types that are generated for each continuation
@@ -1698,6 +1704,7 @@ namespace PacketizedOpenCLDriver {
 		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_global_size"); // supplied from outside
 		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_local_size");  // supplied from outside
 		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_group_id");    // supplied from outside
+		FPM.add(CSBS);
 		FPM.add(LA);
 		FPM.add(CG);
 		FPM.run(*f);
@@ -1904,6 +1911,7 @@ namespace PacketizedOpenCLDriver {
 
 		// eliminate barriers
 		FunctionPassManager FPM(module);
+		CallSiteBlockSplitter* CSBS = new CallSiteBlockSplitter(PACKETIZED_OPENCL_DRIVER_FUNCTION_NAME_BARRIER);
 		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
 		ContinuationGenerator* CG = new ContinuationGenerator(true);
 		// set "special" parameter types that are generated for each continuation
@@ -1926,6 +1934,7 @@ namespace PacketizedOpenCLDriver {
 		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_global_size"); // supplied from outside
 		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_local_size");  // supplied from outside
 		//CG->addSpecialParam(PointerType::getUnqual(targetData->getIntPtrType(context)), "get_group_id");    // supplied from outside
+		FPM.add(CSBS);
 		FPM.add(LA);
 		FPM.add(CG);
 		FPM.run(*f_SIMD);
@@ -2960,6 +2969,7 @@ clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 	return CL_SUCCESS;
 }
 
+// TODO: this function should query the context, not return stuff itself ;)
 CL_API_ENTRY cl_int CL_API_CALL
 clGetContextInfo(cl_context         context,
                  cl_context_info    param_name,
@@ -2967,8 +2977,34 @@ clGetContextInfo(cl_context         context,
                  void *             param_value,
                  size_t *           param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
 {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clGetContextInfo()\n"; );
-	if (param_value_size_ret) *param_value_size_ret = 4;
+	if (!context) return CL_INVALID_CONTEXT;
+
+	switch (param_name) {
+		case CL_CONTEXT_REFERENCE_COUNT: {
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clGetContextInfo(CL_CONTEXT_REFERENCE_COUNT)!\n"; );
+			if (param_value && param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
+			break;
+		}
+		case CL_CONTEXT_DEVICES: {
+			if (param_value) {
+				if (param_value_size < sizeof(_cl_device_id*)) return CL_INVALID_VALUE;
+				*(_cl_device_id**)param_value = new _cl_device_id();
+			} else {
+				if (param_value_size_ret) *param_value_size_ret = sizeof(_cl_device_id*);
+			}
+			break;
+		}
+		case CL_CONTEXT_PROPERTIES: {
+			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "TODO: implement clGetContextInfo(CL_CONTEXT_PROPERTIES)!\n"; );
+			if (param_value && param_value_size < sizeof(cl_context_properties)) return CL_INVALID_VALUE;
+			break;
+		}
+
+		default: {
+			errs() << "ERROR: unknown param_name found: " << param_name << "!\n";
+			return CL_INVALID_VALUE;
+		}
+	}
 	return CL_SUCCESS;
 }
 
@@ -4126,6 +4162,8 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	// unfortunately we have to convert to 32bit values because we work with 32bit internally
 	const cl_uint modified_global_work_size[2] = { (cl_uint)global_work_size[0], (cl_uint)global_work_size[1] };
 	const cl_uint modified_local_work_size[2] = { (cl_uint)local_work_size[0], (cl_uint)local_work_size[1] };
+
+	// TODO: insert warnings as in 1D case if sizes do not match simd width etc.
 
 	//
 	// execute the kernel
