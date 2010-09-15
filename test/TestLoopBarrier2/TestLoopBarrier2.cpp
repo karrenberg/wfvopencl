@@ -74,15 +74,25 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-inline bool verifyResults(float* results, float* data, const unsigned count, const unsigned index) {
-	float correctRes = 0.f;
+inline unsigned verifyResults(float* input, float* results) {
+	// compute results
+	float verificationOutput[DATA_SIZE];
 
-	for (unsigned j=0, e=10; j<e; ++j) {
-		correctRes += data[index]+1.f;
-		correctRes += (index+1)%GROUP_SIZE==0 ? 0.f : data[index+1];
+	for (unsigned i=0; i<DATA_SIZE; ++i) {
+		float correctRes = input[i];
+
+		for (unsigned j=0, e=10; j<e; ++j) {
+			correctRes += 1.f;
+			if (i != 0) correctRes += verificationOutput[i-1];
+		}
+		verificationOutput[i] = correctRes;
 	}
 
-	const bool correct = results[index] == correctRes;
+	// count and return number of correct results
+	unsigned correct = 0;
+	for (unsigned i=0; i<DATA_SIZE; ++i) {
+		if (verificationOutput[i] == results[i]) ++correct;
+    }
 	return correct;
 }
 
@@ -245,14 +255,8 @@ int main(int argc, char** argv)
 
     // Validate our results
     //
-    correct = 0;
-	for(i = 0; i < dataSize; i++)
-    {
-        if(verifyResults(results, data, dataSize, i)) {
-            correct++;
-		}
-    }
-
+	correct = verifyResults(data, results);
+	
     // Print a brief summary detailing the results
     //
     printf("Computed '%d/%d' correct values!\n", correct, dataSize);

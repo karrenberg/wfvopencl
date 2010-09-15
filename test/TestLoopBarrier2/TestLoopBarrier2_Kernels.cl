@@ -7,16 +7,18 @@ __kernel void TestLoopBarrier2(
 	int i = get_global_id(0);
 	int l = get_local_id(0);
 
-	//shared[l] = 0.f;
+	shared[l] = input[i];
 
-	//barrier(CLK_LOCAL_MEM_FENCE);
+	barrier(CLK_LOCAL_MEM_FENCE);
 
-	for (unsigned j=0, e=10; j<e; ++j) {
-		//shared[l] += input[l]+1.f;
+	for (unsigned j=0; j<10; ++j) {
 		shared[l] += 1.f;
+		
 		barrier(CLK_LOCAL_MEM_FENCE);
-		//output[i] += (l == get_local_size(0)-1) ? 0.f : shared[l+1];
-		output[i] += shared[l];
+
+		if (l != 0) shared[l] += shared[l-1];
+
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
+	output[i] = shared[l];
 }

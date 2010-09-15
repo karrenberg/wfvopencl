@@ -6,6 +6,7 @@ __kernel void TestLoopBarrier(
 {
 	int i = get_global_id(0);
 
+#if 0
 	float x = input[i];
 	float f = x * x;
 
@@ -16,4 +17,13 @@ __kernel void TestLoopBarrier(
 	}
 
 	output[i] = f;
+#else
+	output[i] = input[i] * input[i];
+
+	for (unsigned j=0; j<10; ++j) {
+		barrier(CLK_LOCAL_MEM_FENCE);
+		output[i] -= count;
+		barrier(CLK_LOCAL_MEM_FENCE);
+	}
+#endif
 }

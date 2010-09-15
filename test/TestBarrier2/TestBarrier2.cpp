@@ -231,12 +231,11 @@ int main(int argc, char** argv) {
 	correct = 0;
 	for (i = 0; i < dataSize; i++) {
 		if (verifyResults(results, data, dataSize, i)) {
-			printf("results[%d]: %f (correct)\n", i, results[i]);
-			//printf("  original element: data[%d] = %f\n", i, data[i]);
+			//printf("results[%d]: %f (correct)\n", i, results[i]);
 			correct++;
 		} else {
 			const float shiftedElem = ((i+1)%GROUP_SIZE==0) ? 0.f : data[i+1];
-			printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], shiftedElem);
+			//printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], shiftedElem);
 		}
 	}
 //	printf("expected:\n");
