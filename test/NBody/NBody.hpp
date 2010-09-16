@@ -135,8 +135,10 @@ class NBody : public SDKSample
     cl_float* refVel;                   /**< Reference velocity */
     cl_context context;                 /**< CL context */
     cl_device_id *devices;              /**< CL device list */
-    cl_mem updatedPos;                  /**< Position of partciles */
-    cl_mem updatedVel;                  /**< Velocity of partciles */
+    cl_mem currPos;                  /**< Position of partciles */
+    cl_mem currVel;                  /**< Velocity of partciles */
+    cl_mem newPos;                  /**< Position of partciles */
+    cl_mem newVel;                  /**< Velocity of partciles */
     cl_command_queue commandQueue;      /**< CL command queue */
     cl_program program;                 /**< CL program */
     cl_kernel kernel;                   /**< CL kernel */
@@ -148,7 +150,6 @@ class NBody : public SDKSample
 private:
 
     float random(float randMax, float randMin);
-    int compareArray(const float* mat0, const float* mat1, unsigned int size);
 
 public:
     /** 

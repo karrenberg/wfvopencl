@@ -8,8 +8,8 @@
 
 //const __constant int hwidth = 128;
 //const __constant int hheight = 128;
-const __constant float hwidth = 256.0f*0.5f;
-const __constant float hheight = 256.0f*0.5f;
+//const __constant float hwidth = 1024.0f*0.5f;
+//const __constant float hheight = 1024.0f*0.5f;
 struct Ray
 {
 	float orgX, orgY, orgZ;
@@ -37,7 +37,7 @@ struct Intersection
 //__constant struct Sphere sphere[3];
 //__constant struct Plane plane;
 
-static void sphere_intersect(struct Sphere* s, struct Ray* ray, struct Intersection* isect)
+static void sphere_intersect(const struct Sphere* s, const struct Ray* ray, struct Intersection* isect)
 {
     const float rsX = ray->orgX - s->centerX;
     const float rsY = ray->orgY - s->centerY;
@@ -77,7 +77,7 @@ static void sphere_intersect(struct Sphere* s, struct Ray* ray, struct Intersect
 	}
 }
 
-static void plane_intersect(struct Plane* pl, struct Ray* ray, struct Intersection* isect)
+static void plane_intersect(const struct Plane* pl, const struct Ray* ray, struct Intersection* isect)
 {
   	const float d = 1.0f - (pl->pX*pl->nX + pl->pY*pl->nY + pl->pZ*pl->nZ); //-dot(pl->p, pl->n);
 	const float v = ray->dirX*pl->nX + ray->dirY*pl->nY + ray->dirZ*pl->nZ; //dot(ray->dir, pl->n);
@@ -96,9 +96,9 @@ static void plane_intersect(struct Plane* pl, struct Ray* ray, struct Intersecti
 		isect->nY   = pl->nY;
 		isect->nZ   = pl->nZ;
 
-		float pX = ray->orgX + t * ray->dirX;
-		float pY = ray->orgY + t * ray->dirY;
-		float pZ = ray->orgZ + t * ray->dirZ;
+		const float pX = ray->orgX + t * ray->dirX;
+		const float pY = ray->orgY + t * ray->dirY;
+		const float pZ = ray->orgZ + t * ray->dirZ;
 		isect->pX = pX;
 		isect->pY = pY;
 		isect->pZ = pZ;
@@ -106,7 +106,7 @@ static void plane_intersect(struct Plane* pl, struct Ray* ray, struct Intersecti
 }
 
 
-void Intersect(struct Ray* r, struct Intersection* i)
+void Intersect(const struct Ray* r, struct Intersection* i)
 {
 	struct Sphere sphere[3];
 	sphere[0].centerX = -2.0f;
@@ -139,7 +139,7 @@ void Intersect(struct Ray* r, struct Intersection* i)
 	plane_intersect(&pl, r, i);
 }
 
-void orthoBasis(float basisX[3], float basisY[3], float basisZ[3], float nX, float nY, float nZ)
+void orthoBasis(float basisX[3], float basisY[3], float basisZ[3], const float nX, const float nY, const float nZ)
 {
 	basisX[2] = nX;
 	basisY[2] = nY;
@@ -213,18 +213,18 @@ float computeAO(struct Intersection* isect, float* sd)
 			// Pick a random ray direction with importance sampling.
 			// p = cos(theta) / 3.141592f
 			*sd = (int)(fmod((float)(*sd)*1364.0f+626.0f, 509.0f));
-			float r = *sd/509.0f;    //(float)(seed)/509.0f;//random(seed);
+			const float r = *sd/509.0f;    //(float)(seed)/509.0f;//random(seed);
 			*sd = (int)(fmod((float)(*sd)*1364.0f+626.0f, 509.0f));
-			float phi = *sd/509.0f * 2.0f * 3.141592f;  //2.0f * 3.141592f * random();
+			const float phi = *sd/509.0f * 2.0f * 3.141592f;  //2.0f * 3.141592f * random();
 
-			float refX = cos(phi) * sqrt(1.0f - r);
-			float refY = sin(phi) * sqrt(1.0f - r);
-			float refZ = sqrt(r);
+			const float refX = cos(phi) * sqrt(1.0f - r);
+			const float refY = sin(phi) * sqrt(1.0f - r);
+			const float refZ = sqrt(r);
 
 			// local -> global
-			float rrayX = refX * basisX[0] + refY * basisX[1] + refZ * basisX[2];
-			float rrayY = refX * basisY[0] + refY * basisY[1] + refZ * basisY[2];
-			float rrayZ = refX * basisZ[0] + refY * basisZ[1] + refZ * basisZ[2];
+			const float rrayX = refX * basisX[0] + refY * basisX[1] + refZ * basisX[2];
+			const float rrayY = refX * basisY[0] + refY * basisY[1] + refZ * basisY[2];
+			const float rrayZ = refX * basisZ[0] + refY * basisZ[1] + refZ * basisZ[2];
 
 			struct Ray ray;
 			ray.orgX = pX;
@@ -254,7 +254,7 @@ float computeAO(struct Intersection* isect, float* sd)
 
 __kernel void AmbientOcclusionRenderer(__global uint * out) {
 
-	uint nIndex = get_global_id(0) + get_global_id(1) * get_global_size(0);
+	//uint nIndex = get_global_id(0) + get_global_id(1) * get_global_size(0);
 
 	struct Intersection i;
 	i.hit = 0;
@@ -265,16 +265,16 @@ __kernel void AmbientOcclusionRenderer(__global uint * out) {
 	
 	//float px = ((float)(int)(get_local_id(0) + get_group_id(0) * get_local_size(0)) - hwidth) / hwidth;
 	//float py = ((float)(int)(get_local_id(1) + get_group_id(1) * get_local_size(1)) - hheight) / hheight;
-	float px = ((float)(int)(get_global_id(0)) - hwidth) / hwidth;
-	float py = ((float)(int)(get_global_id(1)) - hheight) / hheight;
+	const float px = ((float)(int)(get_global_id(0)) - 512) / 512.0f;
+	const float py = ((float)(int)(get_global_id(1)) - 512) / 512.0f;
 	//float px = (int)((get_global_id(0)) - hwidth) / hwidth;
 	//float py = (int)((get_global_id(1)) - hheight) / hheight;
 	//float4 dir = normalize((float4)(px, py, -1.0f, 0.0f));
 	const float ls = px*px + py*py + 1.0f;
 	const float l = 1.0f/sqrt(ls);
-	float dirX = px * l;
-	float dirY = py * l;
-	float dirZ = -1.0f * l;
+	const float dirX = px * l;
+	const float dirY = py * l;
+	const float dirZ = -1.0f * l;
 	struct Ray r;
 	r.orgX = 0;
 	r.orgY = 0;
@@ -282,7 +282,7 @@ __kernel void AmbientOcclusionRenderer(__global uint * out) {
 	r.dirX = dirX;
 	r.dirY = dirY;
 	r.dirZ = dirZ;
-	int seed = (int)(fmod((dirX+hwidth) * (dirY+hheight) * 4525434.0f, 65536.0f));
+	int seed = (int)(fmod((dirX+512.0f) * (dirY+512.0f) * 4525434.0f, 65536.0f));
 	
 	uchar rcol = 0;
 	Intersect(&r, &i);
@@ -297,5 +297,5 @@ __kernel void AmbientOcclusionRenderer(__global uint * out) {
 	//float cy = dirY + 1.0f;
 	//out[nIndex] = i.hit;
 	//out[nIndex] = (int)(cx*128.0f) + (int)(cy*128.0f)*256;
-	out[nIndex] = (int)(rcol | (rcol<<8) | (rcol<<16) | (255<<24));
+	out[get_global_id(0) + get_global_id(1) * get_global_size(0)] = (int)(rcol | (rcol<<8) | (rcol<<16) | (255<<24));
 }

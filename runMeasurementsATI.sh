@@ -1,5 +1,8 @@
 #!/bin/bash
 echo ""
+echo "BinomialOptionSimple"
+./runATIBinomialOptionSimple.sh -q -e -t -x 1000 -i 50
+echo ""
 echo "BlackScholes"
 ./runATIBlackScholes.sh -q -e -t -i 50
 echo ""
@@ -35,9 +38,9 @@ echo "PrefixSum"
 echo ""
 echo "RadixSort"
 ./runATIRadixSort.sh -q -e -t -x 1000000 -i 50
-#echo ""
-#echo "Reduction"
-#./runATIReduction.sh -q -e
+echo ""
+echo "Reduction"
+./runATIReduction.sh -q -e -t -x 100000 -i 50
 echo ""
 echo "SimpleConvolution"
 ./runATISimpleConvolution.sh -q -e -t -x 1024 -y 1024 -m 16 -i 50

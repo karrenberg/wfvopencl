@@ -26,7 +26,9 @@ nbody_sim(
 
     float epsSqr,
 
-    __local float4* localPos)
+    __local float4* localPos,
+    __global float4* newPosition,
+    __global float4* newVelocity)
 
 {
     unsigned int tid = get_local_id(0);
@@ -125,8 +127,8 @@ nbody_sim(
 
     // write to global memory
 
-    pos[gid] = newPos;
+    newPosition[gid] = newPos;
 
-    vel[gid] = newVel;
+    newVelocity[gid] = newVel;
 }
 

@@ -12,6 +12,7 @@
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable 
 
 #define BIN_SIZE 256
+#define USE_PACKETIZER
 
 /**
  * @brief   Calculates block-histogram bin whose bin size is 256
@@ -24,6 +25,37 @@ void histogram256(__global const uint* data,
                   __local uint* sharedArray,
                   __global uint* binResult)
 {
+#ifdef USE_PACKETIZER
+    /* initialize shared array to zero */
+    for(int i = 0; i < BIN_SIZE; ++i)
+        sharedArray[get_local_id(0) * BIN_SIZE + i] = 0;
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    /* calculate thread-histograms */
+    for(int i = 0; i < BIN_SIZE; ++i)
+    {
+#ifdef LINEAR_MEM_ACCESS
+        uint value = data[get_group_id(0) * get_local_size(0) * BIN_SIZE + i * get_local_size(0) + get_local_id(0)];
+#else
+        uint value = data[get_global_id(0) * BIN_SIZE + i];
+#endif LINEAR_MEM_ACCESS
+        sharedArray[get_local_id(0) * BIN_SIZE + value]++;
+    }
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    /* merge all thread-histograms into block-histogram */
+	const size_t ls = get_local_size(0);
+    for(int i = 0; i < BIN_SIZE / ls; ++i)
+    {
+        uint binCount = 0;
+        for(int j = 0; j < ls; ++j)
+            binCount += sharedArray[j * BIN_SIZE + i * get_local_size(0) + get_local_id(0)];
+
+        binResult[get_group_id(0) * BIN_SIZE + i * get_local_size(0) + get_local_id(0)] = binCount;
+    }
+#else
     size_t localId = get_local_id(0);
     size_t globalId = get_global_id(0);
     size_t groupId = get_group_id(0);
@@ -57,4 +89,5 @@ void histogram256(__global const uint* data,
             
         binResult[groupId * BIN_SIZE + i * groupSize + localId] = binCount;
     }
+#endif
 }

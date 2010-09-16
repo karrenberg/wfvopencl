@@ -6,6 +6,7 @@
 #./runPacketizerFloydWarshall.sh -q -e -x 16 && \
 ./runPacketizerHistogram.sh -q -e && \
 ./runPacketizerMandelbrot.sh -q -e -x 16 && \
-./runPacketizerMatrixTranspose.sh -q -e
+./runPacketizerMatrixTranspose.sh -q -e && \
 #./runPacketizerPrefixSum.sh -q -e && \
+./runPacketizerReduction.sh -q -e -t
 #./runPacketizerSimpleConvolution.sh -q -e -x 8

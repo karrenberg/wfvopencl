@@ -10,6 +10,7 @@
  */
 
 #define USE_PACKETIZER
+#define OPTIMIZE_BARRIER_LIVE_VALUES
 
 __kernel 
 void matrixTranspose(__global float * output,
@@ -21,6 +22,7 @@ void matrixTranspose(__global float * output,
                        )
 {
 #ifdef USE_PACKETIZER
+#ifdef OPTIMIZE_BARRIER_LIVE_VALUES
 	/* copy from input to local memory */
 	block[get_local_id(1)*get_local_size(0) + get_local_id(0)] = input[get_global_id(1)*get_global_size(0) + get_global_id(0)];
 
@@ -36,6 +38,19 @@ void matrixTranspose(__global float * output,
 	const uint sourceIndex = get_local_id(1)*get_local_size(0)  + get_local_id(0);
 
 	output[targetIndex] = block[sourceIndex];
+#else
+	// This demonstrates the overhead of the barrier-live values
+	uint globalIdx = get_global_id(0);
+	uint globalIdy = get_global_id(1);
+	uint localIdx = get_local_id(0);
+	uint localIdy = get_local_id(1);
+	block[localIdy*get_local_size(0) + localIdx] = input[globalIdy*get_global_size(0) + globalIdx];
+	barrier(CLK_LOCAL_MEM_FENCE);
+	const uint targetIndex = globalIdx*get_global_size(1) + globalIdy;
+	const uint sourceIndex = localIdy*get_local_size(0)  + localIdx;
+
+	output[targetIndex] = block[sourceIndex];
+#endif
 #else
 	uint globalIdx = get_global_id(0);
 	uint globalIdy = get_global_id(1);

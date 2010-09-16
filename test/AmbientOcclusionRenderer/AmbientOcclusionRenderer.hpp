@@ -115,7 +115,7 @@ jurisdiction and venue of these courts.
 #include <iostream>
 #include <sys/time.h>
 
-#define GROUP_SIZE 256
+#define GROUP_SIZE 1024
 
 /**
 * AmbientOcclusionRenderer 
@@ -164,8 +164,8 @@ public:
         kernelTime(0),
 		iterations(1),
 		tex(0),
-		width(256),
-		height(256),
+		width(1024),
+		height(1024),
         hDevMem(NULL),
         devices(NULL),
 		context(NULL),
@@ -186,8 +186,8 @@ public:
         kernelTime(0),
 		iterations(1),
 		tex(0),
-		width(256),
-		height(256),
+		width(1024),
+		height(1024),
         hDevMem(NULL),
         devices(NULL),
 		context(NULL),

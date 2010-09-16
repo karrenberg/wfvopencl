@@ -1,5 +1,11 @@
 #!/bin/bash
 echo ""
+echo "BinomialOption"
+./runPacketizerBinomialOption.sh -q -e -t -x 1000 -i 50
+echo ""
+echo "BinomialOptionSimple"
+./runPacketizerBinomialOptionSimple.sh -q -e -t -x 1000 -i 50
+echo ""
 echo "BlackScholes"
 ./runPacketizerBlackScholes.sh -q -e -t -i 50
 echo ""
@@ -11,6 +17,9 @@ echo "BitonicSort"
 echo ""
 echo "DCT"
 ./runPacketizerDCT.sh -q -e -t -x 8192 -y 8192 -i 5
+echo ""
+echo "DwtHaar1D"
+./runPacketizerDwtHaar1D.sh -q -e -t -x 1000000 -i 50
 echo ""
 echo "EigenValue"
 ./runPacketizerEigenValue.sh -q -e -t -x 4096 -i 50
@@ -27,6 +36,12 @@ echo ""
 echo "Mandelbrot"
 ./runPacketizerMandelbrot.sh -q -e -t -x 8192
 echo ""
+echo "NBody"
+./runPacketizerNBody.sh -q -e -t -x 4096 -i 50
+echo ""
+echo "NBodySimple"
+./runPacketizerNBodySimple.sh -q -e -t -x 4096 -i 50
+echo ""
 echo "MatrixTranspose"
 ./runPacketizerMatrixTranspose.sh -q -e -t -x 10000 -i 20
 echo ""
@@ -35,9 +50,9 @@ echo "PrefixSum"
 echo ""
 echo "RadixSort"
 ./runPacketizerRadixSort.sh -q -e -t -x 1000000 -i 50
-#echo ""
-#echo "Reduction"
-#./runPacketizerReduction.sh -q -e
+echo ""
+echo "Reduction"
+./runPacketizerReduction.sh -q -e -t -x 100000 -i 50
 echo ""
 echo "SimpleConvolution"
 ./runPacketizerSimpleConvolution.sh -q -e -t -x 1024 -y 1024 -m 1 -i 50

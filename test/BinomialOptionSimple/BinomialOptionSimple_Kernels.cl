@@ -17,6 +17,8 @@
 #define RISKFREE 0.02f
 #define VOLATILITY 0.30f
 
+#define USE_PACKETIZER
+
 __kernel
 void 
 binomial_options(
@@ -26,6 +28,51 @@ binomial_options(
     __local float* callA,
     __local float* callB)
 {
+#ifdef USE_PACKETIZER
+	// load shared mem
+    unsigned int tid = get_local_id(0);
+    unsigned int bid = get_group_id(0);
+
+    float inRand = randArray[get_group_id(0)];
+
+    float s = (1.0f - inRand) * 5.0f + inRand * 30.f;
+    float x = (1.0f - inRand) * 1.0f + inRand * 100.f;
+    float optionYears = (1.0f - inRand) * 0.25f + inRand * 10.f;
+    float dt = optionYears * (1.0f / (float)numSteps);
+    float vsdt = VOLATILITY * sqrt(dt);
+    float rdt = RISKFREE * dt;
+    float r = exp(rdt);
+    float rInv = 1.0f / r;
+    float u = exp(vsdt);
+    float d = 1.0f / u;
+    float pu = (r - d)/(u - d);
+    float pd = 1.0f - pu;
+    float puByr = pu * rInv;
+    float pdByr = pd * rInv;
+
+    float profit = s * exp(vsdt * (2.0f * get_local_id(0) - (float)numSteps)) - x;
+    callA[get_local_id(0)] = profit > 0 ? profit : 0.0f;
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    for(int j = numSteps; j > 0; j -= 2)
+    {
+        if(get_local_id(0) < j)
+        {
+            callB[get_local_id(0)] = puByr * callA[get_local_id(0)] + pdByr * callA[get_local_id(0) + 1];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+
+        if(get_local_id(0) < j - 1)
+        {
+            callA[get_local_id(0)] = puByr * callB[get_local_id(0)] + pdByr * callB[get_local_id(0) + 1];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    // write result for this block to global mem
+    if(get_local_id(0) == 0) output[get_group_id(0)] = callA[0];
+#else
     // load shared mem
     unsigned int tid = get_local_id(0);
     unsigned int bid = get_group_id(0);
@@ -69,4 +116,5 @@ binomial_options(
 
     // write result for this block to global mem
     if(tid == 0) output[bid] = callA[0];
+#endif
 }

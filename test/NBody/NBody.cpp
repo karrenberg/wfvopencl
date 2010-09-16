@@ -110,29 +110,6 @@ NBody::random(float randMax, float randMin)
 }
 
 int
-NBody::compareArray(const float* mat0,
-                    const float* mat1,
-                    unsigned int size)
-{
-    const float epsilon = (float)1e-2;
-    for (unsigned int i = 0; i < size; ++i)
-    {
-        float val0 = mat0[i];
-        float val1 = mat1[i];
-
-        float diff = (val1 - val0);
-        if (fabs(val1) > epsilon)
-        {
-            diff /= val0;
-        }
-
-        return (fabs(diff) > epsilon);
-    }
-
-    return 0;
-}
-
-int
 NBody::setupNBody()
 {
     // make sure numParticles is multiple of group size
@@ -274,9 +251,14 @@ NBody::setupCL()
         delete[] platforms;
     }
 
+    if(NULL == platform)
+    {
+        sampleCommon->error("NULL platform found so Exiting Application.");
+        return SDK_FAILURE;
+    }
+
     /*
-     * If we could find our platform, use it. Otherwise pass a NULL and get whatever the
-     * implementation thinks we should be using.
+     * If we could find our platform, use it. Otherwise use just available platform.
      */
 
     cl_context_properties cps[3] = 
@@ -285,11 +267,9 @@ NBody::setupCL()
         (cl_context_properties)platform, 
         0
     };
-    /* Use NULL for backward compatibility */
-    cl_context_properties* cprops = (NULL == platform) ? NULL : cps;
 
     context = clCreateContextFromType(
-        cprops,
+        cps,
         dType,
         NULL,
         NULL,
@@ -419,41 +399,113 @@ NBody::setupCL()
     */
 
     /* Create memory objects for position */
-    updatedPos = clCreateBuffer(
+    currPos = clCreateBuffer(
         context,
-        CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
+        CL_MEM_READ_WRITE,
         numBodies * sizeof(cl_float4),
-        pos,
+        0,
         &status);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
-        "clCreateBuffer failed. (updatePos)"))
+        "clCreateBuffer failed. (oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Initialize position buffer */
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currPos,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float4),
+                                  pos,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+
+
+    /* Create memory objects for position */
+    newPos = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float4),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newPos)"))
     {
         return SDK_FAILURE;
     }
 
     /* Create memory objects for velocity */
-    updatedVel = clCreateBuffer(
+    currVel = clCreateBuffer(
         context,
-        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
+        CL_MEM_READ_WRITE,
         numBodies * sizeof(cl_float4),
-        vel,
+        0,
         &status);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
-        "clCreateBuffer failed. (updatedVel)"))
+        "clCreateBuffer failed. (oldVel)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Initialize velocity buffer */
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currVel,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float4),
+                                  vel,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldVel)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Create memory objects for velocity */
+    newVel = clCreateBuffer(
+        context,
+        CL_MEM_READ_ONLY,
+        numBodies * sizeof(cl_float4),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newVel)"))
     {
         return SDK_FAILURE;
     }
 
     /* create a CL program using the kernel source */
-    streamsdk::SDKFile kernelFile;
-    std::string kernelPath = sampleCommon->getPath();
-    kernelPath.append("NBody_Kernels.cl");
-    kernelFile.open(kernelPath.c_str());
-    const char * source = kernelFile.source().c_str();
+    //streamsdk::SDKFile kernelFile;
+    //std::string kernelPath = sampleCommon->getPath();
+    //kernelPath.append("NBody_Kernels.cl");
+    //if(!kernelFile.open(kernelPath.c_str()))
+    //{
+        //std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+        //return SDK_FAILURE;
+    //}
+    //const char * source = kernelFile.source().c_str();
+    const char * source = "NBody_Kernels.bc";
     size_t sourceSize[] = { strlen(source) };
     program = clCreateProgramWithSource(
         context,
@@ -560,7 +612,7 @@ NBody::setupCLKernels()
         kernel,
         0,
         sizeof(cl_mem),
-        (void*)&updatedPos);
+        (void*)&currPos);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS, 
@@ -574,7 +626,7 @@ NBody::setupCLKernels()
         kernel,
         1,
         sizeof(cl_mem),
-        (void *)&updatedVel);
+        (void *)&currVel);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS, 
@@ -640,6 +692,34 @@ NBody::setupCLKernels()
         return SDK_FAILURE;
     }
 
+    /* Particle positions */
+    status = clSetKernelArg(
+        kernel,
+        6,
+        sizeof(cl_mem),
+        (void*)&newPos);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (unewPos)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Particle velocity */
+    status = clSetKernelArg(
+        kernel,
+        7,
+        sizeof(cl_mem),
+        (void *)&newVel);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (newVel)"))
+    {
+        return SDK_FAILURE;
+    }
+
     status = clGetKernelWorkGroupInfo(kernel,
         devices[0],
         CL_KERNEL_LOCAL_MEM_SIZE,
@@ -656,8 +736,8 @@ NBody::setupCLKernels()
 
     if(usedLocalMemory > totalLocalMemory)
     {
-        std::cout << "Unsupported: Insufficient"
-            "local memory on device." << std::endl;
+        std::cout << "Unsupported: Insufficient local memory on device" <<
+            std::endl;
         return SDK_FAILURE;
     }
 
@@ -678,11 +758,14 @@ NBody::setupCLKernels()
 
     if(groupSize > kernelWorkGroupSize)
     {
-        std::cout << "Out of Resources!" << std::endl;
-        std::cout << "Group Size specified : " << groupSize << std::endl;
-        std::cout << "Max Group Size supported on the kernel : " << 
-            kernelWorkGroupSize<<std::endl;
-        std::cout << "Falling back to " << kernelWorkGroupSize << std::endl;
+        if(!quiet)
+        {
+            std::cout << "Out of Resources!" << std::endl;
+            std::cout << "Group Size specified : " << groupSize << std::endl;
+            std::cout << "Max Group Size supported on the kernel : "
+                      << kernelWorkGroupSize << std::endl;
+            std::cout << "Falling back to " << kernelWorkGroupSize << std::endl;
+        }
         groupSize = kernelWorkGroupSize;
     }
 
@@ -736,10 +819,54 @@ NBody::runCLKernels()
         return SDK_FAILURE;
     }
 
+    /* Copy data from new to old */
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newPos,
+                                 currPos,
+                                 0,
+                                 0,
+                                 sizeof(cl_float4) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newPos->oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newVel,
+                                 currVel,
+                                 0,
+                                 0,
+                                 sizeof(cl_float4) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newVel->oldVels)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clFinish(commandQueue);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clFinish failed."))
+    {
+        return SDK_FAILURE;
+    }
+
     /* Enqueue readBuffer*/
     status = clEnqueueReadBuffer(
         commandQueue,
-        updatedPos,
+        currPos,
         CL_TRUE,
         0,
         numBodies* sizeof(cl_float4),
@@ -867,7 +994,7 @@ NBody::setup()
     /* Compute setup time */
     setupTime = (double)(sampleCommon->readTimer(timer));
 
-    display = !quiet;
+    display = !quiet && !verify;
 
     return SDK_SUCCESS;
 }
@@ -996,13 +1123,6 @@ NBody::run()
         sampleCommon->printArray<cl_float>("Output", pos, numBodies, 1);
     }
 
-    if(timing)
-    {
-        printf("N: %d, Time(ms): %lf\n",
-               numBodies, 
-               kernelTime / iterations * 1000);
-    }
-
     return SDK_SUCCESS;
 }
 
@@ -1038,15 +1158,15 @@ NBody::verifyResults()
         }
 
         /* compare the results and see if they match */
-        if(compareArray(pos, refPos, 4 * numBodies))
-        {
-            std::cout << "Failed\n";
-            return SDK_FAILURE;
-        }
-        else
+        if(sampleCommon->compare(pos, refPos, 4 * numBodies, 0.00001))
         {
             std::cout << "Passed!\n";
             return SDK_SUCCESS;
+        }
+        else
+        {
+            std::cout << "Failed!\n";
+            return SDK_FAILURE;
         }
     }
 
@@ -1099,7 +1219,7 @@ NBody::cleanup()
         return SDK_FAILURE;
     }
 
-    status = clReleaseMemObject(updatedPos);
+    status = clReleaseMemObject(currPos);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
@@ -1108,7 +1228,7 @@ NBody::cleanup()
         return SDK_FAILURE;
     }
 
-    status = clReleaseMemObject(updatedVel);
+    status = clReleaseMemObject(currVel);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
