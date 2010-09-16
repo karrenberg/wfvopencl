@@ -1809,7 +1809,6 @@ private:
 
 				DEBUG_LA( outs() << "\n    live value store generation for barrier " << barrierIndex << " in continuation '" << contInfo->continuation->getNameStr() << "' finished.\n"; );
 
-				outs() << *f << "\n";
 				DEBUG_LA( verifyFunction(*f); );
 			}
 		}
@@ -1990,6 +1989,10 @@ private:
 		//--------------------------------------------------------------------//
 		// fill call blocks
 		//--------------------------------------------------------------------//
+		// NOTE: We insert loads here also for the start continuation (which
+		//       only uses function parameters). However, they can be removed
+		//       easily by DCE, so we don't care.
+		// NOTE: They are not erased if debug-runtime is enabled (uses in printf).
 		CallInst** calls = new CallInst*[numContinuationFunctions]();
 		for (unsigned i=0; i<numContinuationFunctions; ++i) {
 			BasicBlock* block = callBBs[i];
