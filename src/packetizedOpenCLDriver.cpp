@@ -4175,11 +4175,12 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && "should give error message before executeRangeKernel!");
 
 	cl_uint i, j;
-	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
-	#pragma omp parallel for default(none) private(i, j) shared(argument_struct, typedPtr, modified_global_work_size, modified_local_work_size)
-	#endif
+	
 	for (i=0; i<num_iterations_0; ++i) {
+		#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
+		omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
+#pragma omp parallel for default(none) private(i, j) shared(argument_struct, typedPtr, modified_global_work_size, modified_local_work_size)
+#endif
 		for (j=0; j<num_iterations_1; ++j) {
 			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << " (= group ids)\n"; );
 			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
