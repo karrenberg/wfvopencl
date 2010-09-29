@@ -23,7 +23,7 @@ SDKCommon::getPath()
 {
 #ifdef _WIN32
     char buffer[MAX_PATH];
-    if(!GetModuleFileName(NULL, buffer, sizeof(buffer)))
+	if(!GetModuleFileName(NULL, (LPWCH)buffer, sizeof(buffer)))
         throw std::string("GetModuleFileName() failed!");
     std::string str(buffer);
     /* '\' == 92 */
