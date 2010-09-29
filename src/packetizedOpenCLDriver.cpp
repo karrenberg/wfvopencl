@@ -761,6 +761,18 @@ namespace PacketizedOpenCLDriver {
 
 			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__log_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.log.f32", mod));
 		}
+		// fix __log2_f32
+		if (PacketizedOpenCLDriver::getFunction("__log2_f32", mod)) {
+
+			// create llvm.log2.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("llvm.log.f32", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("llvm.log.f32", mod));
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__log2_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.log.f32", mod));
+		}
 		// fix __fabs_f32
 		if (PacketizedOpenCLDriver::getFunction("__fabs_f32", mod)) {
 
@@ -820,6 +832,19 @@ namespace PacketizedOpenCLDriver {
 			assert (PacketizedOpenCLDriver::getFunction("llvm.sin.f32", mod));
 
 			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__sin_f32", mod), PacketizedOpenCLDriver::getFunction("llvm.sin.f32", mod));
+		}
+		// fix __pow_f32
+		if (PacketizedOpenCLDriver::getFunction("__pow_f32", mod)) {
+
+			// create llvm.pow.f32 intrinsic
+			const llvm::Type* floatType = PacketizedOpenCLDriver::getTypeFromString(mod, "f");
+			std::vector<const llvm::Type*> params;
+			params.push_back(floatType);
+			params.push_back(floatType);
+			PacketizedOpenCLDriver::createExternalFunction("powf", floatType, params, mod);
+			assert (PacketizedOpenCLDriver::getFunction("powf", mod));
+
+			PacketizedOpenCLDriver::replaceAllUsesWith(PacketizedOpenCLDriver::getFunction("__pow_f32", mod), PacketizedOpenCLDriver::getFunction("powf", mod));
 		}
 	}
 

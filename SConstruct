@@ -120,6 +120,7 @@ Reduction
 ScanLargeArrays
 SHA1
 SimpleConvolution
+Sobel
 TestSimple
 TestBarrier
 TestBarrier2
