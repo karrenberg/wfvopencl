@@ -16,4 +16,11 @@ installation:
 	- build stream sdk (ignore errors related to CAL)
 - adjust 'setupenv.sh' and/or 'setupenvdebug.sh' to match your system (for llvm2.8 currently setupenvlatest/setupenvlatestdebug)
 - source 'setupenv.sh' or 'setupenvdebug.sh' to build in opt or debug mode
-- run scons
+- run scons, options (default shown):
+	debug=0
+	debug-runtime=0
+	profile=0
+	packetize=0 (enable packetization)
+	openmp=0 (enable openmp multi threading (4 threads))
+	split=0  (disable mem access optimizations)
+	static=0 (build static driver library instead of shared)
