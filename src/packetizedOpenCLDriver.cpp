@@ -27,6 +27,7 @@
 #include <string.h> // memcpy
 
 #include <xmmintrin.h> // test output etc.
+#include <emmintrin.h> // test output etc. (windows requires this for __m128i)
 
 #ifdef __APPLE__
 #include <OpenCL/cl_platform.h>
@@ -2251,8 +2252,8 @@ private:
 	_cl_program* program;
 	const void* compiled_function;
 
-	std::vector<_cl_kernel_arg*> args;
 	const cl_uint num_args;
+	std::vector<_cl_kernel_arg*> args;
 
 	void* argument_struct;
 	size_t argument_struct_size;
@@ -2263,7 +2264,7 @@ private:
 public:
 	_cl_kernel(_cl_context* ctx, _cl_program* prog, llvm::Function* f,
 			llvm::Function* f_wrapper, llvm::Function* f_SIMD=NULL)
-		: context(ctx), program(prog), compiled_function(NULL), num_args(PacketizedOpenCLDriver::getNumArgs(f)),
+		: context(ctx), program(prog), compiled_function(NULL), num_args(PacketizedOpenCLDriver::getNumArgs(f)), args(num_args),
 		argument_struct(NULL), argument_struct_size(0), num_dimensions(0), best_simd_dim(0),
 		function(f), function_wrapper(f_wrapper), function_SIMD(f_SIMD)
 	{
@@ -2331,7 +2332,6 @@ public:
 		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    collecting argument information...\n"; );
 
 		assert (num_args > 0); // TODO: don't we allow kernels without arguments? do they make sense?
-		args.reserve(num_args);
 
 		// determine size of each argument
 		size_t max_elem_size = 0;
