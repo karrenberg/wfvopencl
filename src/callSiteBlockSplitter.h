@@ -140,9 +140,9 @@ private:
 
 					// find instruction that precedes barrier (= split point)
 					Instruction* splitInst = NULL;
-					BasicBlock::iterator I = --(BB->end());
-					while (barrier != I) {
-						splitInst = I--;
+					BasicBlock::iterator I2 = --(BB->end());
+					while (barrier != I2) {
+						splitInst = I2--;
 					}
 					// 'newBlock' is the "lower" block, 'parentBlock' the "upper" one with the barrier
 					BB->splitBasicBlock(splitInst, BB->getNameStr()+".postbarrier");
