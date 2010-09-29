@@ -1358,7 +1358,7 @@ private:
 		}
 
 		SmallVector<ReturnInst*, 2> returns;
-		CloneFunctionInto(continuation, origFn, (*valueMap), returns, ".");
+		CloneFunctionInto(continuation, origFn, (*valueMap), false, returns, ".");
 
 
 		// Replace return instructions by 'return -1'
