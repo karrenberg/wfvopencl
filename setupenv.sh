@@ -16,7 +16,7 @@
 
 
 export PACKETIZER_INSTALL_DIR=/local/karrenberg/proj/packetizer/build/Release
-export LLVM_INSTALL_DIR=/local/karrenberg/proj/llvm-latest/
+export LLVM_INSTALL_DIR=/local/karrenberg/proj/llvm-2.8/
 
 export PATH=$PATH:./include
 export PATH=$PATH:$LLVM_INSTALL_DIR/Release/bin

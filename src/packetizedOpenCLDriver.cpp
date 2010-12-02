@@ -107,6 +107,12 @@
 #endif
 
 
+// HACK
+#ifdef PACKETIZED_OPENCL_DRIVER_DEBUG
+#undef PACKETIZED_OPENCL_DRIVER_DEBUG
+#endif
+#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+
 //----------------------------------------------------------------------------//
 // Tools
 //----------------------------------------------------------------------------//
@@ -1844,6 +1850,10 @@ namespace PacketizedOpenCLDriver {
 		strs << kernel_name << "_SIMD";
 		const std::string kernel_simd_name = strs.str();
 		llvm::Function* f_SIMD = PacketizedOpenCLDriver::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
+		if (!f_SIMD) {
+			errs() << "ERROR: could not create packet prototype for kernel '" << kernel_simd_name << "'!\n";
+			return NULL;
+		}
 
 		PacketizedOpenCLDriver::generateOpenCLFunctions(module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH);
 

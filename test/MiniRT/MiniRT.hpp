@@ -118,12 +118,12 @@ jurisdiction and venue of these courts.
 #define GROUP_SIZE 512
 
 /**
-* AmbientOcclusionRenderer 
-* Class implements OpenCL  AmbientOcclusionRenderer sample
+* MiniRT 
+* Class implements OpenCL  MiniRT sample
 * Derived from SDKSample base class
 */
 
-class AmbientOcclusionRenderer : public SDKSample
+class MiniRT : public SDKSample
 {
     cl_double setupTime;                /**< time taken to setup OpenCL resources and building kernel */
     cl_double kernelTime;               /**< time taken to run kernel and read result back */
@@ -158,7 +158,7 @@ public:
     * Initialize member variables
     * @param name name of sample (string)
     */
-    explicit AmbientOcclusionRenderer(std::string name)
+    explicit MiniRT(std::string name)
         : SDKSample(name),
         setupTime(0),
         kernelTime(0),
@@ -180,7 +180,7 @@ public:
     * Initialize member variables
     * @param name name of sample (const char*)
     */
-    explicit AmbientOcclusionRenderer(const char* name)
+    explicit MiniRT(const char* name)
         : SDKSample(name),
         setupTime(0),
         kernelTime(0),
@@ -197,13 +197,13 @@ public:
     {
     }
 
-    ~AmbientOcclusionRenderer();
+    ~MiniRT();
 
     /**
     * Allocate and initialize host memory array with random values
     * @return 1 on success and 0 on failure
     */
-    int setupAmbientOcclusionRenderer();
+    int setupMiniRT();
 
     /**
     * OpenCL related initialisations. 
@@ -241,7 +241,7 @@ public:
 
     /**
     * Override from SDKSample
-    * Run OpenCL AmbientOcclusionRenderer
+    * Run OpenCL MiniRT
     */
     int run();
 

@@ -426,6 +426,12 @@ namespace PacketizedOpenCLDriver {
 		assert (kernel->getParent() == mod);
 		LLVMContext& context = mod->getContext();
 
+		if (Function* fn = mod->getFunction(packetKernelName)) {
+			PACKETIZED_OPENCL_DRIVER_DEBUG( errs() << "WARNING: target packet prototype already exists, automatic generation skipped!\n"; );
+			fn->setName(packetKernelName);
+			return fn;
+		}
+
 		std::vector<const Type*> params;
 
 		for (Function::const_arg_iterator A=kernel->arg_begin(), AE=kernel->arg_end(); A!=AE; ++A) {

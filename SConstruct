@@ -112,6 +112,7 @@ FloydWarshall
 Histogram
 Mandelbrot
 MatrixTranspose
+MiniRT
 NBody
 NBodySimple
 PrefixSum
