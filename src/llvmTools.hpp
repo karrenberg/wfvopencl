@@ -29,6 +29,7 @@
 #include <set>
 
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/system_error.h> // error_code
 
 #include <llvm/Module.h>
 #include <llvm/Target/TargetData.h>
@@ -1171,12 +1172,12 @@ namespace PacketizedOpenCLDriver {
 
 		//create memory buffer for file
 
-		MemoryBuffer* fileBuffer =
-			MemoryBuffer::getFile(fileName.c_str(), &errorMessage);
+		OwningPtr<MemoryBuffer> fileBuffer;
+		error_code e = MemoryBuffer::getFile(fileName.c_str(), fileBuffer);
 
-		if (errorMessage != "") {
+		if (e) {
 			errs() << "Error reading file '"
-				<< fileName << "': " << errorMessage << "\n";
+				<< fileName << "': " << e.message() << "\n";
 			return NULL;
 		}
 
@@ -1193,7 +1194,7 @@ namespace PacketizedOpenCLDriver {
 
 		//parse file
 
-		Module* mod = ParseBitcodeFile(fileBuffer, getGlobalContext(), &errorMessage);
+		Module* mod = ParseBitcodeFile(fileBuffer.get(), getGlobalContext(), &errorMessage);
 
 		if (errorMessage != "") {
 			errs() << "Error reading bitcode file: " << errorMessage << "\n";
@@ -1339,7 +1340,7 @@ namespace PacketizedOpenCLDriver {
 	void setDataLayout(Module* mod, const std::string& dataLayout) {
 		mod->setDataLayout(dataLayout);
 	}
-	unsigned getTypeSizeInBits(const TargetData* targetData, const Type* type) {
+	uint64_t getTypeSizeInBits(const TargetData* targetData, const Type* type) {
 		assert (targetData && type);
 		return targetData->getTypeSizeInBits(type);
 	}
@@ -1831,10 +1832,10 @@ namespace PacketizedOpenCLDriver {
 									  const ArrayType * arrayType = static_cast<const ArrayType*>(type);
 									  const Type * elementType = arrayType->getElementType();
 									  std::vector<Constant*> elements;
-									  int numElements = arrayType->getNumElements();
+									  uint64_t numElements = arrayType->getNumElements();
 
 									  elements.resize(numElements);
-									  for(int index = 0; index < numElements; ++index) {
+									  for(uint64_t index = 0; index < numElements; ++index) {
 										  Constant * elementTarget;
 										  position = readConstant(elementTarget, elementType, position);
 										  elements.push_back(elementTarget);

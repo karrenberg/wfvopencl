@@ -117,7 +117,7 @@ private:
 
 		Function* continuation;
 
-		ValueMap<const Value*, Value*>* origFnValueMap;
+		ValueToValueMapTy* origFnValueMap;
 
 		void print(raw_ostream& o) const {
 			o << "barrier id   : " << id << "\n";
@@ -1239,7 +1239,7 @@ private:
 	}
 
 
-	void createLiveValueStoresForBarrier(BarrierInfo* barrierInfo, Function* f, ValueMap<const Value*, Value*>& origFnValueMap, LLVMContext& context) {
+	void createLiveValueStoresForBarrier(BarrierInfo* barrierInfo, Function* f, ValueToValueMapTy& origFnValueMap, LLVMContext& context) {
 		assert (barrierInfo && f);
 		assert (origFnValueMap.count(barrierInfo->barrier));
 
@@ -1324,7 +1324,7 @@ private:
 		//--------------------------------------------------------------------//
 		// We need a second value map only for the arguments because valueMap
 		// is given to CloneFunctionInto, which may overwrite these.
-		ValueMap<const Value*, Value*>* valueMap = new ValueMap<const Value*, Value*>();
+		ValueToValueMapTy* valueMap = new ValueToValueMapTy();
 		DenseMap<const Value*, Value*> liveValueToArgMap;
 		// CA has to point to first live value parameter of continuation
 		CA = --continuation->arg_end();
@@ -1745,17 +1745,17 @@ private:
 		//       correct bitcasts)
 		//--------------------------------------------------------------------//
 		// get max size
-		unsigned unionMaxSize = 0;
+		uint64_t unionMaxSize = 0;
 		for (ContinuationMapType::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 			BarrierInfo* binfo = it->second;
-			const unsigned size = targetData->getTypeAllocSize(binfo->liveValueStructType);
+			const uint64_t size = targetData->getTypeAllocSize(binfo->liveValueStructType);
 			if (size > unionMaxSize) unionMaxSize = size;
 		}
 		// adjust structs of all continuations whose live value struct is smaller than maxsize
 		for (ContinuationMapType::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 			BarrierInfo* binfo = it->second;
 			const StructType* liveValueStructType = binfo->liveValueStructType;
-			const unsigned size = targetData->getTypeAllocSize(liveValueStructType);
+			const uint64_t size = targetData->getTypeAllocSize(liveValueStructType);
 			if (size == unionMaxSize) {
 				binfo->liveValueStructTypePadded = binfo->liveValueStructType; // no need to pad, size matches
 				continue;
@@ -1793,7 +1793,7 @@ private:
 				// get barrier info of this continuation
 				BarrierInfo* contInfo = it->second;
 				// get value mapping from origFn to this continuation
-				ValueMap<const Value*, Value*>& origFnValueMap = *contInfo->origFnValueMap;
+				ValueToValueMapTy& origFnValueMap = *contInfo->origFnValueMap;
 
 				// if origBarrier does not exist in valuemap, we don't have to do anything
 				if (!origFnValueMap.count(origBarrier)) continue;
@@ -1951,7 +1951,7 @@ private:
 
 		// generate union for live value structs
 		assert (cMap[0] && cMap[0]->liveValueStructTypePadded);
-		const unsigned unionSize = targetData->getTypeAllocSize(cMap[0]->liveValueStructTypePadded);
+		const uint64_t unionSize = targetData->getTypeAllocSize(cMap[0]->liveValueStructTypePadded);
 		DEBUG_LA( outs() << "union size for live value structs: " << unionSize << "\n"; );
 		DEBUG_LA(
 			unsigned testUnionSize = unionSize;
@@ -1959,7 +1959,7 @@ private:
 				BarrierInfo* bit = it->second;
 				const StructType* liveValueStructTypePadded = bit->liveValueStructTypePadded;
 				assert (liveValueStructTypePadded);
-				const unsigned typeSize = targetData->getTypeAllocSize(liveValueStructTypePadded);
+				const uint64_t typeSize = targetData->getTypeAllocSize(liveValueStructTypePadded);
 				outs() << "type: " << *liveValueStructTypePadded << "\n";
 				outs() << "type size: " << typeSize << "\n";
 				assert (testUnionSize == typeSize && "type sizes for union have to match exactly!");
