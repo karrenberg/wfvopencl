@@ -7,6 +7,7 @@ debug         = ARGUMENTS.get('debug', 0)
 debug_runtime = ARGUMENTS.get('debug-runtime', 0)
 profile       = ARGUMENTS.get('profile', 0)
 use_openmp    = ARGUMENTS.get('openmp', 0)
+num_threads   = ARGUMENTS.get('threads', 0)
 packetize     = ARGUMENTS.get('packetize', 0)
 split         = ARGUMENTS.get('split', 0)
 
@@ -50,6 +51,8 @@ if int(profile):
 if int(use_openmp):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_OPENMP -fopenmp")
 	env.Append(LINKFLAGS = env.Split("-fopenmp"))
+	if int(num_threads):
+		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NUM_CORES="+num_threads)
 
 if not int(packetize):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION")
@@ -121,7 +124,6 @@ Reduction
 ScanLargeArrays
 SHA1
 SimpleConvolution
-Sobel
 TestSimple
 TestBarrier
 TestBarrier2

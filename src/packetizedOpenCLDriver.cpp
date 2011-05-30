@@ -67,7 +67,9 @@
 #define PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS 3
 #define PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH 4
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	#define PACKETIZED_OPENCL_DRIVER_NUM_CORES 4 // TODO: determine somehow, omp_get_num_threads() is dynamic (=1 here)
+	#ifndef PACKETIZED_OPENCL_DRIVER_NUM_CORES // can be supplied by build script
+		#define PACKETIZED_OPENCL_DRIVER_NUM_CORES 4 // TODO: determine somehow, omp_get_num_threads() does not work because it is dynamic (=1 if called here)
+	#endif
 #else
 	#define PACKETIZED_OPENCL_DRIVER_NUM_CORES 1
 #endif

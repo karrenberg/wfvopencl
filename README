@@ -2,9 +2,12 @@ required software:
 
 - scons
 - libglew1.5-dev
-- llvm2.8
+- glew-utils (?)
+- libglut3-dev (?)
+- LLVM 2.9 final
 - packetizer
-- ATI Stream SDK v2.1
+- ATI APP SDK
+- clc tool from former ATI Stream SDK (included in folder 'bin')
 
 installation:
 
@@ -13,14 +16,15 @@ installation:
 - install stream sdk
 	- place ICD registration config files in /etc/OpenCL/vendors or use christophs hack :p
 	- set ATISTREAMSDKROOT and ATISTREAMSDKSAMPLESROOT environment variables to stream sdk root dir
-	- build stream sdk (ignore errors related to CAL)
-- adjust 'setupenv.sh' and/or 'setupenvdebug.sh' to match your system (for llvm2.8 currently setupenvlatest/setupenvlatestdebug)
-- source 'setupenv.sh' or 'setupenvdebug.sh' to build in opt or debug mode
+	- build stream sdk (ignore errors related to CAL (only for SDK versions < 2.4)
+- adjust 'setupenv.sh' and/or 'setupenvdebug.sh' to match your system
+- source 'setupenv.sh' or 'setupenvdebug.sh' to build in opt or debug mode (= build against LLVM in debug or release mode)
 - run scons, options (default shown):
 	debug=0
 	debug-runtime=0
 	profile=0
 	packetize=0 (enable packetization)
-	openmp=0 (enable openmp multi threading (4 threads))
+	openmp=0 (enable openmp multi threading)
+	threads=0 (set number of threads to use if openmp is enabled (default: 4))
 	split=0  (disable mem access optimizations)
 	static=0 (build static driver library instead of shared)
