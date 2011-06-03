@@ -38,7 +38,7 @@
 #endif
 
 #ifndef PACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION
-#include "Packetizer/api.h" // packetizer
+#include "packetizerAPI.h" // packetizer
 #endif
 
 #ifdef PACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING
@@ -65,7 +65,15 @@
 #define PACKETIZED_OPENCL_DRIVER_ADDRESS_BITS 32
 #define PACKETIZED_OPENCL_DRIVER_MAX_WORK_GROUP_SIZE 100000//8192
 #define PACKETIZED_OPENCL_DRIVER_MAX_NUM_DIMENSIONS 3
-#define PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH 4
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_AVX
+	#undef PACKETIZED_OPENCL_DRIVER_USE_SSE41
+	#define PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH 8
+#else
+	#define PACKETIZED_OPENCL_DRIVER_USE_SSE41
+	#define PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH 4
+#endif
+
 #ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	#ifndef PACKETIZED_OPENCL_DRIVER_NUM_CORES // can be supplied by build script
 		#define PACKETIZED_OPENCL_DRIVER_NUM_CORES 4 // TODO: determine somehow, omp_get_num_threads() does not work because it is dynamic (=1 if called here)
@@ -164,6 +172,7 @@ namespace PacketizedOpenCLDriver {
 			llvm::Module* mod,
 			const cl_uint packetizationSize,
 			const bool use_sse41,
+			const bool use_avx,
 			const bool verbose)
 	{
 		if (!PacketizedOpenCLDriver::getFunction(kernelName, mod)) {
@@ -177,45 +186,36 @@ namespace PacketizedOpenCLDriver {
 			return false;
 		}
 
-		Packetizer::Packetizer* packetizer = Packetizer::getPacketizer(use_sse41, verbose);
-		Packetizer::addFunctionToPacketizer(
-				packetizer,
-				kernelName,
-				targetKernelName,
-				packetizationSize);
+		Packetizer::Packetizer packetizer(*mod, packetizationSize, packetizationSize, use_sse41, use_avx, verbose);
+
+		packetizer.addFunction(kernelName, targetKernelName);
 
 		// replace using this scheme:
 		// get_global_id       -> non-simd-dim, considered uniform, leave untouched
 		// get_global_id_split -> non-linear access, considered varying, replace by specially named packet function for later fixing
 		// get_global_id_SIMD  -> linear access, considered varying, replace by itself to load vector from single index
 		// see generateOpenCLFunctions() for more details
-		Packetizer::addNativeFunctionToPacketizer(
-				packetizer,
-				"get_global_id_split",
-				-1,
-				PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", mod),
-				true); // packetization is mandatory
-//		Packetizer::addNativeFunctionToPacketizer(
-//				packetizer,
-//				"get_global_id_SIMD",
-//				-1,
-//				PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", mod),
-//				true); // packetization is mandatory
+		packetizer.addNativeFunction( "get_global_id_split",
+									 -1,
+									 PacketizedOpenCLDriver::getFunction("get_global_id_split_SIMD", mod),
+									 true); // packetization is mandatory
 
-		Packetizer::addNativeFunctionToPacketizer(
-				packetizer,
-				"get_local_id_split",
-				-1,
-				PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", mod),
-				true); // packetization is mandatory
-//		Packetizer::addNativeFunctionToPacketizer(
-//				packetizer,
-//				"get_local_id_SIMD",
-//				-1,
-//				PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", mod),
-//				true); // packetization is mandatory
+		//packetizer.addNativeFunction( "get_global_id_SIMD",
+									 //-1,
+									 //PacketizedOpenCLDriver::getFunction("get_global_id_SIMD", mod),
+									 //true); // packetization is mandatory
 
-		Packetizer::runPacketizer(packetizer, mod);
+		packetizer.addNativeFunction("get_local_id_split",
+									 -1,
+									 PacketizedOpenCLDriver::getFunction("get_local_id_split_SIMD", mod),
+									 true); // packetization is mandatory
+
+		//packetizer.addNativeFunction("get_local_id_SIMD",
+									 //-1,
+									 //PacketizedOpenCLDriver::getFunction("get_local_id_SIMD", mod),
+									 //true); // packetization is mandatory
+
+		packetizer.run();
 
 		// will never fire (prototype declared)
 		//if (!PacketizedOpenCLDriver::getFunction(targetKernelName, mod)) {
@@ -1890,7 +1890,23 @@ namespace PacketizedOpenCLDriver {
 
 		// packetize scalar function into SIMD function
 		PACKETIZED_OPENCL_DRIVER_DEBUG( PacketizedOpenCLDriver::writeFunctionToFile(f, "debug_kernel_pre_packetization.ll"); );
-		const bool success = PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(), kernel_simd_name, module, PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, true, false);
+
+#ifdef PACKETIZED_OPENCL_DRIVER_USE_AVX
+		const bool use_sse41 = false;
+		const bool use_avx = true;
+#else
+		const bool use_sse41 = true;
+		const bool use_avx = false;
+#endif
+		const bool verbose = false;
+		const bool success = PacketizedOpenCLDriver::packetizeKernelFunction(f->getNameStr(),
+																			 kernel_simd_name,
+																			 module,
+																			 PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH,
+																			 use_sse41,
+																			 use_avx,
+																			 verbose);
+
 		if (!success) {
 			errs() << "ERROR: packetization of kernel failed!\n";
 			return NULL;
