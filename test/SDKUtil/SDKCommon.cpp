@@ -23,7 +23,7 @@ SDKCommon::getPath()
 {
 #ifdef _WIN32
     char buffer[MAX_PATH];
-	if(!GetModuleFileName(NULL, (LPWCH)buffer, sizeof(buffer)))
+	if(!GetModuleFileName(NULL, (LPCH)buffer, sizeof(buffer))) //was LPWCH before port to SCons
         throw std::string("GetModuleFileName() failed!");
     std::string str(buffer);
     /* '\' == 92 */

@@ -6,3 +6,5 @@ build/
 *.os
 *.a
 .sconsign.dblite
+*.obj
+*.exp

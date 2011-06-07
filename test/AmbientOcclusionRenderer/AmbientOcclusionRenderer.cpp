@@ -528,6 +528,7 @@ AmbientOcclusionRenderer::~AmbientOcclusionRenderer()
 
 int AmbientOcclusionRenderer::verifyResults()
 {
+	return 1;
 }
 
 
@@ -548,9 +549,15 @@ void initGL()
 
 double gettimeofday_sec()
 {
+#ifdef _WIN32
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+	return st.wSecond + (double)st.wMilliseconds*1e-3;
+#else
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return tv.tv_sec + (double)tv.tv_usec*1e-6;
+#endif
 }
 
 void displayGLWindow()

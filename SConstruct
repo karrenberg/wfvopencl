@@ -1,4 +1,6 @@
 import os
+import sys
+
 #env = Environment(ENV = {'PATH'            : os.environ['PATH'],
 #						 'LD_LIBRARY_PATH' : os.environ['LD_LIBRARY_PATH']})
 
@@ -11,7 +13,7 @@ num_threads   = ARGUMENTS.get('threads', 0)
 packetize     = ARGUMENTS.get('packetize', 0)
 split         = ARGUMENTS.get('split', 0)
 
-compile_static_lib_driver = ARGUMENTS.get('static', 0)
+compile_dynamic_lib_driver = ARGUMENTS.get('dynamic', 0)
 
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
@@ -19,16 +21,40 @@ if int(debug) and int(use_openmp):
 # simply clone entire environment
 env = Environment(ENV = os.environ)
 
-#env['CC'] = 'clang'    # no -fopenmp :(
-#env['CXX'] = 'clang++' # no -fopenmp :(
-env['CC'] = 'gcc'
-env['CXX'] = 'g++'
+# find out if we are on windows
+isWin = env['PLATFORM'] == 'win32' # query HOST_OS or TARGET_OS instead of PLATFORM?
+#print env['HOST_OS']
+#print env['HOST_ARCH']
+#print env['TARGET_OS']
+#print env['TARGET_ARCH']
+#print env['PLATFORM']
+#print env['ENV']
+
+if isWin:
+	env['CC'] = 'cl'
+	env['CXX'] = 'cl'
+else:
+	#env['CC'] = 'clang'    # no -fopenmp :(
+	#env['CXX'] = 'clang++' # no -fopenmp :(
+	env['CC'] = 'gcc'
+	env['CXX'] = 'g++'
 
 # query llvm-config
-llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
+if isWin:
+	llvm_vars = env.ParseFlags([
+	"-I/local/karrenberg/include -D_DEBUG -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -L/local/karrenberg/lib -lLLVMObject -lLLVMMCJIT -lLLVMMCDisassembler -lLLVMLinker -lLLVMipo -lLLVMInterpreter -lLLVMInstrumentation -lLLVMJIT -lLLVMExecutionEngine -lLLVMBitWriter -lLLVMX86Disassembler -lLLVMX86AsmParser -lLLVMX86CodeGen -lLLVMX86AsmPrinter -lLLVMX86Utils -lLLVMX86Info -lLLVMAsmParser -lLLVMArchive -lLLVMBitReader -lLLVMSelectionDAG -lLLVMAsmPrinter -lLLVMMCParser -lLLVMCodeGen -lLLVMScalarOpts -lLLVMInstCombine -lLLVMTransformUtils -lLLVMipa -lLLVMAnalysis -lLLVMTarget -lLLVMCore -lLLVMMC -lLLVMSupport -lshell32 -ladvapi32"
+	])
+else:
+	llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
 
 # set up CXXFLAGS
-cxxflags = env.Split("-Wall -pedantic -Wno-long-long -msse3")+llvm_vars.get('CCFLAGS')
+if isWin:
+	# 4710 = function is not 'inline'
+	# 4100 = unreferenzierter formaler parameter (unimplementierte API funktionen)
+	# 4541 = inline function without reference was removed
+	cxxflags = env.Split("/Wall /Zi /MDd /EHsc /wd4820 /wd4668 /wd4710 /wd4625 /wd4127 /wd4548 /wd4100")+llvm_vars.get('CCFLAGS')
+else:
+	cxxflags = env.Split("-Wall -pedantic -Wno-long-long -msse3")+llvm_vars.get('CCFLAGS')
 
 if int(debug) or int(debug_runtime):
 	cxxflags=cxxflags+env.Split("-O0 -g")
@@ -46,7 +72,7 @@ if int(profile):
 	cxxflags=cxxflags+env.Split("-g")
 	# disabled until we have 64bit VTune libraries
 	#cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING")
-	#compile_static_lib_driver=1
+	#compile_dynamic_lib_driver=0
 
 if int(use_openmp):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_OPENMP -fopenmp")
@@ -59,6 +85,9 @@ if not int(packetize):
 
 if int(split):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING")
+
+if int(packetize) and not int(compile_dynamic_lib_driver):
+	cxxflags=cxxflags+env.Split("-DPACKETIZER_STATIC_LIBS")
 
 
 env.Append(CXXFLAGS = cxxflags)
@@ -75,8 +104,13 @@ env.Append(LIBPATH = [os.path.join(env['ENV']['PACKETIZER_INSTALL_DIR'], 'lib')]
 env.Append(LIBPATH = llvm_vars.get('LIBPATH'))
 
 # set up libraries
+# glut and GLEW are not required for all, but this is easier :P
 driverLibs = llvm_vars.get('LIBS') + env.Split('Packetizer')
-appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut GLEW') # glut, GLEW not required for all, but this is easier :P
+if isWin:
+	# get glut from http://www.idfun.de/glut64/
+	appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut32 glew32')
+else:
+	appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut GLEW')
 
 # disabled until we have 64bit VTune libraries
 #if int(profile):
@@ -86,10 +120,10 @@ appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut GLEW') # glut, GLEW not
 
 # build Packetized OpenCL Driver
 driverSrc = env.Glob('src/*.cpp')
-if int(compile_static_lib_driver):
-	PacketizedOpenCLDriver = env.StaticLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
-else:
+if int(compile_dynamic_lib_driver):
 	PacketizedOpenCLDriver = env.SharedLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
+else:
+	PacketizedOpenCLDriver = env.StaticLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 
 
 # build AMD-ATI SDKUtil as a static library (required for test applications)
@@ -115,7 +149,6 @@ FloydWarshall
 Histogram
 Mandelbrot
 MatrixTranspose
-MiniRT
 NBody
 NBodySimple
 PrefixSum
@@ -133,13 +166,13 @@ Test2D
 TestLinearAccess
 """)
 
-if int(compile_static_lib_driver):
+if int(compile_dynamic_lib_driver):
 	for a in testApps:
-		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
+		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		env.Depends(App, SDKUtil)
 else:
 	for a in testApps:
-		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
+		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
 		env.Depends(App, SDKUtil)
 
 ###

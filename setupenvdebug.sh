@@ -1,5 +1,5 @@
 export PACKETIZER_INSTALL_DIR=$HOME/proj/packetizer
-export LLVM_INSTALL_DIR=$HOME/proj/anysl2/install/build-gcc-debug-x86_64/llvm
+export LLVM_INSTALL_DIR=$HOME/proj/llvm-2.9
 export PATH=$PATH:./bin/x86_64
 
 export PATH=$PATH:./include

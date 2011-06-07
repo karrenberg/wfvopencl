@@ -27,4 +27,8 @@ installation:
 	openmp=0 (enable openmp multi threading)
 	threads=0 (set number of threads to use if openmp is enabled (default: 4))
 	split=0  (disable mem access optimizations)
-	static=0 (build static driver library instead of shared)
+	dynamic=0 (build dynamic driver library instead of static)
+
+windows installation:
+
+- copy glut32.dll and glew32.dll from lib to Windows/system32

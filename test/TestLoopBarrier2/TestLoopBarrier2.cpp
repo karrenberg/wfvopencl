@@ -54,7 +54,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#if !defined(_WIN32)
 #include <unistd.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 

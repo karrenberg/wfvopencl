@@ -113,7 +113,13 @@ jurisdiction and venue of these courts.
 //#define USE_TEXTURE
 
 #include <iostream>
+
+#if defined(_WIN32)
+#include <time.h>
+#include <windows.h>
+#else
 #include <sys/time.h>
+#endif
 
 #define GROUP_SIZE 512
 
