@@ -118,10 +118,10 @@
 
 
 // HACK
-#ifdef PACKETIZED_OPENCL_DRIVER_DEBUG
-#undef PACKETIZED_OPENCL_DRIVER_DEBUG
-#endif
-#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
+//#ifdef PACKETIZED_OPENCL_DRIVER_DEBUG
+//#undef PACKETIZED_OPENCL_DRIVER_DEBUG
+//#endif
+//#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
 
 //----------------------------------------------------------------------------//
 // Tools
@@ -3882,219 +3882,6 @@ clEnqueueUnmapMemObject(cl_command_queue command_queue,
 }
 
 
-#if 0
-inline cl_int executeRangeKernelNDOLD(cl_kernel kernel, cl_uint num_dimensions, const size_t* global_work_size, const size_t* local_work_size) {
-
-	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	PACKETIZED_OPENCL_DRIVER_DEBUG( errs() << "WARNING: clEnqueueNDRangeKernels with work_dim > 1 currently does not support multithreading - falling back to single-thread mode!\n"; );
-	#endif
-
-	typedef void (*kernelFnPtr)(
-			const void*,
-			const cl_uint,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*);
-	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
-
-	const void* argument_struct = kernel->get_argument_struct();
-
-	// TODO: move allocation somewhere else
-	size_t* num_groups = new size_t[num_dimensions](); // #groups per dimension
-	size_t* cur_global = new size_t[num_dimensions](); // ids per dimension
-	size_t* cur_local = new size_t[num_dimensions](); // ids per dimension
-	size_t* cur_group = new size_t[num_dimensions](); // ids per dimension
-
-	for (unsigned cur_work_dim=0; cur_work_dim < num_dimensions; ++cur_work_dim) {
-		const size_t groupnr = global_work_size[cur_work_dim] / local_work_size[cur_work_dim];
-		// if local size is larger than global size, groupnr is 0 but we have one group ;)
-		num_groups[cur_work_dim] = groupnr == 0 ? 1 : groupnr;
-
-		cur_global[cur_work_dim] = 0;
-		cur_local[cur_work_dim] = 0;
-		cur_group[cur_work_dim] = 0;
-	}
-
-
-	bool kernel_finished = false;
-	do {
-
-		bool group_finished = false;
-		do {
-			PACKETIZED_OPENCL_DRIVER_DEBUG(
-				outs() << "\nexecuting kernel...\n  global:";
-				for (unsigned i=0; i<num_dimensions; ++i) {
-					outs() << " " << get_global_id(i);
-				}
-				outs() << "\n  local:";
-				for (unsigned i=0; i<num_dimensions; ++i) {
-					outs() << " " << get_local_id(i);
-				}
-				outs() << "\n  group:";
-				for (unsigned i=0; i<num_dimensions; ++i) {
-					outs() << " " << get_group_id(i);
-				}
-				outs() << "\n";
-			);
-
-			// execute kernel
-			const cl_uint argument_get_work_dim = num_dimensions;
-
-			const cl_uint argument_get_global_size[3] = { global_work_size[0] };
-			const cl_uint argument_get_global_id[3] = { cur_global[0] };
-			const cl_uint argument_get_local_size[3] = { local_work_size[0] };
-			const cl_uint argument_get_num_groups[3] = { num_groups[0] };
-			const cl_uint argument_get_group_id[3] = { cur_group[0] };
-			const cl_uint argument_get_local_id[3] = { cur_local[0] };
-
-			typedPtr(
-					argument_struct,
-					argument_get_work_dim,
-					argument_get_global_size,
-					argument_get_global_id,
-					argument_get_local_size,
-					argument_get_num_groups,
-					argument_get_group_id,
-					argument_get_local_id
-			);
-
-			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "kernel execution finished!\n"; );
-
-			for (int cur_work_dim=num_dimensions-1; cur_work_dim >= 0; --cur_work_dim) {
-				++cur_local[cur_work_dim];
-				++cur_global[cur_work_dim];
-
-				// if local work size is allowed to be larger than global work
-				// size, we additionally need to check global id.
-				if (cur_local[cur_work_dim] >= local_work_size[cur_work_dim] ||
-						cur_global[cur_work_dim] >= global_work_size[cur_work_dim]) {
-					if (cur_work_dim == 0) {
-						group_finished = true;
-						// globals are updated after group update
-						break;
-					}
-					cur_local[cur_work_dim] = 0;
-
-					//cur_global[cur_work_dim] -= local_work_size[cur_work_dim]
-					cur_global[cur_work_dim] = cur_group[cur_work_dim] * local_work_size[cur_work_dim];
-				} else {
-					break;
-				}
-			}
-
-		} while (!group_finished);
-
-
-
-		// update group ids of all dimensions (leave untouched, increment, or reset)
-		// This means we perform exactly one increment and at most one reset
-		for (int cur_work_dim=num_dimensions-1; cur_work_dim >= 0; --cur_work_dim) {
-			// Increment group id of dimension for next iteration
-			++cur_group[cur_work_dim];
-
-			if (cur_group[cur_work_dim] >= num_groups[cur_work_dim]) {
-				// Dimension is finished: Reset corresponding group index to 0
-				// If this is the outermost loop (cur_work_dim = 0), stop iterating.
-				// (This means all dimensions have reached their max index.)
-				if (cur_work_dim == 0) {
-					kernel_finished = true;
-					break;
-				}
-				cur_group[cur_work_dim] = 0;
-			} else {
-				// Otherwise, this dimension has not reached its maximum,
-				// so we stop updating (= leave all outer indices untouched).
-				break;
-			}
-		}
-
-		if (kernel_finished) break;
-
-		// update global ids using info of new group
-		for (int cur_work_dim=num_dimensions-1; cur_work_dim >= 0; --cur_work_dim) {
-			cur_global[cur_work_dim] = cur_group[cur_work_dim] * local_work_size[cur_work_dim];
-		}
-
-	} while (!kernel_finished);
-
-	delete [] num_groups;
-	delete [] cur_global;
-	delete [] cur_local;
-	delete [] cur_group;
-
-	return CL_SUCCESS;
-}
-inline cl_int executeRangeKernel1DPacketOLD(cl_kernel kernel, const size_t global_work_size, const size_t local_work_size) {
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_work_size: " << global_work_size << "\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  local_work_size: " << local_work_size << "\n"; );
-	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
-	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
-
-	const size_t groupnr = global_work_size / local_work_size;
-	const cl_uint argument_get_global_size = global_work_size;
-	const cl_uint argument_get_local_size  = local_work_size;
-	const cl_uint argument_get_num_groups  = groupnr == 0 ? 1 : groupnr;
-	const __m128i argument_get_local_id_SIMD  = _mm_set_epi32(3, 2, 1, 0);
-	typedef void (*kernelFnPtr)(
-			const void*,
-			const cl_uint,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const cl_uint*,
-			const __m128i*,
-			const __m128i*);
-	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
-
-	const void* argument_struct = kernel->get_argument_struct();
-
-	//
-	// execute the kernel
-	//
-	const size_t num_iterations = global_work_size / PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH; //local_work_size; // = #groups
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "global_size(" << 0 << "): " << get_global_size(0) << "\n"; );
-
-	unsigned i;
-	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
-	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
-	#pragma omp parallel for default(none) private(i) shared(argument_struct, typedPtr)
-	#endif
-	for (i=0; i<num_iterations; ++i) {
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\niteration " << i << "\n"; );
-
-		const cl_uint argument_get_global_id      = i;
-		const cl_uint argument_get_group_id       = i;
-		const unsigned id0 = i * 4;
-		const __m128i argument_get_global_id_SIMD = _mm_set_epi32(id0 + 3, id0 + 2, id0 + 1, id0);
-
-		typedPtr(
-			argument_struct,
-			1U,
-			&argument_get_global_size,
-			&argument_get_global_id,
-			&argument_get_local_size,
-			&argument_get_num_groups,
-			&argument_get_group_id,
-			&argument_get_global_id_SIMD,
-			&argument_get_local_id_SIMD
-		);
-
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
-			outs() << "  iteration " << i << " finished!\n";
-			verifyModule(*kernel->get_program()->module);
-		);
-	}
-
-	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "execution of kernel finished!\n"; );
-
-	return CL_SUCCESS;
-}
-#endif
 
 inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_size, const size_t local_work_size) {
 	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  global_work_size: " << global_work_size << "\n"; );
@@ -4107,7 +3894,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 			const cl_uint,
 			const cl_uint*,
 			const cl_uint*,
-			const cl_uint*);
+			const cl_int*);
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	const void* argument_struct = kernel->get_argument_struct();
@@ -4156,7 +3943,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 
 	assert (num_iterations > 0 && "should give error message before executeRangeKernel!");
 
-	cl_uint i;
+	cl_int i;
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
 	#pragma omp parallel for default(none) private(i) shared(argument_struct, typedPtr)
@@ -4207,7 +3994,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 			const cl_uint,
 			const cl_uint*,
 			const cl_uint*,
-			const cl_uint*);
+			const cl_int*);
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	const void* argument_struct = kernel->get_argument_struct();
@@ -4227,7 +4014,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && "should give error message before executeRangeKernel!");
 
-	cl_uint i, j;
+	cl_int i, j;
 	
 	for (i=0; i<num_iterations_0; ++i) {
 		#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
@@ -4238,7 +4025,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << " (= group ids)\n"; );
 			PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
-			const cl_uint group_id[2] = { i, j };
+			const cl_int group_id[2] = { i, j };
 
 			typedPtr(
 				argument_struct,
@@ -4270,7 +4057,7 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 			const cl_uint,
 			const cl_uint*,
 			const cl_uint*,
-			const cl_uint*);
+			const cl_int*);
 	kernelFnPtr typedPtr = ptr_cast<kernelFnPtr>(kernel->get_compiled_function());
 
 	const void* argument_struct = kernel->get_argument_struct();
@@ -4289,7 +4076,7 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && num_iterations_2 && "should give error message before executeRangeKernel!");
 
-	cl_uint i, j, k;
+	cl_int i, j, k;
 	#ifdef PACKETIZED_OPENCL_DRIVER_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_DRIVER_MAX_NUM_THREADS);
 	#pragma omp parallel for default(none) private(i, j, k) shared(argument_struct, typedPtr, modified_global_work_size, modified_local_work_size)
@@ -4300,7 +4087,7 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << "/" << k << " (= group ids)\n"; );
 				PACKETIZED_OPENCL_DRIVER_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
-				const cl_uint group_id[3] = { i, j, k };
+				const cl_int group_id[3] = { i, j, k };
 
 				typedPtr(
 					argument_struct,

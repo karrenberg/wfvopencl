@@ -42,41 +42,51 @@ else:
 # query llvm-config
 if isWin:
 	llvm_vars = env.ParseFlags([
-	"-I/local/karrenberg/include -D_DEBUG -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -L/local/karrenberg/lib -lLLVMObject -lLLVMMCJIT -lLLVMMCDisassembler -lLLVMLinker -lLLVMipo -lLLVMInterpreter -lLLVMInstrumentation -lLLVMJIT -lLLVMExecutionEngine -lLLVMBitWriter -lLLVMX86Disassembler -lLLVMX86AsmParser -lLLVMX86CodeGen -lLLVMX86AsmPrinter -lLLVMX86Utils -lLLVMX86Info -lLLVMAsmParser -lLLVMArchive -lLLVMBitReader -lLLVMSelectionDAG -lLLVMAsmPrinter -lLLVMMCParser -lLLVMCodeGen -lLLVMScalarOpts -lLLVMInstCombine -lLLVMTransformUtils -lLLVMipa -lLLVMAnalysis -lLLVMTarget -lLLVMCore -lLLVMMC -lLLVMSupport -lshell32 -ladvapi32"
+	"-I/local/karrenberg/include -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -L/local/karrenberg/lib -lLLVMObject -lLLVMMCJIT -lLLVMMCDisassembler -lLLVMLinker -lLLVMipo -lLLVMInterpreter -lLLVMInstrumentation -lLLVMJIT -lLLVMExecutionEngine -lLLVMBitWriter -lLLVMX86Disassembler -lLLVMX86AsmParser -lLLVMX86CodeGen -lLLVMX86AsmPrinter -lLLVMX86Utils -lLLVMX86Info -lLLVMAsmParser -lLLVMArchive -lLLVMBitReader -lLLVMSelectionDAG -lLLVMAsmPrinter -lLLVMMCParser -lLLVMCodeGen -lLLVMScalarOpts -lLLVMInstCombine -lLLVMTransformUtils -lLLVMipa -lLLVMAnalysis -lLLVMTarget -lLLVMCore -lLLVMMC -lLLVMSupport -lshell32 -ladvapi32"
 	])
 else:
 	llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
 
 # set up CXXFLAGS
 if isWin:
-	# 4710 = function is not 'inline'
-	# 4100 = unreferenzierter formaler parameter (unimplementierte API funktionen)
-	# 4541 = inline function without reference was removed
-	cxxflags = env.Split("/Wall /Zi /MDd /EHsc /wd4820 /wd4668 /wd4710 /wd4625 /wd4127 /wd4548 /wd4100")+llvm_vars.get('CCFLAGS')
+	# /Wall gives LOTS of warnings -> leave at default warning level
+	cxxflags = env.Split("/MDd /EHsc")+llvm_vars.get('CCFLAGS')
 else:
 	cxxflags = env.Split("-Wall -pedantic -Wno-long-long -msse3")+llvm_vars.get('CCFLAGS')
 
 if int(debug) or int(debug_runtime):
-	cxxflags=cxxflags+env.Split("-O0 -g")
+	if isWin:
+		cxxflags=cxxflags+env.Split("/Od /Zi")
+	else:
+		cxxflags=cxxflags+env.Split("-O0 -g")
 
 if int(debug):
-	cxxflags=cxxflags+env.Split("-DDEBUG")
+	cxxflags=cxxflags+env.Split("-DDEBUG -D_DEBUG")
 
 if int(debug_runtime):
 	cxxflags=cxxflags+env.Split("-DDEBUG_RUNTIME")
 
 if not int(debug) and not int(debug_runtime):
-	cxxflags=cxxflags+env.Split("-O3 -DNDEBUG")
+	if isWin:
+		cxxflags=cxxflags+env.Split("/Ox -DNDEBUG")
+	else:
+		cxxflags=cxxflags+env.Split("-O3 -DNDEBUG")
 
 if int(profile):
-	cxxflags=cxxflags+env.Split("-g")
+	if isWin:
+		cxxflags=cxxflags+env.Split("/Od /Zi")
+	else:
+		cxxflags=cxxflags+env.Split("-O0 -g")
 	# disabled until we have 64bit VTune libraries
 	#cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING")
 	#compile_dynamic_lib_driver=0
 
 if int(use_openmp):
-	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_OPENMP -fopenmp")
-	env.Append(LINKFLAGS = env.Split("-fopenmp"))
+	if isWin:
+		cxxflags=cxxflags+env.Split("/DPACKETIZED_OPENCL_DRIVER_USE_OPENMP /openmp")
+	else:
+		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_OPENMP -fopenmp")
+		env.Append(LINKFLAGS = env.Split("-fopenmp"))
 	if int(num_threads):
 		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NUM_CORES="+num_threads)
 
