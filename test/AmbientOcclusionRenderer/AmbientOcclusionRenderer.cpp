@@ -198,16 +198,19 @@ int AmbientOcclusionRenderer::setupCL()
     }
 
     /* create a CL program using the kernel source */
-    //streamsdk::SDKFile kernelFile;
-    //std::string kernelPath = sampleCommon->getPath();
-    //kernelPath.append("AmbientOcclusionRenderer_Kernels.cl");
-    //if(!kernelFile.open(kernelPath.c_str()))
-    //{
-        //std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
-        //return SDK_FAILURE;
-    //}
-    //const char * source = kernelFile.source().c_str();
+#ifdef TESTBENCH_BUILD_FROM_CL
+    streamsdk::SDKFile kernelFile;
+    std::string kernelPath = sampleCommon->getPath();
+    kernelPath.append("AmbientOcclusionRenderer_Kernels.cl");
+    if(!kernelFile.open(kernelPath.c_str()))
+    {
+        std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+        return SDK_FAILURE;
+    }
+    const char * source = kernelFile.source().c_str();
+#else
     const char * source = "AmbientOcclusionRenderer_Kernels.bc";
+#endif
     size_t sourceSize[] = { strlen(source) };
     program = clCreateProgramWithSource(
         context,

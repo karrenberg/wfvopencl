@@ -1,5 +1,4 @@
 import os
-import sys
 
 #env = Environment(ENV = {'PATH'            : os.environ['PATH'],
 #						 'LD_LIBRARY_PATH' : os.environ['LD_LIBRARY_PATH']})
@@ -145,45 +144,88 @@ env.Depends(SDKUtil, PacketizedOpenCLDriver)
 ###
 
 testApps = env.Split("""
-AmbientOcclusionRenderer
-BinomialOption
-BinomialOptionSimple
-BitonicSort
-BlackScholes
-BlackScholesSimple
-DCT
-DwtHaar1D
-EigenValue
 FastWalshTransform
-FloydWarshall
-Histogram
-Mandelbrot
-MatrixTranspose
-NBody
-NBodySimple
-PrefixSum
-RadixSort
-Reduction
-ScanLargeArrays
-SHA1
-SimpleConvolution
-TestSimple
-TestBarrier
-TestBarrier2
-TestLoopBarrier
-TestLoopBarrier2
-Test2D
-TestLinearAccess
 """)
+
+#testApps = env.Split("""
+#AmbientOcclusionRenderer
+#BinomialOption
+#BinomialOptionSimple
+#BitonicSort
+#BlackScholes
+#BlackScholesSimple
+#DCT
+#DwtHaar1D
+#EigenValue
+#FastWalshTransform
+#FloydWarshall
+#Histogram
+#Mandelbrot
+#MatrixTranspose
+#NBody
+#NBodySimple
+#PrefixSum
+#RadixSort
+#Reduction
+#ScanLargeArrays
+#SHA1
+#SimpleConvolution
+#TestSimple
+#TestBarrier
+#TestBarrier2
+#TestLoopBarrier
+#TestLoopBarrier2
+#Test2D
+#TestLinearAccess
+#""")
 
 if int(compile_dynamic_lib_driver):
 	for a in testApps:
+		Obj = env.StaticObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
+		env.Depends(App, Obj)
 		env.Depends(App, SDKUtil)
 else:
 	for a in testApps:
+		Obj = env.StaticObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
+		env.Depends(App, Obj)
 		env.Depends(App, SDKUtil)
+
+
+###
+### build test applications against AMD OpenCL driver ###
+###
+
+env2 = env.Clone()
+env2.Append(CXXFLAGS = env.Split('-DTESTBENCH_BUILD_FROM_CL'))
+env2.Append(LIBPATH = [os.path.join(env['ENV']['ATISTREAMSDKROOT'], 'lib/x86_64')])
+appLibs2 = env2.Split('ATIOpenCL SDKUtil glut32 glew32')
+Execute(Mkdir('build/bin/AMD'))
+for a in testApps:
+	Execute(Copy('build/bin/AMD', 'test/'+a+'/'+a+'_Kernels.cl'))
+	Obj = env2.StaticObject('build/obj/AMD/'+a, env2.Glob('test/'+a+'/*.cpp'), LIBS=appLibs2)
+	App = env2.Program('build/bin/AMD/'+a, env2.Glob('build/obj/AMD/'+a+'.obj'), LIBS=appLibs2)
+	env2.Depends(App, Obj)
+	env2.Depends(App, SDKUtil)
+
+###
+### build test applications against Intel OpenCL driver ###
+###
+
+env3 = env.Clone()
+env3.Append(CXXFLAGS = env.Split('-DTESTBENCH_BUILD_FROM_CL'))
+env3.Append(LIBPATH = [os.path.join(env['ENV']['INTELOCLSDKROOT'], 'lib/x64')])
+appLibs3 = env3.Split('IntelOpenCL SDKUtil glut32 glew32')
+Execute(Mkdir('build/bin/Intel'))
+for a in testApps:
+	Execute(Copy('build/bin/Intel', 'test/'+a+'/'+a+'_Kernels.cl'))
+	Obj = env3.StaticObject('build/obj/Intel/'+a, env3.Glob('test/'+a+'/*.cpp'), LIBS=appLibs3)
+	App = env3.Program('build/bin/Intel/'+a, env3.Glob('build/obj/Intel/'+a+'.obj'), LIBS=appLibs3)
+	env3.Depends(App, Obj)
+	env3.Depends(App, SDKUtil)
+
+
 
 ###
 ### build bitcode from OpenCL files ###

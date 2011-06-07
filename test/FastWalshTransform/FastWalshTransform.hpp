@@ -139,7 +139,7 @@ public:
     FastWalshTransform(std::string name)
         : SDKSample(name){
             seed = 123;
-            length = 64;
+            length = 1024;
             input = NULL;
             verificationInput = NULL;
             setupTime = 0;
@@ -155,7 +155,7 @@ public:
     FastWalshTransform(const char* name)
         : SDKSample(name){
             seed = 123;
-            length = 64;
+            length = 1024;
             input = NULL;
             verificationInput = NULL;
             setupTime = 0;

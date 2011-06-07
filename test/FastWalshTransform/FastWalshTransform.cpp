@@ -297,11 +297,19 @@ FastWalshTransform::setupCL(void)
         return SDK_FAILURE;
 
     /* create a CL program using the kernel source */
-    //streamsdk::SDKFile kernelFile;
-    //std::string kernelPath = sampleCommon->getPath();
-    //kernelPath.append("FastWalshTransform_Kernels.cl");
-    //kernelFile.open(kernelPath.c_str());
-    const char * source = "FastWalshTransform_Kernels.bc"; //kernelFile.source().c_str();
+#ifdef TESTBENCH_BUILD_FROM_CL
+    streamsdk::SDKFile kernelFile;
+    std::string kernelPath = sampleCommon->getPath();
+    kernelPath.append("FastWalshTransform_Kernels.cl");
+    if (!kernelFile.open(kernelPath.c_str()))
+	{
+		std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+		return SDK_FAILURE;
+	}
+    const char * source = kernelFile.source().c_str();
+#else
+    const char * source = "FastWalshTransform_Kernels.bc";
+#endif
     size_t sourceSize[] = { strlen(source) };
     program = clCreateProgramWithSource(
         context,
@@ -377,7 +385,7 @@ FastWalshTransform::runCLKernels(void)
      * is stored in the same locations as the numbers
      */
     globalThreads[0] = length/2;
-    localThreads[0]  = 1;
+    localThreads[0]  = 256;//1;
 
     /* Check group size against kernelWorkGroupSize */
     status = clGetKernelWorkGroupInfo(kernel,
