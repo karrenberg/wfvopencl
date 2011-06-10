@@ -97,11 +97,6 @@ FastWalshTransform::setupFastWalshTransform()
 {
     cl_uint inputSizeBytes;
 
-	if(length < 512)
-	{
-		length = 512;
-	}
-
     /* allocate and init memory used by host */
     inputSizeBytes = length * sizeof(cl_float);
     input = (cl_float *) malloc(inputSizeBytes);
@@ -146,366 +141,6 @@ FastWalshTransform::setupFastWalshTransform()
     return SDK_SUCCESS;
 }
 
-
-int 
-FastWalshTransform::genBinaryImage()
-{
-    cl_int status = CL_SUCCESS;
-
-    /*
-     * Have a look at the available platforms and pick either
-     * the AMD one if available or a reasonable default.
-     */
-    cl_uint numPlatforms;
-    cl_platform_id platform = NULL;
-    status = clGetPlatformIDs(0, NULL, &numPlatforms);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clGetPlatformIDs failed."))
-    {
-        return SDK_FAILURE;
-    }
-    if (0 < numPlatforms) 
-    {
-        cl_platform_id* platforms = new cl_platform_id[numPlatforms];
-        status = clGetPlatformIDs(numPlatforms, platforms, NULL);
-        if(!sampleCommon->checkVal(status,
-                                   CL_SUCCESS,
-                                   "clGetPlatformIDs failed."))
-        {
-            return SDK_FAILURE;
-        }
-
-        char platformVendor[100];
-		char platformName[100];
-        for (unsigned i = 0; i < numPlatforms; ++i) 
-        {
-            status = clGetPlatformInfo(platforms[i],
-                                       CL_PLATFORM_VENDOR,
-                                       sizeof(platformVendor),
-                                       platformVendor,
-                                       NULL);
-
-            if(!sampleCommon->checkVal(status,
-                                       CL_SUCCESS,
-                                       "clGetPlatformInfo failed."))
-            {
-                return SDK_FAILURE;
-            }
-
-
-			status = clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, sizeof(platformName), platformName, NULL);
-			if (!sampleCommon->checkVal(status, CL_SUCCESS, "clGetPlatformInfo CL_PLATFORM_NAME failed."))
-			{
-				return SDK_FAILURE;
-			}
-
-			printf("OpenCL platform available: %s\n", platformName);
-
-            platform = platforms[i];
-
-#ifdef USE_OPENCL_DRIVER_AMD
-			if (!strcmp(platformVendor, "Advanced Micro Devices, Inc."))
-#endif
-#ifdef USE_OPENCL_DRIVER_INTEL
-			if (!strcmp(platformVendor, "Intel(R) Corporation"))
-#endif
-			{
-				printf("\nChose platform from vendor: %s\n", platformVendor);
-				break;
-			}
-        }
-        std::cout << "Platform found : " << platformName << "\n";
-        delete[] platforms;
-    }
-
-    if(NULL == platform)
-    {
-        sampleCommon->error("NULL platform found so Exiting Application.");
-        return SDK_FAILURE;
-    }
-
-    /* Get Device specific Information */
-	char deviceName[128] = {0};
-	char deviceType[128] = {0};
-	char driverVersion[128] = {0};
-
-    status = clGetDeviceInfo(devices[0], CL_DEVICE_NAME, 128, deviceName, NULL);
-    if(!sampleCommon->checkVal(status, CL_SUCCESS, "clGetDeviceInfo CL_DEVICE_NAME failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    status = clGetDeviceInfo(devices[0], CL_DRIVER_VERSION, 128, driverVersion, NULL);
-    if(!sampleCommon->checkVal(status, CL_SUCCESS, "clGetDeviceInfo CL_DRIVER_VERSION failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-	printf("Running on device: %s\n", deviceName);
-	printf("  driver version: %s\n", driverVersion);
-
-    /*
-     * If we could find our platform, use it. Otherwise use just available platform.
-     */
-    cl_context_properties cps[5] = 
-    {
-        CL_CONTEXT_PLATFORM, 
-        (cl_context_properties)platform, 
-        CL_CONTEXT_OFFLINE_DEVICES_AMD,
-        (cl_context_properties)1,
-        0
-    };
-
-    context = clCreateContextFromType(cps,
-                                      CL_DEVICE_TYPE_ALL,
-                                      NULL,
-                                      NULL,
-                                      &status);
-
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clCreateContextFromType failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    /* create a CL program using the kernel source */
-#ifdef TESTBENCH_BUILD_FROM_CL
-    streamsdk::SDKFile kernelFile;
-    std::string kernelPath = sampleCommon->getPath();
-    kernelPath.append("FastWalshTransform_Kernels.cl");
-    if(!kernelFile.open(kernelPath.c_str()))
-    {
-        std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
-        return SDK_FAILURE;
-    }
-    const char * source = kernelFile.source().c_str();
-#else
-    const char * source = "FastWalshTransform_Kernels.bc";
-#endif
-    size_t sourceSize[] = {strlen(source)};
-    program = clCreateProgramWithSource(context,
-                                        1,
-                                        &source,
-                                        sourceSize,
-                                        &status);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clCreateProgramWithSource failed."))
-    {
-        return SDK_FAILURE;
-    }
-    
-    std::string flagsStr = std::string("");
-
-    // Get additional options
-    if(isComplierFlagsSpecified())
-    {
-        streamsdk::SDKFile flagsFile;
-        std::string flagsPath = sampleCommon->getPath();
-        flagsPath.append(flags.c_str());
-        if(!flagsFile.open(flagsPath.c_str()))
-        {
-            std::cout << "Failed to load flags file: " << flagsPath << std::endl;
-            return SDK_FAILURE;
-        }
-        flagsFile.replaceNewlineWithSpaces();
-        const char * flags = flagsFile.source().c_str();
-        flagsStr.append(flags);
-    }
-
-    if(flagsStr.size() != 0)
-        std::cout << "Build Options are : " << flagsStr.c_str() << std::endl;
-
-
-    /* create a cl program executable for all the devices specified */
-    status = clBuildProgram(program,
-                            0,
-                            NULL,
-                            flagsStr.c_str(),
-                            NULL,
-                            NULL);
-
-    sampleCommon->checkVal(status,
-                        CL_SUCCESS,
-                        "clBuildProgram failed.");
-
-    size_t numDevices;
-    status = clGetProgramInfo(program, 
-                           CL_PROGRAM_NUM_DEVICES,
-                           sizeof(numDevices),
-                           &numDevices,
-                           NULL );
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clGetProgramInfo(CL_PROGRAM_NUM_DEVICES) failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    std::cout << "Number of devices found : " << numDevices << "\n\n";
-    devices = (cl_device_id *)malloc( sizeof(cl_device_id) * numDevices );
-    if(devices == NULL)
-    {
-        sampleCommon->error("Failed to allocate host memory.(devices)");
-        return SDK_FAILURE;
-    }
-    /* grab the handles to all of the devices in the program. */
-    status = clGetProgramInfo(program, 
-                              CL_PROGRAM_DEVICES, 
-                              sizeof(cl_device_id) * numDevices,
-                              devices,
-                              NULL );
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clGetProgramInfo(CL_PROGRAM_DEVICES) failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-
-    /* figure out the sizes of each of the binaries. */
-    size_t *binarySizes = (size_t*)malloc( sizeof(size_t) * numDevices );
-    if(devices == NULL)
-    {
-        sampleCommon->error("Failed to allocate host memory.(binarySizes)");
-        return SDK_FAILURE;
-    }
-    
-    status = clGetProgramInfo(program, 
-                              CL_PROGRAM_BINARY_SIZES,
-                              sizeof(size_t) * numDevices, 
-                              binarySizes, NULL);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clGetProgramInfo(CL_PROGRAM_BINARY_SIZES) failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    size_t i = 0;
-    /* copy over all of the generated binaries. */
-    char **binaries = (char **)malloc( sizeof(char *) * numDevices );
-    if(binaries == NULL)
-    {
-        sampleCommon->error("Failed to allocate host memory.(binaries)");
-        return SDK_FAILURE;
-    }
-
-    for(i = 0; i < numDevices; i++)
-    {
-        if(binarySizes[i] != 0)
-        {
-            binaries[i] = (char *)malloc( sizeof(char) * binarySizes[i]);
-            if(binaries[i] == NULL)
-            {
-                sampleCommon->error("Failed to allocate host memory.(binaries[i])");
-                return SDK_FAILURE;
-            }
-        }
-        else
-        {
-            binaries[i] = NULL;
-        }
-    }
-    status = clGetProgramInfo(program, 
-                              CL_PROGRAM_BINARIES,
-                              sizeof(char *) * numDevices, 
-                              binaries, 
-                              NULL);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clGetProgramInfo(CL_PROGRAM_BINARIES) failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    /* dump out each binary into its own separate file. */
-    for(i = 0; i < numDevices; i++)
-    {
-        char fileName[100];
-        sprintf(fileName, "%s.%d", dumpBinary.c_str(), (int)i);
-        if(binarySizes[i] != 0)
-        {
-            char deviceName[1024];
-            status = clGetDeviceInfo(devices[i], 
-                                     CL_DEVICE_NAME, 
-                                     sizeof(deviceName),
-                                     deviceName, 
-                                     NULL);
-            if(!sampleCommon->checkVal(status,
-                                       CL_SUCCESS,
-                                       "clGetDeviceInfo(CL_DEVICE_NAME) failed."))
-            {
-                return SDK_FAILURE;
-            }
-
-            printf( "%s binary kernel: %s\n", deviceName, fileName);
-            streamsdk::SDKFile BinaryFile;
-            if(!BinaryFile.writeBinaryToFile(fileName, 
-                                             binaries[i], 
-                                             binarySizes[i]))
-            {
-                std::cout << "Failed to load kernel file : " << fileName << std::endl;
-                return SDK_FAILURE;
-            }
-        }
-        else
-        {
-            printf("Skipping %s since there is no binary data to write!\n",
-                    fileName);
-        }
-    }
-
-    // Release all resouces and memory
-    for(i = 0; i < numDevices; i++)
-    {
-        if(binaries[i] != NULL)
-        {
-            free(binaries[i]);
-            binaries[i] = NULL;
-        }
-    }
-
-    if(binaries != NULL)
-    {
-        free(binaries);
-        binaries = NULL;
-    }
-
-    if(binarySizes != NULL)
-    {
-        free(binarySizes);
-        binarySizes = NULL;
-    }
-
-    if(devices != NULL)
-    {
-        free(devices);
-        devices = NULL;
-    }
-
-    status = clReleaseProgram(program);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clReleaseProgram failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    status = clReleaseContext(context);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clReleaseContext failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    return SDK_SUCCESS;
-}
-
-
 int
 FastWalshTransform::setupCL(void)
 {
@@ -521,11 +156,6 @@ FastWalshTransform::setupCL(void)
     else //deviceType = "gpu" 
     {
         dType = CL_DEVICE_TYPE_GPU;
-        if(isThereGPU() == false)
-        {
-            std::cout << "GPU not found. Falling back to CPU device" << std::endl;
-            dType = CL_DEVICE_TYPE_CPU;
-        }
     }
 
     /*
@@ -552,72 +182,34 @@ FastWalshTransform::setupCL(void)
         {
             return SDK_FAILURE;
         }
-        if(isPlatformEnabled())
+        for (unsigned i = 0; i < numPlatforms; ++i) 
         {
-            platform = platforms[platformId];
-        }
-        else
-        {
-            for (unsigned i = 0; i < numPlatforms; ++i) 
+            char pbuf[100];
+            status = clGetPlatformInfo(platforms[i],
+                                       CL_PLATFORM_VENDOR,
+                                       sizeof(pbuf),
+                                       pbuf,
+                                       NULL);
+
+            if(!sampleCommon->checkVal(status,
+                                       CL_SUCCESS,
+                                       "clGetPlatformInfo failed."))
             {
-                char pbuf[100];
-                status = clGetPlatformInfo(platforms[i],
-                                           CL_PLATFORM_VENDOR,
-                                           sizeof(pbuf),
-                                           pbuf,
-                                           NULL);
+                return SDK_FAILURE;
+            }
 
-                if(!sampleCommon->checkVal(status,
-                                           CL_SUCCESS,
-                                           "clGetPlatformInfo failed."))
-                {
-                    return SDK_FAILURE;
-                }
-
-                platform = platforms[i];
-
-				void* addr = clGetExtensionFunctionAddress("clIcdGetPlatformIDsKHR");
-				printf("clGetExtensionFunctionAddress returned: %x", addr);
-				cl_uint num_entries = 0;
-				cl_platform_id* platformsX = NULL;
-				cl_uint num_platforms = 0;
-				//cl_int res = ((clIcdGetPlatformIDsKHR_fn*)addr)(num_entries, &platformsX, &num_platforms);
-				//printf("clIcdGetPlatformIDsKHR (initial) returned: %d", res);
-				//printf("  platforms: %x", platformsX);
-				//printf("  num_platforms: %d", num_platforms);
-				//
-				//platformsX = new cl_platform_id[num_platforms]();
-				//res = ((clIcdGetPlatformIDsKHR_fn*)addr)(num_platforms, &platformsX, NULL);
-				//printf("clIcdGetPlatformIDsKHR returned: %d", res);
-				//for (int i=0;i<num_platforms; ++i) {
-					//printf("  platforms[%d]: %x", i, platformsX[i]);
-				//}
-				//printf("  num_platforms: %d", num_platforms);
-
-                if (!strcmp(pbuf, "Advanced Micro Devices, Inc.")) 
-                {
-                    break;
-                }
+            platform = platforms[i];
+            if (!strcmp(pbuf, "Advanced Micro Devices, Inc.")) 
+            {
+                break;
             }
         }
         delete[] platforms;
     }
 
-    if(NULL == platform)
-    {
-        sampleCommon->error("NULL platform found so Exiting Application.");
-        return SDK_FAILURE;
-    }
-
-    // Display available devices.
-    if(!sampleCommon->displayDevices(platform, dType))
-    {
-        sampleCommon->error("sampleCommon::displayDevices() failed");
-        return SDK_FAILURE;
-    }
-
     /*
-     * If we could find our platform, use it. Otherwise use just available platform.
+     * If we could find our platform, use it. Otherwise pass a NULL and get whatever the
+     * implementation thinks we should be using.
      */
 
     cl_context_properties cps[3] = 
@@ -626,9 +218,11 @@ FastWalshTransform::setupCL(void)
         (cl_context_properties)platform, 
         0
     };
+    /* Use NULL for backward compatibility */
+    cl_context_properties* cprops = (NULL == platform) ? NULL : cps;
 
     context = clCreateContextFromType(
-                  cps,
+                  cprops,
                   dType,
                   NULL,
                   NULL,
@@ -652,17 +246,9 @@ FastWalshTransform::setupCL(void)
             "clGetContextInfo failed."))
         return SDK_FAILURE;
 
-    int deviceCount = (int)(deviceListSize / sizeof(cl_device_id));
-    if(!sampleCommon->validateDeviceId(deviceId, deviceCount))
-    {
-        sampleCommon->error("sampleCommon::validateDeviceId() failed");
-        return SDK_FAILURE;
-    }
-
     /* Now allocate memory for device list based on the size we got earlier */
     devices = (cl_device_id *)malloc(deviceListSize);
-    if(devices == NULL)
-    {
+    if(devices==NULL) {
         sampleCommon->error("Failed to allocate memory (devices).");
         return SDK_FAILURE;
     }
@@ -683,9 +269,12 @@ FastWalshTransform::setupCL(void)
     {
         /* The block is to move the declaration of prop closer to its use */
         cl_command_queue_properties prop = 0;
+        if(timing)
+            prop |= CL_QUEUE_PROFILING_ENABLE;
+
         commandQueue = clCreateCommandQueue(
                            context, 
-                           devices[deviceId], 
+                           devices[0], 
                            prop, 
                            &status);
         if(!sampleCommon->checkVal(
@@ -708,157 +297,45 @@ FastWalshTransform::setupCL(void)
         return SDK_FAILURE;
 
     /* create a CL program using the kernel source */
+#ifdef TESTBENCH_BUILD_FROM_CL
     streamsdk::SDKFile kernelFile;
     std::string kernelPath = sampleCommon->getPath();
-
-    if(isLoadBinaryEnabled())
-    {
-        kernelPath.append(loadBinary.c_str());
-        if(!kernelFile.readBinaryFromFile(kernelPath.c_str()))
-        {
-            std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
-            return SDK_FAILURE;
-        }
-
-        const char * binary = kernelFile.source().c_str();
-        size_t binarySize = kernelFile.source().size();
-        program = clCreateProgramWithBinary(context,
-                                            1,
-                                            &devices[deviceId], 
-                                            (const size_t *)&binarySize,
-                                            (const unsigned char**)&binary,
-                                            NULL,
-                                            &status);
-        if(!sampleCommon->checkVal(
+    kernelPath.append("FastWalshTransform_Kernels.cl");
+    if (!kernelFile.open(kernelPath.c_str()))
+	{
+		std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+		return SDK_FAILURE;
+	}
+    const char * source = kernelFile.source().c_str();
+#else
+    const char * source = "FastWalshTransform_Kernels.bc";
+#endif
+    size_t sourceSize[] = { strlen(source) };
+    program = clCreateProgramWithSource(
+        context,
+        1,
+        &source,
+        sourceSize,
+        &status);
+    if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clCreateProgramWithSource failed."))
+        return SDK_FAILURE;
+    
+    if(!sampleCommon->checkVal(
             status,
             CL_SUCCESS,
             "clCreateProgramWithBinary failed."))
         return SDK_FAILURE;
-    }
-    else
-    {
-		// special case for packetized OpenCL (can not yet compile .cl directly)
-		char vName[100];
-		status = clGetPlatformInfo(platform,
-				CL_PLATFORM_VENDOR,
-				sizeof(vName),
-				vName,
-				NULL);
-		const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
-
-        kernelPath.append("FastWalshTransform_Kernels.cl");
-        if(!kernelFile.open(kernelPath.c_str()))
-        {
-            std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
-            return SDK_FAILURE;
-        }
-
-		const char * source = platformIsPacketizedOpenCL ?
-			"FastWalshTransform_Kernels.bc" :
-			kernelFile.source().c_str();
-
-        size_t sourceSize[] = { strlen(source) };
-        program = clCreateProgramWithSource(context,
-                                            1,
-                                            &source,
-                                            sourceSize,
-                                            &status);
-
-        if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateProgramWithSource failed."))
-            return SDK_FAILURE;
-
-    }
-    
-    std::string flagsStr = std::string("");
-
-    // Get additional options
-    if(isComplierFlagsSpecified())
-    {
-        streamsdk::SDKFile flagsFile;
-        std::string flagsPath = sampleCommon->getPath();
-        flagsPath.append(flags.c_str());
-        if(!flagsFile.open(flagsPath.c_str()))
-        {
-            std::cout << "Failed to load flags file: " << flagsPath << std::endl;
-            return SDK_FAILURE;
-        }
-        flagsFile.replaceNewlineWithSpaces();
-        const char * flags = flagsFile.source().c_str();
-        flagsStr.append(flags);
-    }
-
-    if(flagsStr.size() != 0)
-        std::cout << "Build Options are : " << flagsStr.c_str() << std::endl;
-
-    
 
     /* create a cl program executable for all the devices specified */
-    status = clBuildProgram(program, 
-                            1, 
-                            &devices[deviceId], 
-                            flagsStr.c_str(), 
-                            NULL, 
-                            NULL);
-
-    if(status != CL_SUCCESS)
-    {
-        if(status == CL_BUILD_PROGRAM_FAILURE)
-        {
-            cl_int logStatus;
-            char * buildLog = NULL;
-            size_t buildLogSize = 0;
-            logStatus = clGetProgramBuildInfo(program,
-                                              devices[deviceId],
-                                              CL_PROGRAM_BUILD_LOG,
-                                              buildLogSize,
-                                              buildLog,
-                                              &buildLogSize);
-            if(!sampleCommon->checkVal(logStatus,
-                                       CL_SUCCESS,
-                                       "clGetProgramBuildInfo failed."))
-            {
-                  return SDK_FAILURE;
-            }
-            
-            buildLog = (char*)malloc(buildLogSize);
-            if(buildLog == NULL)
-            {
-                sampleCommon->error("Failed to allocate host memory. (buildLog)");
-                return SDK_FAILURE;
-            }
-            memset(buildLog, 0, buildLogSize);
-
-            logStatus = clGetProgramBuildInfo(program, 
-                                              devices[deviceId], 
-                                              CL_PROGRAM_BUILD_LOG, 
-                                              buildLogSize, 
-                                              buildLog, 
-                                              NULL);
-            if(!sampleCommon->checkVal(logStatus,
-                                       CL_SUCCESS,
-                                       "clGetProgramBuildInfo failed."))
-            {
-                  free(buildLog);
-                  return SDK_FAILURE;
-            }
-
-            std::cout << " \n\t\t\tBUILD LOG\n";
-            std::cout << " ************************************************\n";
-            std::cout << buildLog << std::endl;
-            std::cout << " ************************************************\n";
-            free(buildLog);
-        }
-
-          if(!sampleCommon->checkVal(status,
-                                     CL_SUCCESS,
-                                     "clBuildProgram failed."))
-          {
-                return SDK_FAILURE;
-          }
-    }
+    status = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
+    if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clBuildProgram failed."))
+        return SDK_FAILURE;
 
     /* get a kernel object handle for a kernel with the given name */
     kernel = clCreateKernel(program, "fastWalshTransform", &status);
@@ -908,11 +385,11 @@ FastWalshTransform::runCLKernels(void)
      * is stored in the same locations as the numbers
      */
     globalThreads[0] = length/2;
-    localThreads[0]  = 256;
+    localThreads[0]  = 256;//1;
 
     /* Check group size against kernelWorkGroupSize */
     status = clGetKernelWorkGroupInfo(kernel,
-                                      devices[deviceId],
+                                      devices[0],
                                       CL_KERNEL_WORK_GROUP_SIZE,
                                       sizeof(size_t),
                                       &kernelWorkGroupSize,
@@ -927,16 +404,11 @@ FastWalshTransform::runCLKernels(void)
 
     if((cl_uint)(localThreads[0]) > kernelWorkGroupSize)
     {
-		if(!quiet)
-		{
-			std::cout << "Out of Resources!" << std::endl;
-			std::cout << "Group Size specified : " << localThreads[0] << std::endl;
-			std::cout << "Max Group Size supported on the kernel : " 
-					  << kernelWorkGroupSize<<std::endl;
-			std::cout<<"Changing the group size to " << kernelWorkGroupSize 
-                << std::endl;
-		}
-        localThreads[0] = kernelWorkGroupSize;
+        std::cout<<"Out of Resources!" << std::endl;
+        std::cout<<"Group Size specified : "<<localThreads[0]<<std::endl;
+        std::cout<<"Max Group Size supported on the kernel : " 
+            <<kernelWorkGroupSize<<std::endl;
+        return SDK_FAILURE;
     }
 
     /*** Set appropriate arguments to the kernel ***/
@@ -952,7 +424,7 @@ FastWalshTransform::runCLKernels(void)
             "clSetKernelArg failed. (inputBuffer)"))
         return SDK_FAILURE;
 
-    for(cl_int step = 1; step < length; step<<= 1) 
+    for(cl_int step = 1; step < length; step<<= 1)
     {
         /* stage of the algorithm */
         status = clSetKernelArg(
@@ -965,7 +437,7 @@ FastWalshTransform::runCLKernels(void)
                 CL_SUCCESS,
                 "clSetKernelArg failed. (step)"))
             return SDK_FAILURE;
-        
+
         /* Enqueue a kernel run call */
         status = clEnqueueNDRangeKernel(
                      commandQueue,
@@ -977,14 +449,13 @@ FastWalshTransform::runCLKernels(void)
                      0,
                      NULL,
                      &events[0]);
-        
+
         if(!sampleCommon->checkVal(
                 status,
                 CL_SUCCESS,
                 "clEnqueueNDRangeKernel failed."))
             return SDK_FAILURE;
 
-        
         /* wait for the kernel call to finish execution */
         status = clWaitForEvents(1, &events[0]);
         if(!sampleCommon->checkVal(
@@ -1141,7 +612,7 @@ FastWalshTransform::run()
         " iterations" << std::endl;
     std::cout << "-------------------------------------------" << std::endl;
 
-    for(int i = 0; i < iterations; i++)
+	for(int i = 0; i < iterations; i++)
     {
         /* Arguments are set and execution call is enqueued on command buffer */
         if(runCLKernels() != SDK_SUCCESS)
@@ -1152,7 +623,8 @@ FastWalshTransform::run()
     totalKernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
 
     if(!quiet) {
-        sampleCommon->printArray<cl_float>("Output", input, length, 1);
+        //sampleCommon->printArray<cl_float>("Output", input, length, 1);
+        sampleCommon->printArray<cl_float>("Output", output, length, 1);
     }
 
     return SDK_SUCCESS;
@@ -1248,9 +720,6 @@ FastWalshTransform::cleanup()
     if(input) 
         free(input);
 
-    if(output) 
-        free(output);
-
     if(verificationInput) 
         free(verificationInput);
 
@@ -1268,23 +737,15 @@ main(int argc, char * argv[])
     clFastWalshTransform.initialize();
     if(!clFastWalshTransform.parseCommandLine(argc, argv))
         return SDK_FAILURE;
-
-    if(clFastWalshTransform.isDumpBinaryEnabled())
-    {
-        return clFastWalshTransform.genBinaryImage();
-    }
-    else
-    {
-        if(clFastWalshTransform.setup()!=SDK_SUCCESS)
-            return SDK_FAILURE;
-        if(clFastWalshTransform.run()!=SDK_SUCCESS)
-            return SDK_FAILURE;
-        if(clFastWalshTransform.verifyResults()!=SDK_SUCCESS)
-            return SDK_FAILURE;
-        if(clFastWalshTransform.cleanup()!=SDK_SUCCESS)
-            return SDK_FAILURE;
-        clFastWalshTransform.printStats();
-    }
+    if(clFastWalshTransform.setup()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clFastWalshTransform.run()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clFastWalshTransform.verifyResults()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(clFastWalshTransform.cleanup()!=SDK_SUCCESS)
+        return SDK_FAILURE;
+    clFastWalshTransform.printStats();
 
     return SDK_SUCCESS;
 }

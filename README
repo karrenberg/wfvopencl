@@ -6,19 +6,22 @@ required software:
 - libglut3-dev (?)
 - LLVM 2.9 final
 - packetizer
-- ATI APP SDK
+- AMD APP SDK
+- Intel OpenCL Beta
 - clc tool from former ATI Stream SDK (included in folder 'bin')
 
 installation:
 
 - build llvm
 - build packetizer
-- install stream sdk
-	- place ICD registration config files in /etc/OpenCL/vendors or use christophs hack :p
-	- set ATISTREAMSDKROOT and ATISTREAMSDKSAMPLESROOT environment variables to stream sdk root dir
-	- build stream sdk (ignore errors related to CAL (only for SDK versions < 2.4)
-- adjust 'setupenv.sh' and/or 'setupenvdebug.sh' to match your system
-- source 'setupenv.sh' or 'setupenvdebug.sh' to build in opt or debug mode (= build against LLVM in debug or release mode)
+- install AMD APP SDK
+	- place ICD registration config files in /etc/OpenCL/vendors
+		- should be attempted automatically by installer
+		-> if no root access, use christophs hack after installation (if possible)
+	- set AMDAPPSDKROOT and AMDAPPSDKSAMPLESROOT environment variables to stream sdk root dir
+	- build SDK
+- adjust 'setupenv.sh' to match your system
+- source 'setupenv.sh'
 - run scons, options (default shown):
 	debug=0
 	debug-runtime=0
@@ -29,6 +32,34 @@ installation:
 	split=0  (disable mem access optimizations)
 	dynamic=0 (build dynamic driver library instead of static)
 
-windows installation:
+additional step for windows installation:
 
 - copy glut32.dll and glew32.dll from lib to Windows/system32
+
+
+installing the driver for use with OpenCL ICD:
+( consider htpp://www.khronos.org/registry/cl/extensions/khr/cl_khr_icd.txt )
+
+- Windows:
+	- add DWORD value to HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\OpenCL\Vendors with name "packetizedOpenCL.dll"
+	- make sure ./lib is in your $PATH
+	OR
+	- copy lib/packetizedOpenCL.dll to %WINDOWS%\system32
+
+- Linux:
+	- copy lib/packetizedOpenCL.icd to /etc/OpenCL/vendors/
+	- make sure ./lib is in your $PATH ($LD_LIBRARY_PATH?)
+
+
+running samples:
+
+- in order to successfully run samples using AMD OpenCL, make sure as.exe and ld.exe from $AMDAPPSDKROOT/bin are used (e.g. MinGW puts its own bin-directories in front of the PATH variable)
+- also make sure $AMDAPPSDKROOT is always quoted (directories with spaces)
+
+- switch between AMD/Intel by running the executables in the "proprietary" folder with flag "-p X", where X is the number of the appropriate platform
+
+
+
+TODO:
+
+- is using __declspec(dllexport) the right thing to do? (had to modify OpenCL includes in order to compile...)

@@ -1,4 +1,4 @@
-#include "SDKUtil/SDKFile.hpp"
+#include "SDKFile.hpp"
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 #include <direct.h>
@@ -28,6 +28,53 @@ getCurrentDir()
 }
 
 bool
+SDKFile::writeBinaryToFile(const char* fileName, const char* birary, size_t numBytes)
+{
+    FILE *output = NULL;
+    output = fopen(fileName, "wb");
+    if(output == NULL)
+        return false;
+
+    fwrite(birary, sizeof(char), numBytes, output);
+    fclose(output);
+
+    return true;
+}
+
+
+bool
+SDKFile::readBinaryFromFile(const char* fileName)
+{
+    FILE * input = NULL;
+    size_t size = 0;
+    char* binary = NULL;
+
+    input = fopen(fileName, "rb");
+    if(input == NULL)
+    {
+        return false;
+    }
+
+    fseek(input, 0L, SEEK_END); 
+    size = ftell(input);
+    rewind(input);
+    binary = (char*)malloc(size);
+    if(binary == NULL)
+    {
+        return false;
+    }
+    fread(binary, sizeof(char), size, input);
+    fclose(input);
+    source_.assign(binary, size);
+    free(binary);
+
+    return true;
+}
+
+
+
+
+bool
 SDKFile::open(
     const char* fileName)   //!< file name
 {
@@ -42,13 +89,13 @@ SDKFile::open(
         size_t  sizeFile;
         // Find the stream size
         f.seekg(0, std::fstream::end);
-        size = sizeFile = f.tellg();
+        size = sizeFile = (size_t)f.tellg();
         f.seekg(0, std::fstream::beg);
 
         str = new char[size + 1];
         if (!str) {
             f.close();
-            return  NULL;
+            return  false;
         }
 
         // Read file
@@ -65,11 +112,5 @@ SDKFile::open(
 
     return false;
 }
-
-SDKFile::~SDKFile()
-{
-    
-}
-
 
 } // namespace streamsdk

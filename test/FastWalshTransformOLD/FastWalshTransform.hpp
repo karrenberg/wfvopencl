@@ -98,10 +98,10 @@ jurisdiction and venue of these courts.
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-#include <SDKCommon.hpp>
-#include <SDKApplication.hpp>
-#include <SDKCommandArgs.hpp>
-#include <SDKFile.hpp>
+#include <SDKUtil/SDKCommon.hpp>
+#include <SDKUtil/SDKApplication.hpp>
+#include <SDKUtil/SDKCommandArgs.hpp>
+#include <SDKUtil/SDKFile.hpp>
 
 /**
  * FastWalshTransform 
@@ -168,12 +168,6 @@ public:
      * @return 1 on success and 0 on failure
      */
     int setupFastWalshTransform();
-
-    /**
-     * Override from SDKSample, Generate binary image of given kernel 
-     * and exit application
-     */
-    int genBinaryImage();
 
     /**
      * OpenCL related initialisations. 

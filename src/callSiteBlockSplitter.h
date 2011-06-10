@@ -5,20 +5,20 @@
  *
  * Copyright (C) 2010 Saarland University
  *
- * This file is part of packetizedOpenCLDriver.
+ * This file is part of packetizedOpenCL.
  *
- * packetizedOpenCLDriver is free software: you can redistribute it and/or modify
+ * packetizedOpenCL is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * packetizedOpenCLDriver is distributed in the hope that it will be useful,
+ * packetizedOpenCL is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with packetizedOpenCLDriver.  If not, see <http://www.gnu.org/licenses/>.
+ * along with packetizedOpenCL.  If not, see <http://www.gnu.org/licenses/>.
  *
  * TODO: void* as last param is hardcoded
  * TODO: replacing all returns by return -1 is hardcoded
@@ -52,8 +52,8 @@
 #define DEBUG_CSBS(x) ((void)0)
 #endif
 
-#define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_END_ID -1
-#define PACKETIZED_OPENCL_DRIVER_BARRIER_SPECIAL_START_ID 0
+#define PACKETIZED_OPENCL_BARRIER_SPECIAL_END_ID -1
+#define PACKETIZED_OPENCL_BARRIER_SPECIAL_START_ID 0
 
 using namespace llvm;
 
@@ -71,9 +71,9 @@ public:
 		DEBUG_CSBS( outs() << "splitting basic blocks at callsites of function " << calleeName << "...\n"; );
 		DEBUG_CSBS( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
-		DEBUG_CSBS( PacketizedOpenCLDriver::writeFunctionToFile(&f, "debug_splitting_before.ll"); );
+		DEBUG_CSBS( PacketizedOpenCL::writeFunctionToFile(&f, "debug_splitting_before.ll"); );
 		splitBlocksAtCallSites(&f);
-		DEBUG_CSBS( PacketizedOpenCLDriver::writeFunctionToFile(&f, "debug_splitting_after.ll"); );
+		DEBUG_CSBS( PacketizedOpenCL::writeFunctionToFile(&f, "debug_splitting_after.ll"); );
 
 		DEBUG_CSBS( verifyModule(*f.getParent()); );
 

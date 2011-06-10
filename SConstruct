@@ -77,23 +77,23 @@ if int(profile):
 	else:
 		cxxflags=cxxflags+env.Split("-O0 -g")
 	# disabled until we have 64bit VTune libraries
-	#cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_DRIVER_ENABLE_JIT_PROFILING")
+	#cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_ENABLE_JIT_PROFILING")
 	#compile_dynamic_lib_driver=0
 
 if int(use_openmp):
 	if isWin:
-		cxxflags=cxxflags+env.Split("/DPACKETIZED_OPENCL_DRIVER_USE_OPENMP /openmp")
+		cxxflags=cxxflags+env.Split("/DPACKETIZED_OPENCL_USE_OPENMP /openmp")
 	else:
-		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_USE_OPENMP -fopenmp")
+		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_USE_OPENMP -fopenmp")
 		env.Append(LINKFLAGS = env.Split("-fopenmp"))
 	if int(num_threads):
-		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NUM_CORES="+num_threads)
+		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_NUM_CORES="+num_threads)
 
 if not int(packetize):
-	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_NO_PACKETIZATION")
+	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_NO_PACKETIZATION")
 
 if int(split):
-	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING")
+	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_SPLIT_EVERYTHING")
 
 if int(packetize) and not int(compile_dynamic_lib_driver):
 	cxxflags=cxxflags+env.Split("-DPACKETIZER_STATIC_LIBS")
@@ -117,9 +117,15 @@ env.Append(LIBPATH = llvm_vars.get('LIBPATH'))
 driverLibs = llvm_vars.get('LIBS') + env.Split('Packetizer')
 if isWin:
 	# get glut from http://www.idfun.de/glut64/
-	appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut32 glew32')
+	if int(compile_dynamic_lib_driver):
+		appLibs = env.Split('OpenCL SDKUtil glut32 glew32')
+	else:
+		appLibs = env.Split('PacketizedOpenCL SDKUtil glut32 glew32')
 else:
-	appLibs = env.Split('PacketizedOpenCLDriver SDKUtil glut GLEW')
+	if int(compile_dynamic_lib_driver):
+		appLibs = env.Split('OpenCL SDKUtil glut GLEW')
+	else:
+		appLibs = env.Split('PacketizedOpenCL SDKUtil glut GLEW')
 
 # disabled until we have 64bit VTune libraries
 #if int(profile):
@@ -130,14 +136,14 @@ else:
 # build Packetized OpenCL Driver
 driverSrc = env.Glob('src/*.cpp')
 if int(compile_dynamic_lib_driver):
-	PacketizedOpenCLDriver = env.SharedLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
+	PacketizedOpenCL = env.SharedLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 else:
-	PacketizedOpenCLDriver = env.StaticLibrary(target='lib/PacketizedOpenCLDriver', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
+	PacketizedOpenCL = env.StaticLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 
 
 # build AMD-ATI SDKUtil as a static library (required for test applications)
 SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=Split('test/SDKUtil/SDKApplication.cpp test/SDKUtil/SDKBitMap.cpp test/SDKUtil/SDKCommandArgs.cpp test/SDKUtil/SDKCommon.cpp test/SDKUtil/SDKFile.cpp'))
-env.Depends(SDKUtil, PacketizedOpenCLDriver)
+env.Depends(SDKUtil, PacketizedOpenCL)
 
 ###
 ### test applications ###
@@ -179,14 +185,17 @@ FastWalshTransform
 #TestLinearAccess
 #""")
 
+Execute(Mkdir('build/bin'))
 if int(compile_dynamic_lib_driver):
 	for a in testApps:
-		Obj = env.StaticObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
+		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
+		Obj = env.SharedObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		env.Depends(App, Obj)
 		env.Depends(App, SDKUtil)
 else:
 	for a in testApps:
+		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
 		Obj = env.StaticObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
 		env.Depends(App, Obj)
@@ -195,37 +204,22 @@ else:
 
 ###
 ### build test applications against AMD OpenCL driver ###
+### TODO: We should actually use the OpenCL ICD to chose the driver (and thus only compile it once),
+###       but that would require changing the SDKUtil parameter handling, plus we do not provide
+###       support for the ICD from packetizedOpenCL side.
 ###
 
-env2 = env.Clone()
-env2.Append(CXXFLAGS = env.Split('-DTESTBENCH_BUILD_FROM_CL'))
-env2.Append(LIBPATH = [os.path.join(env['ENV']['ATISTREAMSDKROOT'], 'lib/x86_64')])
-appLibs2 = env2.Split('ATIOpenCL SDKUtil glut32 glew32')
-Execute(Mkdir('build/bin/AMD'))
-for a in testApps:
-	Execute(Copy('build/bin/AMD', 'test/'+a+'/'+a+'_Kernels.cl'))
-	Obj = env2.StaticObject('build/obj/AMD/'+a, env2.Glob('test/'+a+'/*.cpp'), LIBS=appLibs2)
-	App = env2.Program('build/bin/AMD/'+a, env2.Glob('build/obj/AMD/'+a+'.obj'), LIBS=appLibs2)
-	env2.Depends(App, Obj)
-	env2.Depends(App, SDKUtil)
-
-###
-### build test applications against Intel OpenCL driver ###
-###
-
-env3 = env.Clone()
-env3.Append(CXXFLAGS = env.Split('-DTESTBENCH_BUILD_FROM_CL'))
-env3.Append(LIBPATH = [os.path.join(env['ENV']['INTELOCLSDKROOT'], 'lib/x64')])
-appLibs3 = env3.Split('IntelOpenCL SDKUtil glut32 glew32')
-Execute(Mkdir('build/bin/Intel'))
-for a in testApps:
-	Execute(Copy('build/bin/Intel', 'test/'+a+'/'+a+'_Kernels.cl'))
-	Obj = env3.StaticObject('build/obj/Intel/'+a, env3.Glob('test/'+a+'/*.cpp'), LIBS=appLibs3)
-	App = env3.Program('build/bin/Intel/'+a, env3.Glob('build/obj/Intel/'+a+'.obj'), LIBS=appLibs3)
-	env3.Depends(App, Obj)
-	env3.Depends(App, SDKUtil)
-
-
+#env2 = env.Clone()
+#env2.Append(CXXFLAGS = env.Split('-DTESTBENCH_BUILD_FROM_CL -DUSE_OPENCL_DRIVER_AMD'))
+#env2.Append(LIBPATH = [os.path.join(env['ENV']['AMDAPPSDKROOT'], 'lib/x86_64')])
+#appLibs2 = env2.Split('OpenCL SDKUtil glut32 glew32')
+#Execute(Mkdir('build/bin/AMD'))
+#for a in testApps:
+	#Execute(Copy('build/bin/AMD', 'test/'+a+'/'+a+'_Kernels.cl'))
+	#Obj = env2.StaticObject('build/obj/AMD/'+a, env2.Glob('test/'+a+'/*.cpp'), LIBS=appLibs2)
+	#App = env2.Program('build/bin/AMD/'+a, env2.Glob('build/obj/AMD/'+a+'.obj'), LIBS=appLibs2)
+	#env2.Depends(App, Obj)
+	#env2.Depends(App, SDKUtil)
 
 ###
 ### build bitcode from OpenCL files ###
@@ -242,9 +236,9 @@ for a in testApps:
 #cmd_ll = "clc -o $TARGET --msse2 $SOURCE"
 #cmd_bc = "llvm-as $SOURCE -o $TARGET"
 
-for a in testApps:
-	env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
-				["clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
-				"llvm-as -o ${TARGET.file}.bc ${TARGET.file}.ll",
-				Delete('${TARGET.file}.ll')])
+#for a in testApps:
+	#env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
+				#["clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
+				#"llvm-as -o ${TARGET.file}.bc ${TARGET.file}.ll",
+				#Delete('${TARGET.file}.ll')])
 

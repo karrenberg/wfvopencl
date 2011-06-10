@@ -1,4 +1,4 @@
-#include "SDKUtil/SDKBitMap.hpp"
+#include "SDKBitMap.hpp"
 static const short bitMapID = 19778;
 
 namespace streamsdk

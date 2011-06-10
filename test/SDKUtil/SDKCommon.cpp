@@ -1,10 +1,12 @@
-#include <SDKUtil/SDKCommon.hpp>
-#include <CL/cl.h>
+#include <SDKCommon.hpp>
+
+
+
 namespace streamsdk
 {
 SDKCommon::SDKCommon()
 {
-
+    
 }
 
 SDKCommon::~SDKCommon()
@@ -23,15 +25,22 @@ SDKCommon::getPath()
 {
 #ifdef _WIN32
     char buffer[MAX_PATH];
-	if(!GetModuleFileName(NULL, (LPCH)buffer, sizeof(buffer))) //was LPWCH before port to SCons
+#ifdef UNICODE
+    if(!GetModuleFileName(NULL, (LPWCH)buffer, sizeof(buffer)))
         throw std::string("GetModuleFileName() failed!");
+#else
+    if(!GetModuleFileName(NULL, buffer, sizeof(buffer)))
+        throw std::string("GetModuleFileName() failed!");
+#endif
     std::string str(buffer);
     /* '\' == 92 */
     int last = (int)str.find_last_of((char)92);
 #else
     char buffer[PATH_MAX + 1];
-    if(readlink("/proc/self/exe",buffer, sizeof(buffer) - 1) == -1)
+    ssize_t len;
+    if((len = readlink("/proc/self/exe",buffer, sizeof(buffer) - 1)) == -1)
         throw std::string("readlink() failed!");
+    buffer[len] = '\0';
     std::string str(buffer);
     /* '/' == 47 */
     int last = (int)str.find_last_of((char)47);
@@ -46,37 +55,37 @@ SDKCommon::getPath()
  */
 template<typename T> 
 void SDKCommon::printArray(
-	std::string header, 
-	const T * data, 
-	const int width,
-	const int height) const
+    std::string header, 
+    const T * data, 
+    const int width,
+    const int height) const
 {
-	std::cout<<"\n"<<header<<"\n";
-	for(int i = 0; i < height; i++)
-	{
-		for(int j = 0; j < width; j++)
-		{
-			std::cout<<data[i*width+j]<<" ";
-		}
-		std::cout<<"\n";
-	}
-	std::cout<<"\n";
+    std::cout<<"\n"<<header<<"\n";
+    for(int i = 0; i < height; i++)
+    {
+        for(int j = 0; j < width; j++)
+        {
+            std::cout<<data[i*width+j]<<" ";
+        }
+        std::cout<<"\n";
+    }
+    std::cout<<"\n";
 }
 
 template<typename T> 
 int SDKCommon::fillRandom(
-		 T * arrayPtr, 
-	     const int width,
-		 const int height,
-		 const T rangeMin,
-		 const T rangeMax,
+         T * arrayPtr, 
+         const int width,
+         const int height,
+         const T rangeMin,
+         const T rangeMax,
          unsigned int seed)
 {
-	if(!arrayPtr)
-	{
-		error("Cannot fill array. NULL pointer.");
-		return 0;
-	}
+    if(!arrayPtr)
+    {
+        error("Cannot fill array. NULL pointer.");
+        return 0;
+    }
 
     if(!seed)
         seed = (unsigned int)time(NULL);
@@ -86,93 +95,93 @@ int SDKCommon::fillRandom(
 
     /* random initialisation of input */
     for(int i = 0; i < height; i++)
-	    for(int j = 0; j < width; j++)
-		{
-			int index = i*width + j;
-			arrayPtr[index] = rangeMin + T(range*rand()/(RAND_MAX + 1.0)); 
-		}
+        for(int j = 0; j < width; j++)
+        {
+            int index = i*width + j;
+            arrayPtr[index] = rangeMin + T(range*rand()/(RAND_MAX + 1.0)); 
+        }
 
-	return 1;
+    return 1;
 }
 
 template<typename T> 
 int SDKCommon::fillPos(
-		 T * arrayPtr, 
-	     const int width,
-		 const int height)
+         T * arrayPtr, 
+         const int width,
+         const int height)
 {
-	if(!arrayPtr)
-	{
-		error("Cannot fill array. NULL pointer.");
-		return 0;
-	}
+    if(!arrayPtr)
+    {
+        error("Cannot fill array. NULL pointer.");
+        return 0;
+    }
 
     /* initialisation of input with positions*/
     for(T i = 0; i < height; i++)
-	    for(T j = 0; j < width; j++)
-		{
-			T index = i*width + j;
-			arrayPtr[index] = index;
-		}
+        for(T j = 0; j < width; j++)
+        {
+            T index = i*width + j;
+            arrayPtr[index] = index;
+        }
 
-	return 1;
+    return 1;
 }
 
 template<typename T> 
 int SDKCommon::fillConstant(
-		 T * arrayPtr, 
-	     const int width,
-		 const int height,
-		 const T val)
+         T * arrayPtr, 
+         const int width,
+         const int height,
+         const T val)
 {
-	if(!arrayPtr)
-	{
-		error("Cannot fill array. NULL pointer.");
-		return 0;
-	}
+    if(!arrayPtr)
+    {
+        error("Cannot fill array. NULL pointer.");
+        return 0;
+    }
 
     /* initialisation of input with constant value*/
     for(int i = 0; i < height; i++)
-	    for(int j = 0; j < width; j++)
-		{
-			int index = i*width + j;
-			arrayPtr[index] = val;
-		}
+        for(int j = 0; j < width; j++)
+        {
+            int index = i*width + j;
+            arrayPtr[index] = val;
+        }
 
-	return 1;
+    return 1;
 }
 
 template<typename T>
 T SDKCommon::roundToPowerOf2(T val)
 {
-	int bytes = sizeof(T);
+    int bytes = sizeof(T);
 
-	val--;
-	for(int i = 0; i < bytes; i++)
-		val |= val >> (1<<i);  
-	val++;
+    val--;
+    for(int i = 0; i < bytes; i++)
+        val |= val >> (1<<i);  
+    val++;
 
-	return val;
+    return val;
 }
 
 template<typename T>
 int SDKCommon::isPowerOf2(T val)
 {
-	long long _val = val;
-	if((_val & (-_val))-_val == 0 && _val != 0)
-		return 1;
-	else
-		return 0;
+    long long _val = val;
+    if((_val & (-_val))-_val == 0 && _val != 0)
+        return 1;
+    else
+        return 0;
 }
 const char* 
-SDKCommon::getOpenCLErrorCodeStr(std::string input) const
+getOpenCLErrorCodeStr(std::string input)
 {
     return "unknown error code"; 
 }
 
 template<typename T>
 const char* 
-SDKCommon::getOpenCLErrorCodeStr(T input) const
+getOpenCLErrorCodeStr(T input)
 {
     int errorCode = (int)input;
     switch(errorCode)
@@ -201,6 +210,10 @@ SDKCommon::getOpenCLErrorCodeStr(T input) const
             return "CL_BUILD_PROGRAM_FAILURE";              
         case CL_MAP_FAILURE:
             return "CL_MAP_FAILURE";                         
+        case CL_MISALIGNED_SUB_BUFFER_OFFSET:
+            return "CL_MISALIGNED_SUB_BUFFER_OFFSET";
+        case CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST:
+            return "CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST";
         case CL_INVALID_VALUE:
             return "CL_INVALID_VALUE";                      
         case CL_INVALID_DEVICE_TYPE:
@@ -269,6 +282,16 @@ SDKCommon::getOpenCLErrorCodeStr(T input) const
             return "CL_INVALID_MIP_LEVEL";                   
         case CL_INVALID_GLOBAL_WORK_SIZE:
             return "CL_INVALID_GLOBAL_WORK_SIZE";            
+        case CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR:
+            return "CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR";
+        case CL_PLATFORM_NOT_FOUND_KHR:
+            return "CL_PLATFORM_NOT_FOUND_KHR";
+        //case CL_INVALID_PROPERTY_EXT:
+        //    return "CL_INVALID_PROPERTY_EXT";
+        case CL_DEVICE_PARTITION_FAILED_EXT:
+            return "CL_DEVICE_PARTITION_FAILED_EXT";
+        case CL_INVALID_PARTITION_COUNT_EXT:
+            return "CL_INVALID_PARTITION_COUNT_EXT";
         default:
             return "unknown error code";
     }
@@ -277,26 +300,26 @@ SDKCommon::getOpenCLErrorCodeStr(T input) const
 }
 template<typename T>
 int SDKCommon::checkVal(
-	T input, 
-	T reference, 
-	std::string message,
+    T input, 
+    T reference, 
+    std::string message,
     bool isAPIerror) const
 {
-	if(input==reference)
-	{
-		return 1;
-	}
-	else
-	{
-		if(isAPIerror)
+    if(input==reference)
+    {
+        return 1;
+    }
+    else
+    {
+        if(isAPIerror)
         {
             std::cout<<"Error: "<< message << " Error code : ";
             std::cout << getOpenCLErrorCodeStr(input) << std::endl;
         }
         else
             error(message);   
-		return 0;
-	}
+        return 0;
+    }
 }
 
 template<typename T>
@@ -306,6 +329,71 @@ std::string SDKCommon::toString(T t, std::ios_base &(*r)(std::ios_base&))
   output << r << t;
   return output.str();
 }
+
+/*
+ * Displays the platform name,  device ids and device names for given platform
+ */
+int SDKCommon::displayDevices(cl_platform_id platform, cl_device_type deviceType)
+{
+    cl_int status;
+
+    // Get platform name
+    char platformVendor[1024];
+    status = clGetPlatformInfo(platform, CL_PLATFORM_VENDOR, sizeof(platformVendor), platformVendor, NULL);
+    if(!checkVal(status, CL_SUCCESS, "clGetPlatformInfo failed"))
+        return 0;
+    
+    std::cout << "\nSelected Platform Vendor : " << platformVendor << std::endl;
+
+    // Get number of devices available 
+    cl_uint deviceCount = 0;
+    status = clGetDeviceIDs(platform, deviceType, 0, NULL, &deviceCount);
+    if(!checkVal(status, CL_SUCCESS, "clGetDeviceIDs failed"))
+        return 0;
+
+    cl_device_id* deviceIds = (cl_device_id*)malloc(sizeof(cl_device_id) * deviceCount);
+    if(deviceIds == NULL)
+    {
+        error("Failed to allocate memory(deviceIds)");
+        return 0;
+    }
+
+    // Get device ids
+    status = clGetDeviceIDs(platform, deviceType, deviceCount, deviceIds, NULL);
+    if(!checkVal(status, CL_SUCCESS, "clGetDeviceIDs failed"))
+        return 0;
+
+    // Print device index and device names
+    for(cl_uint i = 0; i < deviceCount; ++i)
+    {
+        char deviceName[1024];
+        status = clGetDeviceInfo(deviceIds[i], CL_DEVICE_NAME, sizeof(deviceName), deviceName, NULL);
+        
+        if(!checkVal(status, CL_SUCCESS, "clGetDeviceInfo failed"))
+            return 0;
+        
+        std::cout << "Device " << i << " : " << deviceName << std::endl;
+    }
+
+    free(deviceIds);
+    
+    return 1;
+}
+
+
+int 
+SDKCommon::validateDeviceId(int deviceId, int deviceCount)
+{
+    // Validate deviceIndex
+    if(deviceId >= (int)deviceCount)
+    {
+        std::cout << "DeviceId should be < " << deviceCount << std::endl;
+        return 0;
+    }
+
+    return 1;
+}
+
 
 bool
 SDKCommon::compare(const float *refData, const float *data, 
@@ -326,6 +414,30 @@ SDKCommon::compare(const float *refData, const float *data,
         return false;
     }
     float normError = ::sqrtf((float) error);
+    error = normError / normRef;
+
+    return error < epsilon;
+}
+
+bool
+SDKCommon::compare(const double *refData, const double *data, 
+                        const int length, const double epsilon)
+{
+    double error = 0.0;
+    double ref = 0.0;
+
+    for(int i = 1; i < length; ++i) 
+    {
+        double diff = refData[i] - data[i];
+        error += diff * diff;
+        ref += refData[i] * refData[i];
+    }
+
+    double normRef =::sqrt((double) ref);
+    if (::fabs((double) ref) < 1e-7) {
+        return false;
+    }
+    double normError = ::sqrt((double) error);
     error = normError / normRef;
 
     return error < epsilon;
@@ -363,38 +475,38 @@ int SDKCommon::createTimer()
     newTimer->_clocks = 0;
 
 #ifdef _WIN32
-	QueryPerformanceFrequency((LARGE_INTEGER*)&newTimer->_freq);
+    QueryPerformanceFrequency((LARGE_INTEGER*)&newTimer->_freq);
 #else
-    newTimer->_freq = 1.0E3;
+    newTimer->_freq = (long long)1.0E3;
 #endif
     
     /* Push back the address of new Timer instance created */
     _timers.push_back(newTimer);
 
-	/*if(_numTimers == 1)
-	{
-		_timers = newTimer; 
-	}
-	else
-	{
-		Timer *save = _timers;
+    /*if(_numTimers == 1)
+    {
+        _timers = newTimer; 
+    }
+    else
+    {
+        Timer *save = _timers;
 
-		_timers = new Timer[_numTimers];
-		memcpy(_timers,save,sizeof(Timer)*(_numTimers-1));
-		_timers[_numTimers-1] = *newTimer;
-		delete newTimer;
+        _timers = new Timer[_numTimers];
+        memcpy(_timers,save,sizeof(Timer)*(_numTimers-1));
+        _timers[_numTimers-1] = *newTimer;
+        delete newTimer;
         newTimer = 0;
 
         if(_numTimers <= 2 )
         {
-		    delete save; 
+            delete save; 
         }
         else
         {
             delete[] save;
         }
         save = 0;
-	}*/
+    }*/
 
     return (int)(_timers.size() - 1);
 }
@@ -402,33 +514,33 @@ int SDKCommon::createTimer()
 int SDKCommon::resetTimer(int handle)
 {
     if(handle >= (int)_timers.size())
-	{
-		error("Cannot reset timer. Invalid handle.");
-		return 0;
-	}
+    {
+        error("Cannot reset timer. Invalid handle.");
+        return 0;
+    }
 
-	(_timers[handle]->_start) = 0;
-	(_timers[handle]->_clocks) = 0;
-	return 1;
+    (_timers[handle]->_start) = 0;
+    (_timers[handle]->_clocks) = 0;
+    return 1;
 }
 
 int SDKCommon::startTimer(int handle)
 {
     if(handle >= (int)_timers.size())
-	{
-		error("Cannot reset timer. Invalid handle.");
-		return 0;
-	}
+    {
+        error("Cannot reset timer. Invalid handle.");
+        return 0;
+    }
 
 #ifdef _WIN32
     QueryPerformanceCounter((LARGE_INTEGER*)&(_timers[handle]->_start));	
 #else
     struct timeval s;
     gettimeofday(&s, 0);
-    _timers[handle]->_start = (long long)s.tv_sec * 1.0E3 + (long long)s.tv_usec / 1.0E3;
+    _timers[handle]->_start = (long long)s.tv_sec * (long long)1.0E3 + (long long)s.tv_usec / (long long)1.0E3;
 #endif
 
-	return 1;
+    return 1;
 }
 
 int SDKCommon::stopTimer(int handle)
@@ -436,71 +548,71 @@ int SDKCommon::stopTimer(int handle)
     long long n=0;
 
     if(handle >= (int)_timers.size())
-	{
-		error("Cannot reset timer. Invalid handle.");
-		return 0;
-	}
+    {
+        error("Cannot reset timer. Invalid handle.");
+        return 0;
+    }
 
 #ifdef _WIN32
     QueryPerformanceCounter((LARGE_INTEGER*)&(n));	
 #else
     struct timeval s;
     gettimeofday(&s, 0);
-    n = (long long)s.tv_sec * 1.0E3+ (long long)s.tv_usec / 1.0E3;
+    n = (long long)s.tv_sec * (long long)1.0E3+ (long long)s.tv_usec / (long long)1.0E3;
 #endif
 
     n -= _timers[handle]->_start;
     _timers[handle]->_start = 0;
     _timers[handle]->_clocks += n;
 
-	return 1;
+    return 1;
 }
 
 double SDKCommon::readTimer(int handle)
 {
     if(handle >= (int)_timers.size())
-	{
-		error("Cannot read timer. Invalid handle.");
-		return 0;
-	}
+    {
+        error("Cannot read timer. Invalid handle.");
+        return 0;
+    }
 
-	double reading = double(_timers[handle]->_clocks);
-	reading = double(reading / _timers[handle]->_freq);
+    double reading = double(_timers[handle]->_clocks);
+    reading = double(reading / _timers[handle]->_freq);
 
-	return reading;
+    return reading;
 }
 
 void SDKCommon::printTable(Table *t)
 {
-	if(t == NULL)
-	{
-		error("Cannot print table, NULL pointer.");
-		return;
-	}
+    if(t == NULL)
+    {
+        error("Cannot print table, NULL pointer.");
+        return;
+    }
 
-	int count = 0;
-	// Skip delimiters at beginning.
-	std::string::size_type curIndex = t->_dataItems.find_first_not_of(t->_delim, 0);
+    int count = 0;
+    // Skip delimiters at beginning.
+    std::string::size_type curIndex = t->_dataItems.find_first_not_of(t->_delim, 0);
     // Find first "non-delimiter".
     std::string::size_type nextIndex = 
-		t->_dataItems.find_first_of(t->_delim, curIndex);
+        t->_dataItems.find_first_of(t->_delim, curIndex);
 
-	while (std::string::npos != nextIndex || std::string::npos != curIndex)
-	{
-		// Found a token, add it to the vector.
-		// tokens.push_back(str.substr(curIndex, nextIndex - curIndex));
-		std::cout<<std::setw(t->_columnWidth)<<std::left
-				 <<t->_dataItems.substr(curIndex, nextIndex - curIndex);				 
-		// Skip delimiters.  Note the "not_of"
-		curIndex = t->_dataItems.find_first_not_of(t->_delim, nextIndex);
-		// Find next "non-delimiter"
-		nextIndex = t->_dataItems.find_first_of(t->_delim, curIndex);
-		
-		count++;
+    while (std::string::npos != nextIndex || std::string::npos != curIndex)
+    {
+        // Found a token, add it to the vector.
+        // tokens.push_back(str.substr(curIndex, nextIndex - curIndex));
+        std::cout<<std::setw(t->_columnWidth)<<std::left
+                 <<t->_dataItems.substr(curIndex, nextIndex - curIndex);				 
+        // Skip delimiters.  Note the "not_of"
+        curIndex = t->_dataItems.find_first_not_of(t->_delim, nextIndex);
+        // Find next "non-delimiter"
+        nextIndex = t->_dataItems.find_first_of(t->_delim, curIndex);
+        
+        count++;
 
-		if(count%t->_numColumns==0)
-			std::cout<<"\n";
-	}	
+        if(count%t->_numColumns==0)
+            std::cout<<"\n";
+    }	
 }
 
 bool 
@@ -510,16 +622,16 @@ SDKCommon::fileToString(std::string &fileName, std::string &str)
     char*       buf;
 
     // Open file stream
-	std::fstream f(fileName.c_str(), (std::fstream::in | std::fstream::binary));
+    std::fstream f(fileName.c_str(), (std::fstream::in | std::fstream::binary));
 
     // Check if we have opened file stream
     if (f.is_open()) 
-	{
+    {
         size_t  sizeFile;
 
         // Find the stream size
         f.seekg(0, std::fstream::end);
-        size = sizeFile = f.tellg();
+        size = sizeFile = (size_t)f.tellg();
         f.seekg(0, std::fstream::beg);
 
         buf = new char[size + 1];
@@ -537,12 +649,12 @@ SDKCommon::fileToString(std::string &fileName, std::string &str)
 
         return true;
     }
-	else
-	{
-		error("Converting file to string. Cannot open file.");
-		str = "";	
-		return false;
-	}
+    else
+    {
+        error("Converting file to string. Cannot open file.");
+        str = "";	
+        return false;
+    }
 }
 
 void 
@@ -554,7 +666,19 @@ SDKCommon::error(const char* errorMsg) const
 void 
 SDKCommon::error(std::string errorMsg) const
 {
-	std::cout<<"Error: "<<errorMsg<<"\n";
+    std::cout<<"Error: "<<errorMsg<<"\n";
+}
+
+void 
+SDKCommon::expectedError(const char* errorMsg) const
+{
+    std::cout<<"Expected Error: "<<errorMsg<<"\n";
+}
+
+void 
+SDKCommon::expectedError(std::string errorMsg) const
+{
+    std::cout<<"Expected Error: "<<errorMsg<<"\n";
 }
 
 /////////////////////////////////////////////////////////////////
@@ -562,50 +686,50 @@ SDKCommon::error(std::string errorMsg) const
 /////////////////////////////////////////////////////////////////
 template 
 void SDKCommon::printArray<short>(const std::string, 
-		const short*, int, int)const;
+        const short*, int, int)const;
 template 
 void SDKCommon::printArray<unsigned char>(const std::string, 
-		const unsigned char *, int, int)const;
+        const unsigned char *, int, int)const;
 template 
 void SDKCommon::printArray<unsigned int>(const std::string, 
-		const unsigned int *, int, int)const;
+        const unsigned int *, int, int)const;
 template 
 void SDKCommon::printArray<int>(const std::string, 
-		const int *, int, int)const;
+        const int *, int, int)const;
 template 
 void SDKCommon::printArray<long>(const std::string, 
-		const long*, int, int)const;
+        const long*, int, int)const;
 template 
 void SDKCommon::printArray<float>(const std::string, 
-		const float*, int, int)const;
+        const float*, int, int)const;
 template 
 void SDKCommon::printArray<double>(const std::string, 
-		const double*, int, int)const;
+        const double*, int, int)const;
 
 template 
 int SDKCommon::fillRandom<unsigned char>(unsigned char* arrayPtr, 
-		const int width, const int height, 
-		unsigned char rangeMin, unsigned char rangeMax, unsigned int seed);	
+        const int width, const int height, 
+        unsigned char rangeMin, unsigned char rangeMax, unsigned int seed);	
 template 
 int SDKCommon::fillRandom<unsigned int>(unsigned int* arrayPtr, 
-		const int width, const int height, 
-		unsigned int rangeMin, unsigned int rangeMax, unsigned int seed);	
+        const int width, const int height, 
+        unsigned int rangeMin, unsigned int rangeMax, unsigned int seed);	
 template 
 int SDKCommon::fillRandom<int>(int* arrayPtr, 
-		const int width, const int height, 
-		int rangeMin, int rangeMax, unsigned int seed);	
+        const int width, const int height, 
+        int rangeMin, int rangeMax, unsigned int seed);	
 template 
 int SDKCommon::fillRandom<long>(long* arrayPtr, 
-		const int width, const int height, 
-		long rangeMin, long rangeMax, unsigned int seed);	
+        const int width, const int height, 
+        long rangeMin, long rangeMax, unsigned int seed);	
 template 
 int SDKCommon::fillRandom<float>(float* arrayPtr, 
-		const int width, const int height, 
-		float rangeMin, float rangeMax, unsigned int seed);	
+        const int width, const int height, 
+        float rangeMin, float rangeMax, unsigned int seed);	
 template 
 int SDKCommon::fillRandom<double>(double* arrayPtr, 
-		const int width, const int height, 
-		double rangeMin, double rangeMax, unsigned int seed);	
+        const int width, const int height, 
+        double rangeMin, double rangeMax, unsigned int seed);	
 
 template 
 short SDKCommon::roundToPowerOf2<short>(short val);
@@ -636,31 +760,32 @@ int SDKCommon::fillPos<long>(long * arrayPtr, const int width, const int height)
 
 template<> 
 int SDKCommon::fillConstant<short>(short * arrayPtr, 
-		const int width, const int height, 
-		const short val);
+        const int width, const int height, 
+        const short val);
 template<> 
 int SDKCommon::fillConstant(unsigned int * arrayPtr, 
-		const int width, const int height, 
-		const unsigned int val);
+        const int width, const int height, 
+        const unsigned int val);
 template<> 
 int SDKCommon::fillConstant(int * arrayPtr, 
-		const int width, const int height, 
-		const int val);
+        const int width, const int height, 
+        const int val);
 template<> 
 int SDKCommon::fillConstant(long * arrayPtr, 
-		const int width, const int height, 
-		const long val);
+        const int width, const int height, 
+        const long val);
 template<> 
 int SDKCommon::fillConstant(long * arrayPtr, 
-		const int width, const int height, 
-		const long val);
+        const int width, const int height, 
+        const long val);
 template<> 
 int SDKCommon::fillConstant(long * arrayPtr, 
-		const int width, const int height, 
-		const long val);
+        const int width, const int height, 
+        const long val);
+
 
 template
-const char* SDKCommon::getOpenCLErrorCodeStr(int input) const;
+const char* getOpenCLErrorCodeStr<int>(int input);
 
 template
 int SDKCommon::checkVal<char>(char input, char reference, std::string message, bool isAPIerror) const;

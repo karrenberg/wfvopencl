@@ -6,20 +6,20 @@
  *
  * Copyright (C) 2010 Saarland University
  *
- * This file is part of packetizedOpenCLDriver.
+ * This file is part of packetizedOpenCL.
  *
- * packetizedOpenCLDriver is free software: you can redistribute it and/or modify
+ * packetizedOpenCL is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * packetizedOpenCLDriver is distributed in the hope that it will be useful,
+ * packetizedOpenCL is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with packetizedOpenCLDriver.  If not, see <http://www.gnu.org/licenses/>.
+ * along with packetizedOpenCL.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
 #ifndef _LLVMTOOLS_H
@@ -61,25 +61,25 @@
 #include <llvm/Support/TypeBuilder.h>
 
 #ifdef DEBUG
-#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) do { x } while (false)
-#define PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE(x) x
+#define PACKETIZED_OPENCL_DEBUG(x) do { x } while (false)
+#define PACKETIZED_OPENCL_DEBUG_VISIBLE(x) x
 #else
-#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) ((void)0)
-#define PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE(x)
+#define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
+#define PACKETIZED_OPENCL_DEBUG_VISIBLE(x)
 #endif
 
 #ifdef NDEBUG // force debug output disabled
-#undef PACKETIZED_OPENCL_DRIVER_DEBUG
-#define PACKETIZED_OPENCL_DRIVER_DEBUG(x) ((void)0)
-#undef PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE
-#define PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE(x)
+#undef PACKETIZED_OPENCL_DEBUG
+#define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
+#undef PACKETIZED_OPENCL_DEBUG_VISIBLE
+#define PACKETIZED_OPENCL_DEBUG_VISIBLE(x)
 #endif
 
-#define PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH 4
+#define PACKETIZED_OPENCL_SIMD_WIDTH 4
 
 using namespace llvm;
 
-namespace PacketizedOpenCLDriver {
+namespace PacketizedOpenCL {
 
 	// small helper function
 	inline bool constantEqualsInt(const Constant* c, const uint64_t intValue) {
@@ -94,7 +94,7 @@ namespace PacketizedOpenCLDriver {
 		assert (isa<ConstantInt>(c));
 		const ConstantInt* constIntOp = cast<ConstantInt>(c);
 		const uint64_t constVal = *(constIntOp->getValue().getRawData());
-		return (constVal % PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH == 0);
+		return (constVal % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
 	}
 
 
@@ -428,7 +428,7 @@ namespace PacketizedOpenCLDriver {
 		LLVMContext& context = mod->getContext();
 
 		if (Function* fn = mod->getFunction(packetKernelName)) {
-			PACKETIZED_OPENCL_DRIVER_DEBUG( errs() << "WARNING: target packet prototype already exists, automatic generation skipped!\n"; );
+			PACKETIZED_OPENCL_DEBUG( errs() << "WARNING: target packet prototype already exists, automatic generation skipped!\n"; );
 			fn->setName(packetKernelName);
 			return fn;
 		}
@@ -588,16 +588,16 @@ namespace PacketizedOpenCLDriver {
 	bool isLinearModificationCalculation(Value* value, Instruction* use, const unsigned simdDim) {
 		assert (value);
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  testing consecutive modification calculation: " << *value << "\n"; );
+		PACKETIZED_OPENCL_DEBUG( outs() << "  testing consecutive modification calculation: " << *value << "\n"; );
 
 		if (isa<Constant>(value)) {
 			if (!constantIsDividableBySIMDWidth(cast<Constant>(value))) {
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is a constant NOT dividable by SIMD width (has to be replicated)!\n"; );
+				PACKETIZED_OPENCL_DEBUG( outs() << "    value is a constant NOT dividable by SIMD width (has to be replicated)!\n"; );
 				return false;
 			}
 
-			BinaryOperator::Create(Instruction::UDiv, value, ConstantInt::get(value->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", use);
-			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is a constant dividable by SIMD width (division inserted)!\n"; );
+			BinaryOperator::Create(Instruction::UDiv, value, ConstantInt::get(value->getType(), PACKETIZED_OPENCL_SIMD_WIDTH, false), "", use);
+			PACKETIZED_OPENCL_DEBUG( outs() << "    value is a constant dividable by SIMD width (division inserted)!\n"; );
 			return true;
 		}
 
@@ -609,7 +609,7 @@ namespace PacketizedOpenCLDriver {
 		//	const std::string name = value->getNameStr();
 		//	if (std::strstr(name.c_str(), "get_local_id") != 0) return true;
 		//	if (std::strstr(name.c_str(), "get_global_id") != 0) return true;
-		//	PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is unsuited function parameter (neither local nor global ID)!\n"; );
+		//	PACKETIZED_OPENCL_DEBUG( outs() << "    value is unsuited function parameter (neither local nor global ID)!\n"; );
 		//	return false;
 		//}
 
@@ -621,7 +621,7 @@ namespace PacketizedOpenCLDriver {
 		if (CallInst* call = dyn_cast<CallInst>(value)) {
 			if (call->getCalledFunction()->getNameStr() == "get_local_size") return true;
 			if (call->getCalledFunction()->getNameStr() == "get_global_size") return true;
-			PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    value is unsuited function parameter (only local size allowed)!\n"; );
+			PACKETIZED_OPENCL_DEBUG( outs() << "    value is unsuited function parameter (only local size allowed)!\n"; );
 			return false;
 		}
 
@@ -684,7 +684,7 @@ namespace PacketizedOpenCLDriver {
 				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp, simdDim);
 			}
 			default: {
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    found unknown operation in consective modification calculation!\n"; );
+				PACKETIZED_OPENCL_DEBUG( outs() << "    found unknown operation in consective modification calculation!\n"; );
 				return false;
 			}
 		}
@@ -695,7 +695,7 @@ namespace PacketizedOpenCLDriver {
 	// TODO: phi, select
 	// TODO: calls?
 	bool indexIsOnlyUsedWithLinearModifications(Instruction* I, Instruction* parent, const unsigned simdDim, std::set<GetElementPtrInst*>& dependentGEPs, std::set<Instruction*>& safePathVec, std::set<Instruction*>& visited) {
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nindexIsOnlyUsedWithLinearModifications(" << *I << ")\n"; );
+		PACKETIZED_OPENCL_DEBUG( outs() << "\nindexIsOnlyUsedWithLinearModifications(" << *I << ")\n"; );
 
 		// if this use is a GEP, this path is fine (don't go beyond GEPs)
 		if (isa<GetElementPtrInst>(I)) {
@@ -716,7 +716,7 @@ namespace PacketizedOpenCLDriver {
 		switch (I->getOpcode()) {
 			case Instruction::Add : //fallthrough
 			case Instruction::Sub : {
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  add/sub found!\n"; );
+				PACKETIZED_OPENCL_DEBUG( outs() << "  add/sub found!\n"; );
 				// add/sub is okay if other operand is dividable by simd width (currently: local size if not constant) and uniform
 
 				// get other operand
@@ -728,10 +728,10 @@ namespace PacketizedOpenCLDriver {
 				// optimized: arr[local id SIMD + 8] = 0+8 = 'SIMD position' 8 = wrong values
 				// optimized&divided: arr[local id SIMD + 8/4] = 0+2 = 'SIMD position' 2 = correct values
 				if (isa<Constant>(op)) {
-					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    has constant operand!\n"; );
+					PACKETIZED_OPENCL_DEBUG( outs() << "    has constant operand!\n"; );
 					if (!constantIsDividableBySIMDWidth(cast<Constant>(op))) break;
 
-					BinaryOperator* divOp = BinaryOperator::Create(Instruction::UDiv, op, ConstantInt::get(op->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", I);
+					BinaryOperator* divOp = BinaryOperator::Create(Instruction::UDiv, op, ConstantInt::get(op->getType(), PACKETIZED_OPENCL_SIMD_WIDTH, false), "", I);
 					I->replaceUsesOfWith(op, divOp);
 					operandsAreSafe = true;
 					break;
@@ -752,7 +752,7 @@ namespace PacketizedOpenCLDriver {
 			case Instruction::SIToFP  : // SIToFP is okay, fallthrough
 			case Instruction::FPExt   : // FPExt is okay, fallthrough
 			case Instruction::BitCast : {
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  cast found!\n"; );
+				PACKETIZED_OPENCL_DEBUG( outs() << "  cast found!\n"; );
 				assert (isa<Instruction>(I->getOperand(0)));
 				operandsAreSafe = true; //indexIsOnlyUsedWithLinearModifications(cast<Instruction>(I->getOperand(0)), I, simdDim, safePathVec, visited);
 				break;
@@ -773,7 +773,7 @@ namespace PacketizedOpenCLDriver {
 			// indexIsOnlyUsedWithLinearModifications that allows usage of ids.
 			// alternative: add a flag that enables this feature
 			case Instruction::PHI     : {
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  phi found!\n"; );
+				PACKETIZED_OPENCL_DEBUG( outs() << "  phi found!\n"; );
 				// recurse into all other incoming operands to ensure safety
 				PHINode* phi = cast<PHINode>(I);
 				bool phiIsSafe = true;
@@ -801,7 +801,7 @@ namespace PacketizedOpenCLDriver {
 				break;
 			}
 			case Instruction::Select  : {
-				PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  select found!\n"; );
+				PACKETIZED_OPENCL_DEBUG( outs() << "  select found!\n"; );
 				// same goes for selects (second incoming value also has to be safe)
 				SelectInst* select = cast<SelectInst>(I);
 				Value* otherVal = select->getTrueValue() == I ? select->getFalseValue() : select->getTrueValue();
@@ -818,7 +818,7 @@ namespace PacketizedOpenCLDriver {
 			}
 		}
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
+		PACKETIZED_OPENCL_DEBUG(
 			if (!operandsAreSafe && I->getNumOperands() == 1) {
 				outs() << "\n\n  instruction only has one operand -> should be safe?!\n";
 				outs() << "    " << *I << "\n";
@@ -826,7 +826,7 @@ namespace PacketizedOpenCLDriver {
 			}
 		);
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG(
+		PACKETIZED_OPENCL_DEBUG(
 			if (operandsAreSafe) outs() << "  operands safe for instruction: " << *I << "\n";
 			else outs() << "  operands NOT safe for instruction: " << *I << "\n";
 		);
@@ -839,12 +839,12 @@ namespace PacketizedOpenCLDriver {
 		for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
 			if (Instruction* useI = dyn_cast<Instruction>(*U))
 				if (!indexIsOnlyUsedWithLinearModifications(useI, I, simdDim, dependentGEPs, safePathVec, visited)) {
-					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  uses NOT safe for instruction: " << *I << "\n"; );
+					PACKETIZED_OPENCL_DEBUG( outs() << "  uses NOT safe for instruction: " << *I << "\n"; );
 					return false;
 				}
 		}
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  INSTRUCTION IS SAFE: " << *I << "\n"; );
+		PACKETIZED_OPENCL_DEBUG( outs() << "  INSTRUCTION IS SAFE: " << *I << "\n"; );
 		return true;
 	}
 
@@ -852,7 +852,7 @@ namespace PacketizedOpenCLDriver {
 	// NOTE: We assume that the local sizes of dimensions other than simdDim are also dividable by simd width
 	bool indexIsMultipleOfOriginalLocalSize(Value* index, Instruction* use, const unsigned simdDim) {
 		assert (index);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nindexIsMultipleOfOriginalLocalSize(" << *index << ")\n"; );
+		PACKETIZED_OPENCL_DEBUG( outs() << "\nindexIsMultipleOfOriginalLocalSize(" << *index << ")\n"; );
 
 		if (isa<Constant>(index)) return false;
 		if (isa<Argument>(index)) return false;
@@ -882,7 +882,7 @@ namespace PacketizedOpenCLDriver {
 				assert (isa<Constant>(call->getArgOperand(0)));
 				const bool callsSimdDim = constantEqualsInt(cast<Constant>(call->getArgOperand(0)), simdDim);
 				if ((instructionIsSafe || call->getCalledFunction()->getNameStr() == "get_global_size") && callsSimdDim) {
-					BinaryOperator* divIndex = BinaryOperator::Create(Instruction::UDiv, call, ConstantInt::get(call->getType(), PACKETIZED_OPENCL_DRIVER_SIMD_WIDTH, false), "", use);
+					BinaryOperator* divIndex = BinaryOperator::Create(Instruction::UDiv, call, ConstantInt::get(call->getType(), PACKETIZED_OPENCL_SIMD_WIDTH, false), "", use);
 					use->replaceUsesOfWith(call, divIndex);
 				}
 				break;
@@ -929,7 +929,7 @@ namespace PacketizedOpenCLDriver {
 	}
 	void fixLocalSizeSIMDUsageInIndexCalculation(GetElementPtrInst* gep, const unsigned simdDim) {
 		assert (gep);
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nfixLocalSizeSIMDUsageInIndexCalculation(" << *gep << ")\n"; );
+		PACKETIZED_OPENCL_DEBUG( outs() << "\nfixLocalSizeSIMDUsageInIndexCalculation(" << *gep << ")\n"; );
 
 		assert (gep->getNumIndices() == 1);
 
@@ -954,7 +954,7 @@ namespace PacketizedOpenCLDriver {
 		assert (splitFn->getReturnType()->isIntegerTy());
 		// TODO: check if signature matches (we are replacing oldF by splitFn...)
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "\nsetupIndexUsages(" << oldFn->getNameStr() << ")\n"; );
+		PACKETIZED_OPENCL_DEBUG( outs() << "\nsetupIndexUsages(" << oldFn->getNameStr() << ")\n"; );
 
 		std::vector<CallInst*> deleteVec;
 		std::set<Instruction*> safePathVec; // marks instructions whose use-subtrees are entirely safe
@@ -990,7 +990,7 @@ namespace PacketizedOpenCLDriver {
 				assert (isa<Instruction>(*U2));
 				Instruction* useI = cast<Instruction>(*U2++);
 
-#ifndef PACKETIZED_OPENCL_DRIVER_SPLIT_EVERYTHING
+#ifndef PACKETIZED_OPENCL_SPLIT_EVERYTHING
 				// attempt to analyze path
 				// TODO: entirely uniform paths are okay as well
 				std::set<Instruction*> visited;
@@ -1006,10 +1006,10 @@ namespace PacketizedOpenCLDriver {
 					}
 
 					useI->replaceUsesOfWith(call, simdCall);
-					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  OPTIMIZED USE: " << *useI << "\n"; );
+					PACKETIZED_OPENCL_DEBUG( outs() << "  OPTIMIZED USE: " << *useI << "\n"; );
 					continue;
 				} else {
-					PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  COULD NOT OPTIMIZE USE OF CALL: " << *useI << "\n"; );
+					PACKETIZED_OPENCL_DEBUG( outs() << "  COULD NOT OPTIMIZE USE OF CALL: " << *useI << "\n"; );
 				}
 #endif
 
@@ -1158,7 +1158,7 @@ namespace PacketizedOpenCLDriver {
 
 
 // to be removed :)
-namespace PacketizedOpenCLDriver {
+namespace PacketizedOpenCL {
 
 	Function* getFunction(const std::string& name, Module* module) {
 		assert (module);
@@ -1373,7 +1373,7 @@ namespace PacketizedOpenCLDriver {
 
 
 	void inlineFunctionCalls(Function* f, TargetData* targetData=NULL) {
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "  inlining function calls... "; );
+		//PACKETIZED_OPENCL_DEBUG( outs() << "  inlining function calls... "; );
 		bool functionChanged = true;
 		while (functionChanged) {
 			functionChanged = false;
@@ -1388,7 +1388,7 @@ namespace PacketizedOpenCLDriver {
 						continue;
 					}
 					if (callee->getAttributes().hasAttrSomewhere(Attribute::NoInline)) {
-						//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "    function '" << callee->getNameStr() << "' has attribute 'no inline', ignored call!\n"; );
+						//PACKETIZED_OPENCL_DEBUG( outs() << "    function '" << callee->getNameStr() << "' has attribute 'no inline', ignored call!\n"; );
 						continue;
 					}
 
@@ -1396,7 +1396,7 @@ namespace PacketizedOpenCLDriver {
 
 					InlineFunctionInfo IFI(NULL, targetData);
 					blockChanged = InlineFunction(call, IFI);
-					//PACKETIZED_OPENCL_DRIVER_DEBUG(
+					//PACKETIZED_OPENCL_DEBUG(
 						//if (blockChanged) outs() << "  inlined call to function '" << calleeName << "'\n";
 						//else errs() << "  inlining of call to function '" << calleeName << "' FAILED!\n";
 					//);
@@ -1404,7 +1404,7 @@ namespace PacketizedOpenCLDriver {
 				}
 			}
 		}
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\n"; );
+		//PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
 	}
 
 #ifdef DO_NOT_OPTIMIZE
@@ -1507,7 +1507,7 @@ namespace PacketizedOpenCLDriver {
 		//    Passes.add(createGlobalDCEPass());
 
 		// Make sure everything is still good.
-		PACKETIZED_OPENCL_DRIVER_DEBUG( Passes.add(createVerifierPass()); );
+		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
 
 		// Run our queue of passes all at once now, efficiently.
 		Passes.run(*mod);
@@ -1521,7 +1521,7 @@ namespace PacketizedOpenCLDriver {
 		Module* mod = f->getParent();
 		TargetData* targetData = new TargetData(mod);
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
+		//PACKETIZED_OPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
 
 #ifdef DEBUG_LLVM_PASSES
 		DebugFlag = true;
@@ -1572,11 +1572,11 @@ namespace PacketizedOpenCLDriver {
 		Passes.add(createCFGSimplificationPass());
 		Passes.add(createAggressiveDCEPass());
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( Passes.add(createVerifierPass()); );
+		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
-		//PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( t.startTimer(); );
+		//PACKETIZED_OPENCL_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
+		//PACKETIZED_OPENCL_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
+		//PACKETIZED_OPENCL_DEBUG( t.startTimer(); );
 
 		Passes.doInitialization();
 		Passes.run(*f);
@@ -1586,9 +1586,9 @@ namespace PacketizedOpenCLDriver {
 		DebugFlag = false;
 #endif
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( t.stopTimer(); );
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\ndone.\n"; );
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( tg.print(outs()); );
+		//PACKETIZED_OPENCL_DEBUG( t.stopTimer(); );
+		//PACKETIZED_OPENCL_DEBUG( outs() << "done.\ndone.\n"; );
+		//PACKETIZED_OPENCL_DEBUG( tg.print(outs()); );
 	}
 #else
 	/// adopted from: llvm-2.7/tools/opt
@@ -1599,7 +1599,7 @@ namespace PacketizedOpenCLDriver {
 		Module* mod = f->getParent();
 		TargetData* targetData = new TargetData(mod);
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
+		//PACKETIZED_OPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
 
 #ifdef DEBUG_LLVM_PASSES
 		DebugFlag = true;
@@ -1697,7 +1697,7 @@ namespace PacketizedOpenCLDriver {
 			//Passes.add(createConstantMergePass());       // Merge dup global constants
 		}
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( Passes.add(createVerifierPass()); );
+		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
 
 		Passes.doInitialization();
 		Passes.run(*f);
@@ -1727,7 +1727,7 @@ namespace PacketizedOpenCLDriver {
 		Module* mod = f->getParent();
 		TargetData* targetData = new TargetData(mod);
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
+		//PACKETIZED_OPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
 
 		FunctionPassManager Passes(mod);
 		Passes.add(targetData);
@@ -1738,19 +1738,19 @@ namespace PacketizedOpenCLDriver {
 		Passes.add(createCFGSimplificationPass());
 		Passes.add(createAggressiveDCEPass()); //fpm.add(createDeadCodeEliminationPass());
 
-		PACKETIZED_OPENCL_DRIVER_DEBUG( Passes.add(createVerifierPass()); );
+		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
-		//PACKETIZED_OPENCL_DRIVER_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( t.startTimer(); );
+		//PACKETIZED_OPENCL_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
+		//PACKETIZED_OPENCL_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
+		//PACKETIZED_OPENCL_DEBUG( t.startTimer(); );
 
 		Passes.doInitialization();
 		Passes.run(*f);
 		Passes.doFinalization();
 
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( t.stopTimer(); );
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( outs() << "done.\ndone.\n"; );
-		//PACKETIZED_OPENCL_DRIVER_DEBUG( tg.print(outs()); );
+		//PACKETIZED_OPENCL_DEBUG( t.stopTimer(); );
+		//PACKETIZED_OPENCL_DEBUG( outs() << "done.\ndone.\n"; );
+		//PACKETIZED_OPENCL_DEBUG( tg.print(outs()); );
 
 		//std::string* errInfo = NULL;
 		//mp.releaseModule(errInfo);
