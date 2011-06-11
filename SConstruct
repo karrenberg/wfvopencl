@@ -107,7 +107,7 @@ env.Append(CPPPATH = llvm_vars.get('CPPPATH'))
 env.Append(CPPPATH = [os.path.join(env['ENV']['LLVM_INSTALL_DIR'], 'include')])
 env.Append(CPPPATH = [os.path.join(env['ENV']['PACKETIZER_INSTALL_DIR'], 'include')])
 
-env.Append(LIBPATH = env.Split("lib build/lib"))
+env.Append(LIBPATH = env.Split("lib"))
 env.Append(LIBPATH = [os.path.join(env['ENV']['LLVM_INSTALL_DIR'], 'lib')])
 env.Append(LIBPATH = [os.path.join(env['ENV']['PACKETIZER_INSTALL_DIR'], 'lib')])
 env.Append(LIBPATH = llvm_vars.get('LIBPATH'))

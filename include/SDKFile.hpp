@@ -4,7 +4,9 @@
 #include <vector>
 #include <string>
 #include <fstream>
-#include <malloc.h>
+#if !defined(__APPLE__)
+#	include <malloc.h>
+#endif
 
 namespace streamsdk
 {

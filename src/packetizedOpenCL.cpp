@@ -39,6 +39,12 @@
 #include <CL/cl_ext.h>      // e.g. for CL_PLATFORM_SUFFIX_KHR
 #endif
 
+#ifdef _WIN32
+#	define PACKETIZED_OPENCL_DLLEXPORT __declspec(dllexport)
+#else
+#	define PACKETIZED_OPENCL_DLLEXPORT
+#endif
+
 #ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
 #include "packetizerAPI.h" // packetizer
 #endif
@@ -2650,7 +2656,7 @@ static _cl_icd_dispatch dispatch =
 static struct _cl_platform_id platform = { &dispatch };
 
 /* Platform API */
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetPlatformIDs(cl_uint          num_entries,
                  cl_platform_id * platforms,
                  cl_uint *        num_platforms) CL_API_SUFFIX__VERSION_1_0
@@ -2665,7 +2671,7 @@ clGetPlatformIDs(cl_uint          num_entries,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetPlatformInfo(cl_platform_id   platform,
                   cl_platform_info param_name,
                   size_t           param_value_size,
@@ -2733,7 +2739,7 @@ clGetPlatformInfo(cl_platform_id   platform,
 }
 
 /* Device APIs */
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetDeviceIDs(cl_platform_id   platform,
                cl_device_type   device_type,
                cl_uint          num_entries,
@@ -2751,7 +2757,7 @@ clGetDeviceIDs(cl_platform_id   platform,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetDeviceInfo(cl_device_id    device,
                 cl_device_info  param_name,
                 size_t          param_value_size,
@@ -3049,7 +3055,7 @@ clGetDeviceInfo(cl_device_id    device,
 }
 
 /* Context APIs  */
-__declspec(dllexport) CL_API_ENTRY cl_context CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_context CL_API_CALL
 clCreateContext(const cl_context_properties * properties,
                 cl_uint                       num_devices,
                 const cl_device_id *          devices,
@@ -3061,7 +3067,7 @@ clCreateContext(const cl_context_properties * properties,
 	return new _cl_context();
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_context CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_context CL_API_CALL
 clCreateContextFromType(const cl_context_properties * properties,
                         cl_device_type                device_type,
                         void (*pfn_notify)(const char *, const void *, size_t, void *),
@@ -3076,14 +3082,14 @@ clCreateContextFromType(const cl_context_properties * properties,
 	return new _cl_context();
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 {
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseContext()\n"; );
@@ -3091,7 +3097,7 @@ clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 }
 
 // TODO: this function should query the context, not return stuff itself ;)
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetContextInfo(cl_context         context,
                  cl_context_info    param_name,
                  size_t             param_value_size,
@@ -3135,7 +3141,7 @@ clGetContextInfo(cl_context         context,
 creates a command-queue on a specific device.
 */
 // -> ??
-__declspec(dllexport) CL_API_ENTRY cl_command_queue CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_command_queue CL_API_CALL
 clCreateCommandQueue(cl_context                     context,
                      cl_device_id                   device,
                      cl_command_queue_properties    properties,
@@ -3147,21 +3153,21 @@ clCreateCommandQueue(cl_context                     context,
 	return cq;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseCommandQueue()\n"; );
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetCommandQueueInfo(cl_command_queue      command_queue,
                       cl_command_queue_info param_name,
                       size_t                param_value_size,
@@ -3172,7 +3178,7 @@ clGetCommandQueueInfo(cl_command_queue      command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetCommandQueueProperty(cl_command_queue              command_queue,
                           cl_command_queue_properties   properties,
                           cl_bool                        enable,
@@ -3193,7 +3199,7 @@ user-defined structure. An image object is used to represent a buffer that can b
 or a frame-buffer. The elements of an image object are selected from a list of predefined image
 formats. The minimum number of elements in a memory object is one.
 */
-__declspec(dllexport) CL_API_ENTRY cl_mem CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
 clCreateBuffer(cl_context   context,
                cl_mem_flags flags,
                size_t       size, //in bytes
@@ -3263,7 +3269,7 @@ clCreateBuffer(cl_context   context,
 	return new _cl_mem(context, size, device_ptr, canRead, canWrite);
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_mem CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
 clCreateImage2D(cl_context              context,
                 cl_mem_flags            flags,
                 const cl_image_format * image_format,
@@ -3277,7 +3283,7 @@ clCreateImage2D(cl_context              context,
 	return NULL;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_mem CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
 clCreateImage3D(cl_context              context,
                 cl_mem_flags            flags,
                 const cl_image_format * image_format,
@@ -3293,21 +3299,21 @@ clCreateImage3D(cl_context              context,
 	return NULL;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 {
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseMemObject()\n"; );
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetSupportedImageFormats(cl_context           context,
                            cl_mem_flags         flags,
                            cl_mem_object_type   image_type,
@@ -3319,7 +3325,7 @@ clGetSupportedImageFormats(cl_context           context,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetMemObjectInfo(cl_mem           memobj,
                    cl_mem_info      param_name,
                    size_t           param_value_size,
@@ -3330,7 +3336,7 @@ clGetMemObjectInfo(cl_mem           memobj,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetImageInfo(cl_mem           image,
                cl_image_info    param_name,
                size_t           param_value_size,
@@ -3342,7 +3348,7 @@ clGetImageInfo(cl_mem           image,
 }
 
 /* Sampler APIs  */
-__declspec(dllexport) CL_API_ENTRY cl_sampler CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_sampler CL_API_CALL
 clCreateSampler(cl_context          context,
                 cl_bool             normalized_coords,
                 cl_addressing_mode  addressing_mode,
@@ -3353,21 +3359,21 @@ clCreateSampler(cl_context          context,
 	return NULL;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainSampler(cl_sampler sampler) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseSampler(cl_sampler sampler) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetSamplerInfo(cl_sampler         sampler,
                  cl_sampler_info    param_name,
                  size_t             param_value_size,
@@ -3386,7 +3392,7 @@ the strings array into the program object. The devices associated with the progr
 devices associated with context.
 */
 // -> read strings and store as .cl representation
-__declspec(dllexport) CL_API_ENTRY cl_program CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_program CL_API_CALL
 clCreateProgramWithSource(cl_context        context,
                           cl_uint           count,
                           const char **     strings,
@@ -3401,7 +3407,7 @@ clCreateProgramWithSource(cl_context        context,
 }
 
 // -> read binary and store as .cl representation
-__declspec(dllexport) CL_API_ENTRY cl_program CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_program CL_API_CALL
 clCreateProgramWithBinary(cl_context                     context,
                           cl_uint                        num_devices,
                           const cl_device_id *           device_list,
@@ -3414,14 +3420,14 @@ clCreateProgramWithBinary(cl_context                     context,
 	return NULL;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 {
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseProgram()\n"; );
@@ -3446,7 +3452,7 @@ associated with program.
 // -> invoke clc
 // -> invoke llvm-as
 // -> store module in _cl_program object
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clBuildProgram(cl_program           program,
                cl_uint              num_devices,
                const cl_device_id * device_list,
@@ -3477,14 +3483,14 @@ clBuildProgram(cl_program           program,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clUnloadCompiler(void) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetProgramInfo(cl_program         program,
                  cl_program_info    param_name,
                  size_t             param_value_size,
@@ -3495,7 +3501,7 @@ clGetProgramInfo(cl_program         program,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetProgramBuildInfo(cl_program            program,
                       cl_device_id          device,
                       cl_program_build_info param_name,
@@ -3511,7 +3517,7 @@ clGetProgramBuildInfo(cl_program            program,
 
 // -> compile bitcode of function from .bc file to native code
 // -> store void* in _cl_kernel object
-__declspec(dllexport) CL_API_ENTRY cl_kernel CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_kernel CL_API_CALL
 clCreateKernel(cl_program      program,
                const char *    kernel_name,
                cl_int *        errcode_ret) CL_API_SUFFIX__VERSION_1_0
@@ -3587,7 +3593,7 @@ clCreateKernel(cl_program      program,
 	return kernel;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clCreateKernelsInProgram(cl_program     program,
                          cl_uint        num_kernels,
                          cl_kernel *    kernels,
@@ -3597,21 +3603,21 @@ clCreateKernelsInProgram(cl_program     program,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainKernel(cl_kernel    kernel) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseKernel(cl_kernel   kernel) CL_API_SUFFIX__VERSION_1_0
 {
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseKernel()\n"; );
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetKernelArg(cl_kernel    kernel,
                cl_uint      arg_index,
                size_t       arg_size,
@@ -3625,7 +3631,7 @@ clSetKernelArg(cl_kernel    kernel,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetKernelInfo(cl_kernel       kernel,
                 cl_kernel_info  param_name,
                 size_t          param_value_size,
@@ -3636,7 +3642,7 @@ clGetKernelInfo(cl_kernel       kernel,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetKernelWorkGroupInfo(cl_kernel                  kernel,
                          cl_device_id               device,
                          cl_kernel_work_group_info  param_name,
@@ -3665,7 +3671,7 @@ clGetKernelWorkGroupInfo(cl_kernel                  kernel,
 }
 
 /* Event Object APIs  */
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clWaitForEvents(cl_uint             num_events,
                 const cl_event *    event_list) CL_API_SUFFIX__VERSION_1_0
 {
@@ -3673,7 +3679,7 @@ clWaitForEvents(cl_uint             num_events,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetEventInfo(cl_event         event,
                cl_event_info    param_name,
                size_t           param_value_size,
@@ -3684,14 +3690,14 @@ clGetEventInfo(cl_event         event,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 {
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseEvent()\n"; );
@@ -3699,7 +3705,7 @@ clReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 }
 
 /* Profiling APIs  */
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetEventProfilingInfo(cl_event            event,
                         cl_profiling_info   param_name,
                         size_t              param_value_size,
@@ -3711,14 +3717,14 @@ clGetEventProfilingInfo(cl_event            event,
 }
 
 /* Flush and Finish APIs */
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clFlush(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clFinish(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
@@ -3727,7 +3733,7 @@ clFinish(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 }
 
 /* Enqueued Commands APIs */
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueReadBuffer(cl_command_queue    command_queue,
                     cl_mem              buffer,
                     cl_bool             blocking_read,
@@ -3759,7 +3765,7 @@ clEnqueueReadBuffer(cl_command_queue    command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWriteBuffer(cl_command_queue   command_queue,
                      cl_mem             buffer,
                      cl_bool            blocking_write,
@@ -3788,7 +3794,7 @@ clEnqueueWriteBuffer(cl_command_queue   command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyBuffer(cl_command_queue    command_queue,
                     cl_mem              src_buffer,
                     cl_mem              dst_buffer,
@@ -3824,7 +3830,7 @@ clEnqueueCopyBuffer(cl_command_queue    command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueReadImage(cl_command_queue     command_queue,
                    cl_mem               image,
                    cl_bool              blocking_read,
@@ -3841,7 +3847,7 @@ clEnqueueReadImage(cl_command_queue     command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWriteImage(cl_command_queue    command_queue,
                     cl_mem              image,
                     cl_bool             blocking_write,
@@ -3858,7 +3864,7 @@ clEnqueueWriteImage(cl_command_queue    command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyImage(cl_command_queue     command_queue,
                    cl_mem               src_image,
                    cl_mem               dst_image,
@@ -3873,7 +3879,7 @@ clEnqueueCopyImage(cl_command_queue     command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyImageToBuffer(cl_command_queue command_queue,
                            cl_mem           src_image,
                            cl_mem           dst_buffer,
@@ -3888,7 +3894,7 @@ clEnqueueCopyImageToBuffer(cl_command_queue command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyBufferToImage(cl_command_queue command_queue,
                            cl_mem           src_buffer,
                            cl_mem           dst_image,
@@ -3903,7 +3909,7 @@ clEnqueueCopyBufferToImage(cl_command_queue command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY void * CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL
 clEnqueueMapBuffer(cl_command_queue command_queue,
                    cl_mem           buffer,
                    cl_bool          blocking_map,
@@ -3919,7 +3925,7 @@ clEnqueueMapBuffer(cl_command_queue command_queue,
 	return NULL;
 }
 
-__declspec(dllexport) CL_API_ENTRY void * CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL
 clEnqueueMapImage(cl_command_queue  command_queue,
                   cl_mem            image,
                   cl_bool           blocking_map,
@@ -3937,7 +3943,7 @@ clEnqueueMapImage(cl_command_queue  command_queue,
 	return NULL;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueUnmapMemObject(cl_command_queue command_queue,
                         cl_mem           memobj,
                         void *           mapped_ptr,
@@ -4181,7 +4187,7 @@ inline cl_int executeRangeKernelND(cl_kernel kernel, const cl_uint num_dimension
 	return CL_INVALID_PROGRAM_EXECUTABLE; // just return something != CL_SUCCESS :P
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueNDRangeKernel(cl_command_queue command_queue,
                        cl_kernel        kernel,
                        cl_uint          work_dim,
@@ -4240,7 +4246,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueTask(cl_command_queue  command_queue,
               cl_kernel         kernel,
               cl_uint           num_events_in_wait_list,
@@ -4251,7 +4257,7 @@ clEnqueueTask(cl_command_queue  command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueNativeKernel(cl_command_queue  command_queue,
 					  void (*user_func)(void *),
                       void *            args,
@@ -4267,7 +4273,7 @@ clEnqueueNativeKernel(cl_command_queue  command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueMarker(cl_command_queue    command_queue,
                 cl_event *          event) CL_API_SUFFIX__VERSION_1_0
 {
@@ -4275,7 +4281,7 @@ clEnqueueMarker(cl_command_queue    command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWaitForEvents(cl_command_queue command_queue,
                        cl_uint          num_events,
                        const cl_event * event_list) CL_API_SUFFIX__VERSION_1_0
@@ -4284,7 +4290,7 @@ clEnqueueWaitForEvents(cl_command_queue command_queue,
 	return CL_SUCCESS;
 }
 
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueBarrier(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 {
 	assert (false && "NOT IMPLEMENTED!");
@@ -4298,17 +4304,17 @@ clEnqueueBarrier(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
  * check to make sure the address is not NULL, before using or
  * calling the returned function address.
  */
-__declspec(dllexport) __declspec(dllexport) CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name) CL_API_SUFFIX__VERSION_1_0
+PACKETIZED_OPENCL_DLLEXPORT PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name) CL_API_SUFFIX__VERSION_1_0
 {
 	printf("ENTERED clGetExtensionFunctionAddress!\n");
 	printf("  func_name: %s\n", func_name);
 	// This is for identification by the ICD mechanism
 	if (!strcmp(func_name, "clIcdGetPlatformIDsKHR")) {
 		printf("  function found!\n");
-		return clIcdGetPlatformIDsKHR;
+		return (void*)clIcdGetPlatformIDsKHR;
 	}
 	
-	return clIcdGetPlatformIDsKHR;
+	return (void*)clIcdGetPlatformIDsKHR;
 
 
 	// If we add any additional extensions, we have to insert something here
@@ -4325,7 +4331,7 @@ __declspec(dllexport) __declspec(dllexport) CL_API_ENTRY void * CL_API_CALL clGe
 /************************ 
  * cl_khr_icd extension *                                                  
  ************************/
-__declspec(dllexport) CL_API_ENTRY cl_int CL_API_CALL
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clIcdGetPlatformIDsKHR(cl_uint              num_entries,
                            cl_platform_id * platforms,
                            cl_uint *        num_platforms)

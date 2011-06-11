@@ -12,15 +12,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
-#include <malloc.h>
+#if !defined(__APPLE__)
+#	include <malloc.h>
+#endif
 
-#include <CL/opencl.h>
+#ifdef __APPLE__
+#	include <OpenCL/opencl.h>
+#else
+#	include <CL/opencl.h>
+#endif
 
 #ifdef _WIN32
-#include <windows.h>
+#	include <windows.h>
+#elif defined __APPLE__
+#	include <sys/time.h>
 #else
-#include <sys/time.h>
-#include <linux/limits.h>
+#	include <sys/time.h>
+#	include <linux/limits.h>
 #endif
 
 #if defined(__MINGW32__) && !defined(__MINGW64_VERSION_MAJOR)

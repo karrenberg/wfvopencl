@@ -93,7 +93,11 @@ jurisdiction and venue of these courts.
 #ifndef FASTWALSHTRANSFORM_H_
 #define FASTWALSHTRANSFORM_H_
 
-#include <CL/cl.h>
+#ifdef __APPLE__
+#include <OpenCL/cl.h>
+#else
+#include <CL/cl.h>          // e.g. for cl_platform_id
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
