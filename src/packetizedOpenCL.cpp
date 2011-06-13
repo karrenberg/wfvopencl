@@ -3060,7 +3060,7 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_context CL_API_CALL
 clCreateContext(const cl_context_properties * properties,
                 cl_uint                       num_devices,
                 const cl_device_id *          devices,
-                void (*pfn_notify)(const char *, const void *, size_t, void *),
+                void (CL_CALLBACK *           pfn_notify)(const char *, const void *, size_t, void *),
                 void *                        user_data,
                 cl_int *                      errcode_ret) CL_API_SUFFIX__VERSION_1_0
 {
@@ -3071,7 +3071,7 @@ clCreateContext(const cl_context_properties * properties,
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_context CL_API_CALL
 clCreateContextFromType(const cl_context_properties * properties,
                         cl_device_type                device_type,
-                        void (*pfn_notify)(const char *, const void *, size_t, void *),
+                        void (CL_CALLBACK *           pfn_notify)(const char *, const void *, size_t, void *),
                         void *                        user_data,
                         cl_int *                      errcode_ret) CL_API_SUFFIX__VERSION_1_0
 {
@@ -3457,8 +3457,8 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clBuildProgram(cl_program           program,
                cl_uint              num_devices,
                const cl_device_id * device_list,
-               const char *         options,
-               void (*pfn_notify)(cl_program program, void * user_data),
+               const char *         options, 
+               void (CL_CALLBACK *  pfn_notify)(cl_program /* program */, void * /* user_data */),
                void *               user_data) CL_API_SUFFIX__VERSION_1_0
 {
 	if (!program) return CL_INVALID_PROGRAM;
@@ -4260,7 +4260,7 @@ clEnqueueTask(cl_command_queue  command_queue,
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueNativeKernel(cl_command_queue  command_queue,
-					  void (*user_func)(void *),
+					  void (CL_CALLBACK *user_func)(void *),
                       void *            args,
                       size_t            cb_args,
                       cl_uint           num_mem_objects,
@@ -4305,7 +4305,7 @@ clEnqueueBarrier(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
  * check to make sure the address is not NULL, before using or
  * calling the returned function address.
  */
-PACKETIZED_OPENCL_DLLEXPORT PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name) CL_API_SUFFIX__VERSION_1_0
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name) CL_API_SUFFIX__VERSION_1_0
 {
 	printf("ENTERED clGetExtensionFunctionAddress!\n");
 	printf("  func_name: %s\n", func_name);
