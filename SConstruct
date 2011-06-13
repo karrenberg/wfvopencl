@@ -1,7 +1,13 @@
 import os
 
-#env = Environment(ENV = {'PATH'            : os.environ['PATH'],
-#						 'LD_LIBRARY_PATH' : os.environ['LD_LIBRARY_PATH']})
+# simply clone entire environment
+env = Environment(ENV = os.environ)
+
+# set up user-specific environment variables
+# IMPORTANT: THESE VARIABLES HAVE TO BE SET ACCORDING TO YOUR SYSTEM!
+LLVM_INSTALL_DIR = env['ENV']['LLVM_INSTALL_DIR']
+PACKETIZER_INSTALL_DIR = env['ENV']['PACKETIZER_INSTALL_DIR']
+
 
 # build variables
 debug         = ARGUMENTS.get('debug', 0)
@@ -17,12 +23,10 @@ compile_dynamic_lib_driver = ARGUMENTS.get('dynamic', 0)
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
 
-# simply clone entire environment
-env = Environment(ENV = os.environ)
-
 # find out if we are on windows
 isWin = env['PLATFORM'] == 'win32' # query HOST_OS or TARGET_OS instead of PLATFORM?
 isDarwin = env['PLATFORM'] == 'darwin' # query HOST_OS or TARGET_OS instead of PLATFORM?
+is32Bit = env['TARGET_ARCH'] == 'x86'
 #print env['HOST_OS']
 #print env['HOST_ARCH']
 #print env['TARGET_OS']
@@ -30,6 +34,7 @@ isDarwin = env['PLATFORM'] == 'darwin' # query HOST_OS or TARGET_OS instead of P
 #print env['PLATFORM']
 #print env['ENV']
 
+# set up compiler
 if isWin:
 	env['CC'] = 'cl'
 	env['CXX'] = 'cl'
@@ -42,7 +47,8 @@ else:
 # query llvm-config
 if isWin:
 	llvm_vars = env.ParseFlags([
-	"-I/local/karrenberg/include -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -L/local/karrenberg/lib -lLLVMObject -lLLVMMCJIT -lLLVMMCDisassembler -lLLVMLinker -lLLVMipo -lLLVMInterpreter -lLLVMInstrumentation -lLLVMJIT -lLLVMExecutionEngine -lLLVMBitWriter -lLLVMX86Disassembler -lLLVMX86AsmParser -lLLVMX86CodeGen -lLLVMX86AsmPrinter -lLLVMX86Utils -lLLVMX86Info -lLLVMAsmParser -lLLVMArchive -lLLVMBitReader -lLLVMSelectionDAG -lLLVMAsmPrinter -lLLVMMCParser -lLLVMCodeGen -lLLVMScalarOpts -lLLVMInstCombine -lLLVMTransformUtils -lLLVMipa -lLLVMAnalysis -lLLVMTarget -lLLVMCore -lLLVMMC -lLLVMSupport -lshell32 -ladvapi32"
+	"-I"+os.path.join(LLVM_INSTALL_DIR, 'include')+" -L"+os.path.join(LLVM_INSTALL_DIR, 'lib')+
+	" -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -lLLVMObject -lLLVMMCJIT -lLLVMMCDisassembler -lLLVMLinker -lLLVMipo -lLLVMInterpreter -lLLVMInstrumentation -lLLVMJIT -lLLVMExecutionEngine -lLLVMBitWriter -lLLVMX86Disassembler -lLLVMX86AsmParser -lLLVMX86CodeGen -lLLVMX86AsmPrinter -lLLVMX86Utils -lLLVMX86Info -lLLVMAsmParser -lLLVMArchive -lLLVMBitReader -lLLVMSelectionDAG -lLLVMAsmPrinter -lLLVMMCParser -lLLVMCodeGen -lLLVMScalarOpts -lLLVMInstCombine -lLLVMTransformUtils -lLLVMipa -lLLVMAnalysis -lLLVMTarget -lLLVMCore -lLLVMMC -lLLVMSupport -lshell32 -ladvapi32"
 	])
 else:
 	llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
@@ -103,15 +109,20 @@ if int(packetize) and not int(compile_dynamic_lib_driver):
 env.Append(CXXFLAGS = cxxflags)
 
 # set up paths
+# LLVM_INSTALL_DIR and PACKETIZER_INSTALL_DIR are supposed to be set by setupenv.sh
 env.Append(CPPPATH = env.Split("include"))
 env.Append(CPPPATH = llvm_vars.get('CPPPATH'))
-env.Append(CPPPATH = [os.path.join(env['ENV']['LLVM_INSTALL_DIR'], 'include')])
-env.Append(CPPPATH = [os.path.join(env['ENV']['PACKETIZER_INSTALL_DIR'], 'include')])
+env.Append(CPPPATH = [os.path.join(LLVM_INSTALL_DIR, 'include')])
+env.Append(CPPPATH = [os.path.join(PACKETIZER_INSTALL_DIR, 'include')])
 
-env.Append(LIBPATH = env.Split("lib"))
-env.Append(LIBPATH = [os.path.join(env['ENV']['LLVM_INSTALL_DIR'], 'lib')])
-env.Append(LIBPATH = [os.path.join(env['ENV']['PACKETIZER_INSTALL_DIR'], 'lib')])
+env.Append(LIBPATH = [os.path.join(LLVM_INSTALL_DIR, 'lib')])
+env.Append(LIBPATH = [os.path.join(PACKETIZER_INSTALL_DIR, 'lib')])
 env.Append(LIBPATH = llvm_vars.get('LIBPATH'))
+env.Append(LIBPATH = env.Split("lib"))
+if is32Bit:
+	env.Append(LIBPATH = env.Split("lib/x86"))
+else:
+	env.Append(LIBPATH = env.Split("lib/x86_64"))
 
 # set up libraries
 # glut and GLEW are not required for all, but this is easier :P
