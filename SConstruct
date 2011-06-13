@@ -22,6 +22,7 @@ env = Environment(ENV = os.environ)
 
 # find out if we are on windows
 isWin = env['PLATFORM'] == 'win32' # query HOST_OS or TARGET_OS instead of PLATFORM?
+isDarwin = env['PLATFORM'] == 'darwin' # query HOST_OS or TARGET_OS instead of PLATFORM?
 #print env['HOST_OS']
 #print env['HOST_ARCH']
 #print env['TARGET_OS']
@@ -124,6 +125,11 @@ if isWin:
 else:
 	if int(compile_dynamic_lib_driver):
 		appLibs = env.Split('OpenCL SDKUtil glut GLEW')
+		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
+		#if isDarwin:
+			#appLibs = env.Split('SDKUtil glut GLEW')
+		#else:
+			#appLibs = env.Split('OpenCL SDKUtil glut GLEW')
 	else:
 		appLibs = env.Split('PacketizedOpenCL SDKUtil glut GLEW')
 
@@ -190,6 +196,11 @@ if int(compile_dynamic_lib_driver):
 	for a in testApps:
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
 		Obj = env.SharedObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
+		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
+		#if isDarwin:
+			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenCL'])
+		#else:
+			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		env.Depends(App, Obj)
 		env.Depends(App, SDKUtil)

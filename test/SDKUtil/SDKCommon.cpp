@@ -25,16 +25,20 @@ SDKCommon::getPath()
 {
 #ifdef _WIN32
     char buffer[MAX_PATH];
-#ifdef UNICODE
+#	ifdef UNICODE
     if(!GetModuleFileName(NULL, (LPWCH)buffer, sizeof(buffer)))
         throw std::string("GetModuleFileName() failed!");
-#else
+#	else
     if(!GetModuleFileName(NULL, buffer, sizeof(buffer)))
         throw std::string("GetModuleFileName() failed!");
-#endif
+#	endif
     std::string str(buffer);
     /* '\' == 92 */
     int last = (int)str.find_last_of((char)92);
+#elif defined __APPLE__
+	// TODO: implement
+	std::string str("");
+	int last = 0;
 #else
     char buffer[PATH_MAX + 1];
     ssize_t len;

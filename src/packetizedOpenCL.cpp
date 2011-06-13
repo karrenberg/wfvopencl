@@ -2647,13 +2647,13 @@ struct _cl_event {
 //              Packetized OpenCL Driver Implementation                  //
 ///////////////////////////////////////////////////////////////////////////
 
-static _cl_icd_dispatch dispatch =
+static _cl_icd_dispatch static_dispatch =
 {
 	clGetPlatformIDs,
 	clGetPlatformInfo,
 };
 
-static struct _cl_platform_id platform = { &dispatch };
+static struct _cl_platform_id static_platform = { &static_dispatch };
 
 /* Platform API */
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -2665,7 +2665,7 @@ clGetPlatformIDs(cl_uint          num_entries,
 	if (!platforms && !num_platforms) return CL_INVALID_VALUE;
 	if (platforms && num_entries == 0) return CL_INVALID_VALUE;
 
-	if (platforms) platforms[0] = &platform;
+	if (platforms) platforms[0] = &static_platform;
 	if (num_platforms) *num_platforms = 1;
 
 	return CL_SUCCESS;
@@ -4310,7 +4310,6 @@ PACKETIZED_OPENCL_DLLEXPORT PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_A
 	printf("  func_name: %s\n", func_name);
 	// This is for identification by the ICD mechanism
 	if (!strcmp(func_name, "clIcdGetPlatformIDsKHR")) {
-		printf("  function found!\n");
 		return (void*)clIcdGetPlatformIDsKHR;
 	}
 	
@@ -4347,8 +4346,8 @@ clIcdGetPlatformIDsKHR(cl_uint              num_entries,
 	//if (!platforms) return CL_PLATFORM_NOT_FOUND_KHR;
 
 	if (platforms) {
-		printf("  creating new platform!\n");
-		platforms[0] = &platform;
+		printf("  returning static_platform!\n");
+		platforms[0] = &static_platform;
 	}
 	if (num_platforms) {
 		*num_platforms = 1;
@@ -4359,11 +4358,6 @@ clIcdGetPlatformIDsKHR(cl_uint              num_entries,
 
 	return CL_SUCCESS;
 }
-
-//typedef CL_API_ENTRY cl_int (CL_API_CALL *clIcdGetPlatformIDsKHR_fn)(
-        //cl_uint          /* num_entries */,
-        //cl_platform_id * /* platforms */,
-        //cl_uint *        /* num_platforms */);
 
 
 #ifdef __cplusplus
