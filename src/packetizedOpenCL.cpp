@@ -25,6 +25,7 @@
 #include <assert.h>
 #include <sstream>  // std::stringstream
 #include <string.h> // memcpy
+#include <cstdio>   // printf
 
 #include <xmmintrin.h> // test output etc.
 #include <emmintrin.h> // test output etc. (windows requires this for __m128i)
