@@ -23,16 +23,20 @@ compile_dynamic_lib_driver = ARGUMENTS.get('dynamic', 0)
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
 
-# find out if we are on windows
+# find out if we are on windows (win32), linux (posix), or mac (darwin)
 isWin = env['PLATFORM'] == 'win32' # query HOST_OS or TARGET_OS instead of PLATFORM?
 isDarwin = env['PLATFORM'] == 'darwin' # query HOST_OS or TARGET_OS instead of PLATFORM?
-is32Bit = env['TARGET_ARCH'] == 'x86'
+if isWin:
+	is32Bit = env['TARGET_ARCH'] == 'x86'
+else:
+	is32Bit = 0
+#print env['PLATFORM']
+#print env['ENV']
+# In current SCons, those are only defined by VS-compilers!!!
 #print env['HOST_OS']
 #print env['HOST_ARCH']
 #print env['TARGET_OS']
 #print env['TARGET_ARCH']
-#print env['PLATFORM']
-#print env['ENV']
 
 # set up compiler
 if isWin:

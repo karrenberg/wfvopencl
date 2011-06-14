@@ -1,5 +1,5 @@
-export PACKETIZER_INSTALL_DIR=$HOME/proj/packetizer/
-export LLVM_INSTALL_DIR=$HOME/proj/llvm/
+export PACKETIZER_INSTALL_DIR=/local/karrenberg/proj/packetizer/
+export LLVM_INSTALL_DIR=/local/karrenberg/proj/llvm/
 export PATH=./bin/x86_64:$PATH
 
 export PATH=./include:$PATH
