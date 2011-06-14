@@ -298,7 +298,7 @@ int SDKSample::validatePlatfromAndDeviceOptions()
                                                         NULL,
                                                         &status);
 
-            if(status == CL_DEVICE_NOT_FOUND)
+            if(status == CL_DEVICE_NOT_FOUND || status == CL_DEVICE_NOT_AVAILABLE)
             {
                 dType = CL_DEVICE_TYPE_CPU;
                 gpu = false;
@@ -309,9 +309,6 @@ int SDKSample::validatePlatfromAndDeviceOptions()
 
         // Get device count
         cl_uint deviceCount = 0;
-		// FIXED TO CPU!
-		dType = CL_DEVICE_TYPE_CPU;
-		gpu = false;
         status = clGetDeviceIDs(platform, dType, 0, NULL, &deviceCount);
         if(status != CL_SUCCESS)
         {

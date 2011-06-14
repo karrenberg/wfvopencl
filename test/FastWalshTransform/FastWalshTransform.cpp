@@ -204,12 +204,7 @@ FastWalshTransform::genBinaryImage()
 
             platform = platforms[i];
 
-#ifdef USE_OPENCL_DRIVER_AMD
 			if (!strcmp(platformVendor, "Advanced Micro Devices, Inc."))
-#endif
-#ifdef USE_OPENCL_DRIVER_INTEL
-			if (!strcmp(platformVendor, "Intel(R) Corporation"))
-#endif
 			{
 				printf("\nChose platform from vendor: %s\n", platformVendor);
 				break;
@@ -271,7 +266,6 @@ FastWalshTransform::genBinaryImage()
     }
 
     /* create a CL program using the kernel source */
-#ifdef TESTBENCH_BUILD_FROM_CL
     streamsdk::SDKFile kernelFile;
     std::string kernelPath = sampleCommon->getPath();
     kernelPath.append("FastWalshTransform_Kernels.cl");
@@ -281,9 +275,6 @@ FastWalshTransform::genBinaryImage()
         return SDK_FAILURE;
     }
     const char * source = kernelFile.source().c_str();
-#else
-    const char * source = "FastWalshTransform_Kernels.bc";
-#endif
     size_t sourceSize[] = {strlen(source)};
     program = clCreateProgramWithSource(context,
                                         1,

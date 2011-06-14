@@ -527,7 +527,7 @@ clGetCommandQueueInfo(cl_command_queue      /* command_queue */,
                       void *                /* param_value */,
                       size_t *              /* param_value_size_ret */) CL_API_SUFFIX__VERSION_1_0;
 
-#ifdef CL_USE_DEPRECATED_OPENCL_1_0_APIS
+//#ifdef CL_USE_DEPRECATED_OPENCL_1_0_APIS
 /* 
  *  WARNING:
  *     This API introduces mutable state into the OpenCL implementation. It has been REMOVED
@@ -543,7 +543,7 @@ clSetCommandQueueProperty(cl_command_queue              /* command_queue */,
                           cl_command_queue_properties   /* properties */, 
                           cl_bool                        /* enable */,
                           cl_command_queue_properties * /* old_properties */) CL_EXT_SUFFIX__VERSION_1_0_DEPRECATED;
-#endif /* CL_USE_DEPRECATED_OPENCL_1_0_APIS */
+//#endif /* CL_USE_DEPRECATED_OPENCL_1_0_APIS */
 
 /* Memory Object APIs */
 PACKETIZED_OPENCL_DLLEXPORT extern CL_API_ENTRY cl_mem CL_API_CALL
