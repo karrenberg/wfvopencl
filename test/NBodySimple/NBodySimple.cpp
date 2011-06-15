@@ -1,13 +1,13 @@
 /* ============================================================
 
 Copyright (c) 2009 Advanced Micro Devices, Inc.  All rights reserved.
- 
+
 Redistribution and use of this material is permitted under the following 
 conditions:
- 
+
 Redistributions must retain the above copyright notice and all terms of this 
 license.
- 
+
 In no event shall anyone redistributing or accessing or using this material 
 commence or participate in any arbitration or legal action relating to this 
 material against Advanced Micro Devices, Inc. or any copyright holders or 
@@ -90,152 +90,104 @@ jurisdiction and venue of these courts.
 ============================================================ */
 
 
-#include "BlackScholesSimple.hpp"
+#include "NBodySimple.hpp"
+#include<GL/glut.h>
+#include <cmath>
+#include<malloc.h>
 
-#include <math.h>
-#include <malloc.h>
+int numBodies;      /**< No. of particles*/
+cl_float* pos;      /**< Output position */
+void* me;           /**< Pointing to NBodySimple class */
+cl_bool display;
 
-
-/**
- *  Constants 
- */
-
-#define S_LOWER_LIMIT 10.0f
-#define S_UPPER_LIMIT 100.0f
-#define K_LOWER_LIMIT 10.0f
-#define K_UPPER_LIMIT 100.0f
-#define T_LOWER_LIMIT 1.0f
-#define T_UPPER_LIMIT 10.0f
-#define R_LOWER_LIMIT 0.01f
-#define R_UPPER_LIMIT 0.05f
-#define SIGMA_LOWER_LIMIT 0.01f
-#define SIGMA_UPPER_LIMIT 0.10f
-
-float 
-BlackScholesSimple::phi(float X)
+float
+NBodySimple::random(float randMax, float randMin)
 {
-    float y, absX, t;
+    float result;
+    result =(float)rand()/(float)RAND_MAX;
 
-    // the coeffs
-    const float c1 =  0.319381530f;
-    const float c2 = -0.356563782f;
-    const float c3 =  1.781477937f;
-    const float c4 = -1.821255978f;
-    const float c5 =  1.330274429f;
-
-    const float oneBySqrt2pi = 0.398942280f;
-
-    absX = fabs(X);
-    t = 1.0f / (1.0f + 0.2316419f * absX);
-
-    y = 1.0f - oneBySqrt2pi * exp(-X * X / 2.0f) *
-        t * (c1 +
-                t * (c2 +
-                    t * (c3 +
-                        t * (c4 + t * c5))));
-
-    return (X < 0) ? (1.0f - y) : y;
+    return ((1.0f - result) * randMin + result *randMax);
 }
 
-void 
-BlackScholesSimple::blackScholesCPU()
+int
+NBodySimple::setupNBodySimple()
 {
-    int y;
-    for (y = 0; y < width * height; ++y)
-    {
-        float d1, d2;
-        float sigmaSqrtT;
-        float KexpMinusRT;
-        float s = S_LOWER_LIMIT * randArray[y] + S_UPPER_LIMIT * (1.0f - randArray[y]);
-        float k = K_LOWER_LIMIT * randArray[y] + K_UPPER_LIMIT * (1.0f - randArray[y]);
-        float t = T_LOWER_LIMIT * randArray[y] + T_UPPER_LIMIT * (1.0f - randArray[y]);
-        float r = R_LOWER_LIMIT * randArray[y] + R_UPPER_LIMIT * (1.0f - randArray[y]);
-        float sigma = SIGMA_LOWER_LIMIT * randArray[y] + SIGMA_UPPER_LIMIT * (1.0f - randArray[y]);
+    // make sure numParticles is multiple of group size
+    numParticles = (cl_int)(((size_t)numParticles 
+        < groupSize) ? groupSize : numParticles);
+    numParticles = (cl_int)((numParticles / groupSize) * groupSize);
 
-        sigmaSqrtT = sigma * sqrt(t);
+    numBodies = numParticles;
 
-        d1 = (log(s / k) + (r + sigma * sigma / 2.0f) * t) / sigmaSqrtT;
-        d2 = d1 - sigmaSqrtT;
-
-        KexpMinusRT = k * exp(-r * t);
-        hostCallPrice[y] = s * phi(d1) - KexpMinusRT * phi(d2);
-        hostPutPrice[y]  = KexpMinusRT * phi(-d2) - s * phi(-d1);
+    initPos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
+    if(initPos == NULL)	
+    { 
+        sampleCommon->error("Failed to allocate host memory. (initPos)");
+        return SDK_FAILURE;
     }
-}
 
-
-
-int 
-BlackScholesSimple::setupBlackScholesSimple()
-{
-    int i = 0;
-
-    /* Calculate width and height from samples */
-    samples = samples / 4;
-    samples = (samples / GROUP_SIZE)? (samples / GROUP_SIZE) * GROUP_SIZE: GROUP_SIZE;
-
-    unsigned int tempVar1 = (unsigned int)sqrt((double)samples);
-    tempVar1 = (tempVar1 / GROUP_SIZE)? (tempVar1 / GROUP_SIZE) * GROUP_SIZE: GROUP_SIZE;
-    samples = tempVar1 * tempVar1;
-
-    width = tempVar1;
-    height = width;
-
-
+    initVel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
+    if(initVel == NULL)	
+    { 
+        sampleCommon->error("Failed to allocate host memory. (initVel)");
+        return SDK_FAILURE;
+    }
 
 #if defined (_WIN32)
-    randArray = (cl_float*)_aligned_malloc(width * height * sizeof(cl_float), 16);
+    pos = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float4), 16);
 #else
-    randArray = (cl_float*)memalign(16, width * height * sizeof(cl_float));
+    pos = (cl_float*)memalign(16, numBodies * sizeof(cl_float4));
+#endif
+    if(pos == NULL)
+    { 
+        sampleCommon->error("Failed to allocate host memory. (pos)");
+        return SDK_FAILURE;
+    }
+
+#if defined (_WIN32)
+    vel = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float4), 16);
+#else
+    vel = (cl_float*)memalign(16, numBodies * sizeof(cl_float4));
 #endif
 
-    if(randArray == NULL)
-    {
-        sampleCommon->error("Failed to allocate host memory. (randArray)");
-        return SDK_FAILURE;
-    }
-    for(i = 0; i < width * height; i++)
-    {
-        randArray[i] = (float)rand() / (float)RAND_MAX;
-    }
-
-    deviceCallPrice = (cl_float*)malloc(width * height * sizeof(cl_float));
-    if(deviceCallPrice == NULL)
+    if(vel == NULL)
     { 
-        sampleCommon->error("Failed to allocate host memory. (deviceCallPrice)");
+        sampleCommon->error("Failed to allocate host memory. (vel)");
         return SDK_FAILURE;
     }
-    memset(deviceCallPrice, 0, width * height * sizeof(cl_float));
 
-    devicePutPrice = (cl_float*)malloc(width * height * sizeof(cl_float));
-    if(devicePutPrice == NULL)
-    { 
-        sampleCommon->error("Failed to allocate host memory. (devicePutPrice)");
-        return SDK_FAILURE;
-    }
-    memset(devicePutPrice, 0, width * height * sizeof(cl_float));
-
-    hostCallPrice = (cl_float*)malloc(width * height * sizeof(cl_float));
-    if(hostCallPrice == NULL)
+    /* initialization of inputs */
+    for(int i = 0; i < numBodies; ++i)
     {
-        sampleCommon->error("Failed to allocate host memory. (hostCallPrice)");
-        return SDK_FAILURE;
-    }
-    memset(hostCallPrice, 0, width * height * sizeof(cl_float));
+        int index = 4 * i;
 
-    hostPutPrice = (cl_float*)malloc(width * height * sizeof(cl_float));
-    if(hostPutPrice == NULL)
-    { 
-        sampleCommon->error("Failed to allocate host memory. (hostPutPrice)");
-        return SDK_FAILURE;
+        // First 3 values are position in x,y and z direction
+        for(int j = 0; j < 3; ++j)
+        {
+            initPos[index + j] = random(3, 50);
+        }
+
+        // Mass value
+        initPos[index + 3] = random(1, 1000);
+
+        // First 3 values are velocity in x,y and z direction
+        for(int j = 0; j < 3; ++j)
+        {
+            initVel[index + j] = 0.0f;
+        }
+
+        // unused
+        initVel[3] = 0.0f;
     }
-    memset(hostPutPrice, 0, width * height * sizeof(cl_float));
+
+    memcpy(pos, initPos, 4 * numBodies * sizeof(cl_float));
+    memcpy(vel, initVel, 4 * numBodies * sizeof(cl_float));
 
     return SDK_SUCCESS;
 }
 
 int 
-BlackScholesSimple::genBinaryImage()
+NBodySimple::genBinaryImage()
 {
     cl_int status = CL_SUCCESS;
 
@@ -323,7 +275,7 @@ BlackScholesSimple::genBinaryImage()
     /* create a CL program using the kernel source */
     streamsdk::SDKFile kernelFile;
     std::string kernelPath = sampleCommon->getPath();
-    kernelPath.append("BlackSCholesSimple_Kernels.cl");
+    kernelPath.append("NBodySimple_Kernels.cl");
     if(!kernelFile.open(kernelPath.c_str()))
     {
         std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
@@ -372,7 +324,6 @@ BlackScholesSimple::genBinaryImage()
                             flagsStr.c_str(),
                             NULL,
                             NULL);
-
     sampleCommon->checkVal(status,
                         CL_SUCCESS,
                         "clBuildProgram failed.");
@@ -553,13 +504,12 @@ BlackScholesSimple::genBinaryImage()
 
 
 int
-BlackScholesSimple::setupCL(void)
+NBodySimple::setupCL()
 {
-    cl_int status = 0;
-    size_t deviceListSize;
+    cl_int status = CL_SUCCESS;
 
     cl_device_type dType;
-    
+
     if(deviceType.compare("cpu") == 0)
     {
         dType = CL_DEVICE_TYPE_CPU;
@@ -572,6 +522,13 @@ BlackScholesSimple::setupCL(void)
             std::cout << "GPU not found. Falling back to CPU device" << std::endl;
             dType = CL_DEVICE_TYPE_CPU;
         }
+    }
+
+    //Exit if deviceId option is used
+    if(isDeviceIdEnabled())
+    {
+        sampleCommon->expectedError("-d(--deviceId) is not a supported");
+        return SDK_EXPECTED_FAILURE;
     }
 
     /*
@@ -654,30 +611,35 @@ BlackScholesSimple::setupCL(void)
         0
     };
 
-    context = clCreateContextFromType(cps,
-                                      dType,
-                                      NULL,
-                                      NULL,
-                                      &status);
-    if(!sampleCommon->checkVal(status, 
-                               CL_SUCCESS,
-                               "clCreateContextFromType failed."))
+    context = clCreateContextFromType(
+        cps,
+        dType,
+        NULL,
+        NULL,
+        &status);
+
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateContextFromType failed."))
     {
         return SDK_FAILURE;
     }
 
+    size_t deviceListSize;
+
     /* First, get the size of device list data */
-    status = clGetContextInfo(context, 
-                              CL_CONTEXT_DEVICES, 
-                              0, 
-                              NULL, 
-                              &deviceListSize);
-    if(!sampleCommon->checkVal(status, 
-                               CL_SUCCESS,
-                               "clGetContextInfo failed."))
-    {
+    status = clGetContextInfo(
+        context, 
+        CL_CONTEXT_DEVICES, 
+        0, 
+        NULL, 
+        &deviceListSize);
+    if(!sampleCommon->checkVal(
+        status, 
+        CL_SUCCESS,
+        "clGetContextInfo failed."))
         return SDK_FAILURE;
-    }
 
     int deviceCount = (int)(deviceListSize / sizeof(cl_device_id));
     if(!sampleCommon->validateDeviceId(deviceId, deviceCount))
@@ -695,112 +657,191 @@ BlackScholesSimple::setupCL(void)
     }
 
     /* Now, get the device list data */
-    status = clGetContextInfo(context, 
-                              CL_CONTEXT_DEVICES, 
-                              deviceListSize, 
-                              devices, 
-                              NULL);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS, 
-                               "clGetContextInfo failed."))
+    status = clGetContextInfo(
+        context, 
+        CL_CONTEXT_DEVICES, 
+        deviceListSize, 
+        devices, 
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetContextInfo failed."))
+        return SDK_FAILURE;
+
+
+    /* Create command queue */
+
+    commandQueue = clCreateCommandQueue(
+        context,
+        devices[deviceId],
+        0,
+        &status);
+
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateCommandQueue failed."))
     {
         return SDK_FAILURE;
-    }
-
-    {
-        /* The block is to move the declaration of prop closer to its use */
-        cl_command_queue_properties prop = 0;
-        commandQueue = clCreateCommandQueue(context, 
-                                            devices[deviceId], 
-                                            prop, 
-                                            &status);
-        if(!sampleCommon->checkVal(status,
-                                   0,
-                                   "clCreateCommandQueue failed."))
-        {
-            return SDK_FAILURE;
-        }
     }
 
     /* Get Device specific Information */
-    status = clGetDeviceInfo(devices[deviceId],
-                             CL_DEVICE_MAX_WORK_GROUP_SIZE,
-                             sizeof(size_t),
-                             (void*)&maxWorkGroupSize,
-                             NULL);
+    status = clGetDeviceInfo(
+        devices[deviceId],
+        CL_DEVICE_MAX_WORK_GROUP_SIZE,
+        sizeof(size_t),
+        (void*)&maxWorkGroupSize,
+        NULL);
 
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS, 
-                               "clGetDeviceInfo"
-                               "CL_DEVICE_MAX_WORK_GROUP_SIZE failed."))
-    {
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetDeviceInfo CL_DEVICE_MAX_WORK_GROUP_SIZE failed."))
         return SDK_FAILURE;
-    }
 
 
-    status = clGetDeviceInfo(devices[deviceId],
-                             CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS,
-                             sizeof(cl_uint),
-                             (void*)&maxDimensions,
-                             NULL);
+    status = clGetDeviceInfo(
+        devices[deviceId],
+        CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS,
+        sizeof(cl_uint),
+        (void*)&maxDimensions,
+        NULL);
 
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS, 
-                               "clGetDeviceInfo"
-                               "CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS failed."))
-    {
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetDeviceInfo CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS failed."))
         return SDK_FAILURE;
-    }
 
 
     maxWorkItemSizes = (size_t*)malloc(maxDimensions * sizeof(size_t));
-    
-    status = clGetDeviceInfo(devices[deviceId],
-                             CL_DEVICE_MAX_WORK_ITEM_SIZES,
-                             sizeof(size_t) * maxDimensions,
-                             (void*)maxWorkItemSizes,
-                             NULL);
 
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS, 
-                               "clGetDeviceInfo"
-                               "CL_DEVICE_MAX_WORK_ITEM_SIZES failed."))
+    status = clGetDeviceInfo(
+        devices[deviceId],
+        CL_DEVICE_MAX_WORK_ITEM_SIZES,
+        sizeof(size_t) * maxDimensions,
+        (void*)maxWorkItemSizes,
+        NULL);
+
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetDeviceInfo CL_DEVICE_MAX_WORK_ITEM_SIZES failed."))
+        return SDK_FAILURE;
+
+
+    status = clGetDeviceInfo(
+        devices[deviceId],
+        CL_DEVICE_LOCAL_MEM_SIZE,
+        sizeof(cl_ulong),
+        (void *)&totalLocalMemory,
+        NULL);
+
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetDeviceInfo CL_DEVICE_LOCAL_MEM_SIZE failed."))
+        return SDK_FAILURE;
+
+
+    /*
+    * Create and initialize memory objects
+    */
+
+    /* Create memory objects for position */
+    currPos = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float4),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (oldPos)"))
     {
         return SDK_FAILURE;
     }
 
-    randBuf = clCreateBuffer(context, 
-                             CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
-                             sizeof(cl_float) * width  * height,
-                             randArray, 
-                             &status);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clCreateBuffer failed. (randBuf)"))
+    /* Initialize position buffer */
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currPos,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float4),
+                                  pos,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldPos)"))
     {
         return SDK_FAILURE;
     }
 
-    callPriceBuf = clCreateBuffer(context, 
-                                  CL_MEM_WRITE_ONLY,
-                                  sizeof(cl_float) * width * height,
-                                  NULL, 
-                                  &status);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clCreateBuffer failed. (callPriceBuf)"))
+
+    /* Create memory objects for position */
+    newPos = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float4),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newPos)"))
     {
         return SDK_FAILURE;
     }
 
-    putPriceBuf = clCreateBuffer(context, 
-                                 CL_MEM_WRITE_ONLY,
-                                 sizeof(cl_float) * width * height,
-                                 NULL, 
-                                 &status);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clCreateBuffer failed. (putPriceBuf)"))
+    /* Create memory objects for velocity */
+    currVel = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float4),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (oldVel)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Initialize velocity buffer */
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currVel,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float4),
+                                  vel,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldVel)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Create memory objects for velocity */
+    newVel = clCreateBuffer(
+        context,
+        CL_MEM_READ_ONLY,
+        numBodies * sizeof(cl_float4),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newVel)"))
     {
         return SDK_FAILURE;
     }
@@ -823,46 +864,52 @@ BlackScholesSimple::setupCL(void)
         program = clCreateProgramWithBinary(context,
                                             1,
                                             &devices[deviceId], 
-                                            (const size_t*)&binarySize,
+                                            (const size_t *)&binarySize,
                                             (const unsigned char**)&binary,
                                             NULL,
                                             &status);
+        if(!sampleCommon->checkVal(status,
+                                   CL_SUCCESS,
+                                   "clCreateProgramWithBinary failed."))
+        {
+            return SDK_FAILURE;
+        }
+
     }
     else
     {
-		// special case for packetized OpenCL (can not yet compile .cl directly)
-		char vName[100];
-		status = clGetPlatformInfo(platform,
-				CL_PLATFORM_VENDOR,
-				sizeof(vName),
-				vName,
-				NULL);
-		const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+	// special case for packetized OpenCL (can not yet compile .cl directly)
+	char vName[100];
+	status = clGetPlatformInfo(platform,
+			CL_PLATFORM_VENDOR,
+			sizeof(vName),
+			vName,
+			NULL);
+	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
 
-		kernelPath.append("BlackScholesSimple_Kernels.cl");
-		if(!kernelFile.open(kernelPath.c_str()))
-		{
-			std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
-			return SDK_FAILURE;
-		}
+	kernelPath.append("NBodySimple_Kernels.cl");
+	if(!kernelFile.open(kernelPath.c_str()))
+	{
+		std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+		return SDK_FAILURE;
+	}
 
-		const char * source = platformIsPacketizedOpenCL ?
-			"BlackScholesSimple_Kernels.bc" :
-			kernelFile.source().c_str();
+	const char * source = platformIsPacketizedOpenCL ?
+		"NBodySimple_Kernels.bc" :
+		kernelFile.source().c_str();
 
-		size_t sourceSize[] = {strlen(source)};
+        size_t sourceSize[] = { strlen(source) };
         program = clCreateProgramWithSource(context,
                                             1,
                                             &source,
                                             sourceSize,
                                             &status);
-    }
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clCreateProgramWithSource failed."))
-    {
-        return SDK_FAILURE;
-    }
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clCreateProgramWithSource failed."))
+            return SDK_FAILURE;
+        }
 
     std::string flagsStr = std::string("");
 
@@ -899,22 +946,20 @@ BlackScholesSimple::setupCL(void)
         if(status == CL_BUILD_PROGRAM_FAILURE)
         {
             cl_int logStatus;
-            char *buildLog = NULL;
+            char * buildLog = NULL;
             size_t buildLogSize = 0;
-            logStatus = clGetProgramBuildInfo(program, 
-                                              devices[deviceId], 
-                                              CL_PROGRAM_BUILD_LOG, 
-                                              buildLogSize, 
-                                              buildLog, 
-                                              &buildLogSize);
-            if(!sampleCommon->checkVal(logStatus,
-                                       CL_SUCCESS,
-                                       "clGetProgramBuildInfo failed."))
+            logStatus = clGetProgramBuildInfo (program, 
+                devices[deviceId], 
+                CL_PROGRAM_BUILD_LOG, 
+                buildLogSize, 
+                buildLog, 
+                &buildLogSize);
+            if(!sampleCommon->checkVal(
+                logStatus,
+                CL_SUCCESS,
+                "clGetProgramBuildInfo failed."))
+                return SDK_FAILURE;
 
-            {
-                  return SDK_FAILURE;
-            }
-            
             buildLog = (char*)malloc(buildLogSize);
             if(buildLog == NULL)
             {
@@ -923,18 +968,19 @@ BlackScholesSimple::setupCL(void)
             }
             memset(buildLog, 0, buildLogSize);
 
-            logStatus = clGetProgramBuildInfo(program, 
-                                              devices[deviceId], 
-                                              CL_PROGRAM_BUILD_LOG, 
-                                              buildLogSize, 
-                                              buildLog, 
-                                              NULL);
-            if(!sampleCommon->checkVal(logStatus,
-                                       CL_SUCCESS,
-                                       "clGetProgramBuildInfo failed."))
+            logStatus = clGetProgramBuildInfo (program, 
+                devices[deviceId], 
+                CL_PROGRAM_BUILD_LOG, 
+                buildLogSize, 
+                buildLog, 
+                NULL);
+            if(!sampleCommon->checkVal(
+                logStatus,
+                CL_SUCCESS,
+                "clGetProgramBuildInfo failed."))
             {
-                  free(buildLog);
-                  return SDK_FAILURE;
+                free(buildLog);
+                return SDK_FAILURE;
             }
 
             std::cout << " \n\t\t\tBUILD LOG\n";
@@ -944,57 +990,24 @@ BlackScholesSimple::setupCL(void)
             free(buildLog);
         }
 
-          if(!sampleCommon->checkVal(status,
-                                     CL_SUCCESS,
-                                     "clBuildProgram failed."))
-          {
-                return SDK_FAILURE;
-          }
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clBuildProgram failed."))
+            return SDK_FAILURE;
     }
 
     /* get a kernel object handle for a kernel with the given name */
-    kernel = clCreateKernel(program, "blackScholes", &status);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clCreateKernel failed."))
+    kernel = clCreateKernel(
+        program,
+        "nbody_sim",
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateKernel failed."))
     {
         return SDK_FAILURE;
-    }
-
-
-    /* Check if blockSize exceeds group-size returned by kernel */
-    status = clGetKernelWorkGroupInfo(kernel,
-                                      devices[deviceId],
-                                      CL_KERNEL_WORK_GROUP_SIZE,
-                                      sizeof(size_t),
-                                      &kernelWorkGroupSize,
-                                      0);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS, 
-                               "clGetKernelWorkGroupInfo failed."))
-    {
-        return SDK_FAILURE;
-    }
-
-    // Calculte 2D block size according to required work-group size by kernel
-    kernelWorkGroupSize = kernelWorkGroupSize > GROUP_SIZE ? GROUP_SIZE : kernelWorkGroupSize;
-    while((blockSizeX * blockSizeY) < kernelWorkGroupSize)
-    {
-        bool next = false;
-        if(2 * blockSizeX * blockSizeY <= kernelWorkGroupSize)
-        {
-            blockSizeX <<= 1;
-            next = true;
-        }
-        if(2 * blockSizeX * blockSizeY <= kernelWorkGroupSize)
-        {
-            next = true;
-            blockSizeY <<= 1;
-        }
-
-        // Break if no if statement is executed
-        if(next == false)
-            break;
     }
 
     return SDK_SUCCESS;
@@ -1002,273 +1015,573 @@ BlackScholesSimple::setupCL(void)
 
 
 int 
-BlackScholesSimple::runCLKernels(void)
+NBodySimple::setupCLKernels()
 {
-    cl_int   status;
+    cl_int status;
 
-    size_t globalThreads[2] = {width, height};
-    size_t localThreads[2] = {blockSizeX, blockSizeY};
-    //size_t globalThreads[1] = {width * height};
-    //size_t localThreads[1] = {blockSizeX * blockSizeY};
+    /* Set appropriate arguments to the kernel */
 
-    if(localThreads[0] > maxWorkItemSizes[0] ||
-       localThreads[1] > maxWorkItemSizes[1] ||
-       (size_t)blockSizeX * blockSizeY > maxWorkGroupSize)
-    {
-        std::cout << "Unsupported: Device does not support" 
-            "requested number of work items.";
-        free(maxWorkItemSizes);
-        return SDK_FAILURE;
-    }
-    
-    /* whether sort is to be in increasing order. CL_TRUE implies increasing */
-    status = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&randBuf); 
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clSetKernelArg failed. (randBuf)"))
-    {
-        return SDK_FAILURE;
-    }
-
-    status = clSetKernelArg(kernel, 1, sizeof(width), (const void *)&width);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clSetKernelArg failed. (width)"))
-    {
-        return SDK_FAILURE;
-    }
-
-    status = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&callPriceBuf);
+    /* Particle positions */
+    status = clSetKernelArg(
+        kernel,
+        0,
+        sizeof(cl_mem),
+        (void*)&currPos);
     if(!sampleCommon->checkVal(
-            status,
-            CL_SUCCESS,
-            "clSetKernelArg failed. (callPriceBuf)"))
-        return SDK_FAILURE;
-
-    status = clSetKernelArg(kernel, 3, sizeof(cl_mem), (void *)&putPriceBuf);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clSetKernelArg failed. (putPriceBuf)"))
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedPos)"))
     {
         return SDK_FAILURE;
     }
 
-    /* 
-     * Enqueue a kernel run call.
-     */
-    status = clEnqueueNDRangeKernel(commandQueue,
-                                    kernel,
-                                    2,
-                                    NULL,
-                                    globalThreads,
-                                    localThreads,
-                                    0,
-                                    NULL,
-                                    NULL);
-    
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clEnqueueNDRangeKernel failed."))
+    /* Particle velocity */
+    status = clSetKernelArg(
+        kernel,
+        1,
+        sizeof(cl_mem),
+        (void *)&currVel);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedVel)"))
     {
         return SDK_FAILURE;
     }
 
-
-    /* wait for the kernel call to finish execution */
-    status = clFinish(commandQueue);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS, 
-                               "clFinish failed."))
+    /* numBodies */
+    status = clSetKernelArg(
+        kernel,
+        2,
+        sizeof(cl_int),
+        (void *)&numBodies);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (numBodies)"))
     {
         return SDK_FAILURE;
     }
 
-    /* Enqueue the results to application pointer*/
-    status = clEnqueueReadBuffer(commandQueue, 
-                                 callPriceBuf, 
-                                 CL_TRUE,
-                                 0,
-                                 width * height * sizeof(cl_float),
-                                 deviceCallPrice,
-                                 0,
-                                 NULL,
-                                 NULL);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clEnqueueReadBuffer failed."))
+    /* time step */
+    status = clSetKernelArg(
+        kernel,
+        3,
+        sizeof(cl_float),
+        (void *)&delT);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (delT)"))
     {
         return SDK_FAILURE;
     }
-    
-    /* wait for the read buffer to finish execution */
-    status = clFinish(commandQueue);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS, 
-                               "clFinish failed."))
+
+    /* upward Pseudoprobability */
+    status = clSetKernelArg(
+        kernel,
+        4,
+        sizeof(cl_float),
+        (void *)&espSqr);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (espSqr)"))
     {
         return SDK_FAILURE;
     }
 
 
-    /* Enqueue the results to application pointer*/
-    status = clEnqueueReadBuffer(commandQueue, 
-                                 putPriceBuf, 
-                                 CL_TRUE,
-                                 0,
-                                 width * height * sizeof(cl_float),
-                                 devicePutPrice,
-                                 0,
-                                 NULL,
-                                 NULL);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS,
-                               "clEnqueueReadBuffer failed."))
-    {
-        return SDK_FAILURE;
-    }
-    
-    status = clFinish(commandQueue);
-    if(!sampleCommon->checkVal(status,
-                               CL_SUCCESS, 
-                               "clFinish failed."))
+    /* local memory */
+    status = clSetKernelArg(
+        kernel,
+        5,
+        GROUP_SIZE * 4 * sizeof(float),
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (localPos)"))
     {
         return SDK_FAILURE;
     }
 
-	return SDK_SUCCESS;
+    /* Particle positions */
+    status = clSetKernelArg(
+        kernel,
+        6,
+        sizeof(cl_mem),
+        (void*)&newPos);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (unewPos)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Particle velocity */
+    status = clSetKernelArg(
+        kernel,
+        7,
+        sizeof(cl_mem),
+        (void *)&newVel);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (newVel)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clGetKernelWorkGroupInfo(kernel,
+        devices[deviceId],
+        CL_KERNEL_LOCAL_MEM_SIZE,
+        sizeof(cl_ulong),
+        &usedLocalMemory,
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetKernelWorkGroupInfo CL_KERNEL_LOCAL_MEM_SIZE failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    if(usedLocalMemory > totalLocalMemory)
+    {
+        std::cout << "Unsupported: Insufficient local memory on device" <<
+            std::endl;
+        return SDK_FAILURE;
+    }
+
+    /* Check group size against group size returned by kernel */
+    status = clGetKernelWorkGroupInfo(kernel,
+        devices[deviceId],
+        CL_KERNEL_WORK_GROUP_SIZE,
+        sizeof(size_t),
+        &kernelWorkGroupSize,
+        0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetKernelWorkGroupInfo CL_KERNEL_COMPILE_WORK_GROUP_SIZE failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    if(groupSize > kernelWorkGroupSize)
+    {
+        if(!quiet)
+        {
+            std::cout << "Out of Resources!" << std::endl;
+            std::cout << "Group Size specified : " << groupSize << std::endl;
+            std::cout << "Max Group Size supported on the kernel : "
+                      << kernelWorkGroupSize << std::endl;
+            std::cout << "Falling back to " << kernelWorkGroupSize << std::endl;
+        }
+        groupSize = kernelWorkGroupSize;
+    }
+
+    return SDK_SUCCESS;
 }
 
 int 
-BlackScholesSimple::initialize()
+NBodySimple::runCLKernels()
 {
-    // Call base class Initialize to get default configuration
+    cl_int status;
+    cl_event events[1];
+
+    /* 
+    * Enqueue a kernel run call.
+    */
+    size_t globalThreads[] = {numBodies};
+    size_t localThreads[] = {groupSize};
+
+    if(localThreads[0] > maxWorkItemSizes[0] ||
+       localThreads[0] > maxWorkGroupSize)
+    {
+        std::cout << "Unsupported: Device"
+            "does not support requested number of work items.";
+        return SDK_FAILURE;
+    }
+
+    status = clEnqueueNDRangeKernel(
+        commandQueue,
+        kernel,
+        1,
+        NULL,
+        globalThreads,
+        localThreads,
+        0,
+        NULL,
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueNDRangeKernel failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clFinish(commandQueue);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clFinish failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Copy data from new to old */
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newPos,
+                                 currPos,
+                                 0,
+                                 0,
+                                 sizeof(cl_float4) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newPos->oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newVel,
+                                 currVel,
+                                 0,
+                                 0,
+                                 sizeof(cl_float4) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newVel->oldVels)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clFinish(commandQueue);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clFinish failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    /* Enqueue readBuffer*/
+    status = clEnqueueReadBuffer(
+        commandQueue,
+        currPos,
+        CL_TRUE,
+        0,
+        numBodies* sizeof(cl_float4),
+        pos,
+        0,
+        NULL,
+        &events[0]);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueReadBuffer failed."))
+        return SDK_FAILURE;
+
+    /* Wait for the read buffer to finish execution */
+    status = clWaitForEvents(1, &events[0]);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clWaitForEvents failed."))
+        return SDK_FAILURE;
+
+    clReleaseEvent(events[0]);
+
+    return SDK_SUCCESS;
+}
+
+/*
+* n-body simulation on cpu
+*/
+void 
+NBodySimple::nBodyCPUReference()
+{
+    //Iterate for all samples
+    for(int i = 0; i < numBodies; ++i)
+    {
+        int myIndex = 4 * i;
+        float acc[3] = {0.0f, 0.0f, 0.0f};
+        for(int j = 0; j < numBodies; ++j)
+        {
+            float r[3];
+            int index = 4 * j;
+
+            float distSqr = 0.0f;
+            for(int k = 0; k < 3; ++k)
+            {
+                r[k] = refPos[index + k] - refPos[myIndex + k];
+
+                distSqr += r[k] * r[k];
+            }
+
+            float invDist = 1.0f / sqrt(distSqr + espSqr);
+            float invDistCube =  invDist * invDist * invDist;
+            float s = refPos[index + 3] * invDistCube;
+
+            for(int k = 0; k < 3; ++k)
+            {
+                acc[k] += s * r[k];
+            }
+        }
+
+        for(int k = 0; k < 3; ++k)
+        {
+            refPos[myIndex + k] += refVel[myIndex + k] * delT + 0.5f * acc[k] * delT * delT;
+            refVel[myIndex + k] += acc[k] * delT;
+        }
+    }
+}
+
+int
+NBodySimple::initialize()
+{
+    /* Call base class Initialize to get default configuration */
     if(!this->SDKSample::initialize())
         return SDK_FAILURE;
 
-    streamsdk::Option* num_samples = new streamsdk::Option;
-    if(!num_samples)
+    streamsdk::Option *num_particles = new streamsdk::Option;
+    if(!num_particles)
     {
-        std::cout << "Error. Failed to allocate memory (num_samples)\n";
+        std::cout << "error. Failed to allocate memory (num_particles)\n";
         return SDK_FAILURE;
     }
 
-    num_samples->_sVersion = "x";
-    num_samples->_lVersion = "samples";
-    num_samples->_description = "Number of samples to be calculated";
-    num_samples->_type = streamsdk::CA_ARG_INT;
-    num_samples->_value = &samples;
+    num_particles->_sVersion = "x";
+    num_particles->_lVersion = "particles";
+    num_particles->_description = "Number of particles";
+    num_particles->_type = streamsdk::CA_ARG_INT;
+    num_particles->_value = &numParticles;
 
-    sampleArgs->AddOption(num_samples);
+    sampleArgs->AddOption(num_particles);
+    delete num_particles;
 
-    num_samples->_sVersion = "i";
-    num_samples->_lVersion = "iterations";
-    num_samples->_description = "Number of iterations";
-    num_samples->_type = streamsdk::CA_ARG_INT;
-    num_samples->_value = &iterations;
-    
-    sampleArgs->AddOption(num_samples);
+    streamsdk::Option *num_iterations = new streamsdk::Option;
+    if(!num_iterations)
+    {
+        std::cout << "error. Failed to allocate memory (num_iterations)\n";
+        return SDK_FAILURE;
+    }
 
-    delete num_samples;
+    num_iterations->_sVersion = "i";
+    num_iterations->_lVersion = "iterations";
+    num_iterations->_description = "Number of iterations";
+    num_iterations->_type = streamsdk::CA_ARG_INT;
+    num_iterations->_value = &iterations;
+
+    sampleArgs->AddOption(num_iterations);
+    delete num_iterations;
 
     return SDK_SUCCESS;
 }
 
-int 
-BlackScholesSimple::setup()
+int
+NBodySimple::setup()
 {
-    if(setupBlackScholesSimple() != SDK_SUCCESS)
+    if(setupNBodySimple() != SDK_SUCCESS)
         return SDK_FAILURE;
 
     int timer = sampleCommon->createTimer();
     sampleCommon->resetTimer(timer);
     sampleCommon->startTimer(timer);
 
-    if(setupCL() != SDK_SUCCESS)
-        return SDK_FAILURE;
+    cl_int retValue = setupCL();
+    if(retValue != SDK_SUCCESS)
+        return retValue;
 
     sampleCommon->stopTimer(timer);
     /* Compute setup time */
     setupTime = (double)(sampleCommon->readTimer(timer));
 
-	return SDK_SUCCESS;
+    display = !quiet && !verify;
+
+    return SDK_SUCCESS;
+}
+
+/** 
+* @brief Initialize GL 
+*/
+void 
+GLInit()
+{
+    glClearColor(0.0 ,0.0, 0.0, 0.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glMatrixMode(GL_PROJECTION);	
+    glLoadIdentity();
+}
+
+/** 
+* @brief Glut Idle function
+*/
+void 
+idle()
+{
+    glutPostRedisplay();
+}
+
+/** 
+* @brief Glut reshape func
+* 
+* @param w numParticles of OpenGL window
+* @param h height of OpenGL window 
+*/
+void 
+reShape(int w,int h)
+{
+    glViewport(0, 0, w, h);
+
+    glViewport(0, 0, w, h);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    gluPerspective(45.0f, w/h, 1.0f, 1000.0f);
+    gluLookAt (0.0, 0.0, -2.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0);
+}
+
+/** 
+* @brief OpenGL display function
+*/
+void displayfunc()
+{
+    glClearColor(0.0 ,0.0, 0.0, 0.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    glPointSize(1.0);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glEnable(GL_BLEND);
+    glDepthMask(GL_FALSE);
+
+    glColor3f(1.0f,0.6f,0.0f);
+
+    //Calling kernel for calculatig subsequent positions
+    ((NBodySimple*)me)->runCLKernels();
+
+    glBegin(GL_POINTS);
+    for(int i=0; i < numBodies; ++i)
+    {
+        //divided by 300 just for scaling
+        glVertex3d(pos[i*4+ 0]/300, pos[i*4+1]/300, pos[i*4+2]/300);
+    }
+    glEnd();
+
+    glFlush();
+    glutSwapBuffers();
+}
+
+/* keyboard function */
+void
+keyboardFunc(unsigned char key, int mouseX, int mouseY)
+{
+    switch(key)
+    {
+        /* If the user hits escape or Q, then exit */
+        /* ESCAPE_KEY = 27 */
+    case 27:
+    case 'q':
+    case 'Q':
+        {
+            if(((NBodySimple*)me)->cleanup() != SDK_SUCCESS)
+                exit(1);
+            else
+                exit(0);
+        }
+    default:
+        break;
+    }
 }
 
 
-int
-BlackScholesSimple::run()
+int 
+NBodySimple::run()
 {
-    int timer = sampleCommon->createTimer();
-    sampleCommon->resetTimer(timer);
-    sampleCommon->startTimer(timer);
-
-    std::cout << "Executing kernel for " << iterations 
-        << " iterations" << std::endl;
-    std::cout <<"-------------------------------------------" << std::endl;
-
-    for(int i = 0; i < iterations; i++)
+    /* Arguments are set and execution call is enqueued on command buffer */
+    if(setupCLKernels() != SDK_SUCCESS)
     {
-        /* Arguments are set and execution call is enqueued on command buffer */
-        if(runCLKernels()!=SDK_SUCCESS)
-            return SDK_FAILURE;
+        return SDK_FAILURE;
     }
 
-    sampleCommon->stopTimer(timer);
-    /* Compute kernel time */
-    kernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
+    if(verify || timing)
+    {
+        int timer = sampleCommon->createTimer();
+        sampleCommon->resetTimer(timer);
+        sampleCommon->startTimer(timer);
+
+        for(int i = 0; i < iterations; ++i)
+        {
+            runCLKernels();
+        }
+
+        sampleCommon->stopTimer(timer);
+        /* Compute kernel time */
+        kernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
+    }
 
     if(!quiet)
     {
-        sampleCommon->printArray<cl_float>("deviceCallPrice",
-                                           deviceCallPrice, 
-                                           width, 
-                                           1);
-
-        sampleCommon->printArray<cl_float>("devicePutPrice", 
-                                           devicePutPrice, 
-                                           width, 
-                                           1);
+        sampleCommon->printArray<cl_float>("Output", pos, numBodies, 1);
     }
 
     return SDK_SUCCESS;
 }
 
-int 
-BlackScholesSimple::verifyResults()
+int
+NBodySimple::verifyResults()
 {
     if(verify)
     {
         /* reference implementation
-         * it overwrites the input array with the output
-         */
-        blackScholesCPU();
+        * it overwrites the input array with the output
+        */
 
-        if(!quiet)
-        {
-            sampleCommon->printArray<cl_float>("hostCallPrice",
-                                               hostCallPrice, 
-                                               width, 
-                                               1);
-
-            sampleCommon->printArray<cl_float>("hostPutPrice", 
-                                               hostPutPrice, 
-                                               width, 
-                                               1);
-        }
-
-        
-        /* compare the call/put price results and see if they match */
-        bool callPriceResult = sampleCommon->compare(hostCallPrice, deviceCallPrice, width * height);
-        bool putPriceResult = sampleCommon->compare(hostPutPrice, devicePutPrice, width * height, 1e-4f);
-
-        if(!(callPriceResult ? (putPriceResult ? true : false) : false))
-        {
-            std::cout << "Failed\n";
+        refPos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
+        if(refPos == NULL)
+        { 
+            sampleCommon->error("Failed to allocate host memory. (refPos)");
             return SDK_FAILURE;
         }
-        else
+
+        refVel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
+        if(refVel == NULL)
+        { 
+            sampleCommon->error("Failed to allocate host memory. (refVel)");
+            return SDK_FAILURE;
+        }
+
+        memcpy(refPos, initPos, 4 * numBodies * sizeof(cl_float));
+        memcpy(refVel, initVel, 4 * numBodies * sizeof(cl_float));
+
+        for(int i = 0; i < iterations; ++i)
+        {
+            nBodyCPUReference();
+        }
+
+        /* compare the results and see if they match */
+        if(sampleCommon->compare(pos, refPos, 4 * numBodies, 0.00001))
         {
             std::cout << "Passed!\n";
             return SDK_SUCCESS;
+        }
+        else
+        {
+            std::cout << "Failed!\n";
+            return SDK_FAILURE;
         }
     }
 
@@ -1276,117 +1589,122 @@ BlackScholesSimple::verifyResults()
 }
 
 void 
-BlackScholesSimple::printStats()
+NBodySimple::printStats()
 {
-    int actualSamples = width * height;
-    totalTime = setupTime + kernelTime;
-
     std::string strArray[4] = 
     {
-        "Option Samples", 
+        "Particles", 
+        "Iterations", 
         "Time(sec)", 
-        "KernelTime(sec)", 
-        "Options/sec"
+        "kernelTime(sec)"
     };
 
     std::string stats[4];
-    stats[0] = sampleCommon->toString(actualSamples, std::dec);
-    stats[1] = sampleCommon->toString(totalTime, std::dec);
-    stats[2] = sampleCommon->toString(kernelTime, std::dec);
-    stats[3] = sampleCommon->toString(actualSamples / totalTime, std::dec);
+    totalTime = setupTime + kernelTime;
+
+    stats[0] = sampleCommon->toString(numParticles, std::dec);
+    stats[1] = sampleCommon->toString(iterations, std::dec);
+    stats[2] = sampleCommon->toString(totalTime, std::dec);
+    stats[3] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
-
 }
 
-
-int BlackScholesSimple::cleanup()
+int
+NBodySimple::cleanup()
 {
     /* Releases OpenCL resources (Context, Memory etc.) */
     cl_int status;
-    status = clReleaseMemObject(randBuf);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS,
-        "clReleaseMemObject failed."))
-        return SDK_FAILURE;
-
-    status = clReleaseMemObject(callPriceBuf);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS,
-        "clReleaseMemObject failed."))
-        return SDK_FAILURE;
-
-    status = clReleaseMemObject(putPriceBuf);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS,
-        "clReleaseMemObject failed."))
-        return SDK_FAILURE;
 
     status = clReleaseKernel(kernel);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseKernel failed."))
+    {
         return SDK_FAILURE;
+    }
 
     status = clReleaseProgram(program);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseProgram failed."))
+    {
         return SDK_FAILURE;
+    }
+
+    status = clReleaseMemObject(currPos);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clReleaseMemObject(currVel);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+    {
+        return SDK_FAILURE;
+    }
 
     status = clReleaseCommandQueue(commandQueue);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
         "clReleaseCommandQueue failed."))
+    {
         return SDK_FAILURE;
+    }
 
     status = clReleaseContext(context);
     if(!sampleCommon->checkVal(
-            status,
-            CL_SUCCESS,
-            "clReleaseContext failed."))
+        status,
+        CL_SUCCESS,
+        "clReleaseContext failed."))
+    {
         return SDK_FAILURE;
-
-    /* Release program resources (input memory etc.) */
-
-     if(randArray) 
-     {
-         #ifdef _WIN32
-             _aligned_free(randArray);
-         #else
-             free(randArray);
-         #endif
-         randArray = NULL;
-     }
-
-    if(deviceCallPrice)
-    {
-        free(deviceCallPrice);
-        deviceCallPrice = NULL;
     }
 
-    if(devicePutPrice) 
+    return SDK_SUCCESS;
+}
+
+NBodySimple::~NBodySimple()
+{
+    /* release program resources */
+    if(initPos)
     {
-        free(devicePutPrice);
-        devicePutPrice = NULL;
+        free(initPos);
+        initPos = NULL;
     }
 
-    if(hostCallPrice)
+    if(initVel)
     {
-        free(hostCallPrice);
-        hostCallPrice = NULL;
+        free(initVel);
+        initVel = NULL;
     }
 
-    if(hostPutPrice) 
+    if(pos)
     {
-        free(hostPutPrice);
-        hostPutPrice = NULL;
+#if defined (_WIN32)
+        _aligned_free(pos);
+#else
+        free(pos);
+#endif
+        pos = NULL;
+    }
+    if(vel)
+    {
+#if defined (_WIN32)
+        _aligned_free(vel);
+#else
+        free(vel);
+#endif
+        vel = NULL;
     }
 
     if(devices)
@@ -1395,53 +1713,72 @@ int BlackScholesSimple::cleanup()
         devices = NULL;
     }
 
-     if(maxWorkItemSizes)
-     {
-         free(maxWorkItemSizes);
-         maxWorkItemSizes = NULL;
-     }
+    if(refPos)
+    {
+        free(refPos);
+        refPos = NULL;
+    }
 
-    return SDK_SUCCESS;
+    if(refVel)
+    {
+        free(refVel);
+        refVel = NULL;
+    }
+
+    if(maxWorkItemSizes)
+    {
+        free(maxWorkItemSizes);
+        maxWorkItemSizes = NULL;
+    }
 }
+
 
 int 
 main(int argc, char * argv[])
 {
-    /* Create MonteCalroAsian object */
-    BlackScholesSimple clBlackScholesSimple("Black Scholes OpenCL sample");
-    
-    /* Initialization */
-    if(clBlackScholesSimple.initialize()!=SDK_SUCCESS)
+    NBodySimple clNBodySimple("OpenCL NBodySimple");
+    me = &clNBodySimple;
+
+    if(clNBodySimple.initialize() != SDK_SUCCESS)
+        return SDK_FAILURE;
+    if(!clNBodySimple.parseCommandLine(argc, argv))
         return SDK_FAILURE;
 
-    /* Parse command line options */
-    if(!clBlackScholesSimple.parseCommandLine(argc, argv))
-        return SDK_FAILURE;
-
-    if(clBlackScholesSimple.isDumpBinaryEnabled())
+    if(clNBodySimple.isDumpBinaryEnabled())
     {
-        return clBlackScholesSimple.genBinaryImage();
+        return clNBodySimple.genBinaryImage();
     }
     else
     {
-        /* Setup */
-        if(clBlackScholesSimple.setup()!=SDK_SUCCESS)
+        cl_int retValue = clNBodySimple.setup();
+        if(retValue != SDK_SUCCESS)
+            return (retValue == SDK_EXPECTED_FAILURE) ? SDK_SUCCESS : SDK_FAILURE;
+
+        if(clNBodySimple.run() != SDK_SUCCESS)
+            return SDK_FAILURE;
+        if(clNBodySimple.verifyResults() != SDK_SUCCESS)
             return SDK_FAILURE;
 
-        /* Run */
-        if(clBlackScholesSimple.run()!=SDK_SUCCESS)
-            return SDK_FAILURE;
+        clNBodySimple.printStats();
 
-        /* Verifty */
-        if(clBlackScholesSimple.verifyResults()!=SDK_SUCCESS)
-            return SDK_FAILURE;
+        if(display)
+        {
+            // Run in  graphical window if requested 
+            glutInit(&argc, argv);
+            glutInitWindowPosition(100,10);
+            glutInitWindowSize(600,600); 
+            glutInitDisplayMode( GLUT_RGB | GLUT_DOUBLE );
+            glutCreateWindow("nbody simulation"); 
+            GLInit(); 
+            glutDisplayFunc(displayfunc); 
+            glutReshapeFunc(reShape);
+            glutIdleFunc(idle); 
+            glutKeyboardFunc(keyboardFunc);
+            glutMainLoop();
+        }
 
-        /* Cleanup resources created */
-        if(clBlackScholesSimple.cleanup()!=SDK_SUCCESS)
+        if(clNBodySimple.cleanup()!=SDK_SUCCESS)
             return SDK_FAILURE;
-
-        /* Print performance statistics */
-        clBlackScholesSimple.printStats();
     }
 
     return SDK_SUCCESS;

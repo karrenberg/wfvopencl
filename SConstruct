@@ -205,6 +205,7 @@ BinarySearch
 BinomialOption
 BitonicSort
 BlackScholes
+BlackScholesSimple
 DCT
 DwtHaar1D
 EigenValue
@@ -219,6 +220,7 @@ MatrixTranspose
 MersenneTwister
 MonteCarloAsian
 NBody
+NBodySimple
 PrefixSum
 QuasiRandomSequence
 RadixSort
