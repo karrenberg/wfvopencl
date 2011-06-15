@@ -1,8 +1,8 @@
 import os
 
 # MODIFY THIS ACCORDING TO YOUR SYSTEM
-LLVM_INSTALL_DIR = 'C:/Users/karrenberg/proj/llvm/'
-PACKETIZER_INSTALL_DIR = 'C:/Users/karrenberg/proj/packetizer/'
+LLVM_INSTALL_DIR = '/local/karrenberg/proj/llvm'
+PACKETIZER_INSTALL_DIR = '/local/karrenberg/proj/packetizer/'
 
 # simply clone entire environment
 env = Environment(ENV = os.environ)
@@ -201,29 +201,23 @@ env.Depends(SDKUtil, PacketizedOpenCL)
 ###
 
 testApps = env.Split("""
-AESEncryptDecrypt
 BinarySearch
 BinomialOption
 BitonicSort
 BlackScholes
-BlackScholesDP
 DCT
 DwtHaar1D
 EigenValue
 FFT
 FastWalshTransform
 FloydWarshall
-FluidSimulation2D
 Histogram
-HistogramAtomics
-LUDecomposition
 Mandelbrot
 MatrixMulImage
 MatrixMultiplication
 MatrixTranspose
 MersenneTwister
 MonteCarloAsian
-MonteCarloAsianDP
 NBody
 PrefixSum
 QuasiRandomSequence
@@ -237,6 +231,15 @@ URNG
 URNGNoiseGL
 """)
 
+# These use AMD specific extensions not available in our clc (TODO: do we use clc from 2.3 already?)
+#testApps = env.Split("""
+#AESEncryptDecrypt
+#FluidSimulation2D
+#HistogramAtomics
+#LUDecomposition
+#""")
+
+# Currently disabled (have to be adjusted to latest SDK)
 #testApps = env.Split("""
 #AmbientOcclusionRenderer
 #BinomialOptionSimple
