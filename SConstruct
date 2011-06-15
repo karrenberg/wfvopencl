@@ -1,25 +1,27 @@
 import os
 
+# MODIFY THIS ACCORDING TO YOUR SYSTEM
+LLVM_INSTALL_DIR = 'C:/Users/karrenberg/proj/llvm/'
+PACKETIZER_INSTALL_DIR = 'C:/Users/karrenberg/proj/packetizer/'
+
 # simply clone entire environment
 env = Environment(ENV = os.environ)
 
-# set up user-specific environment variables
-# IMPORTANT: THESE VARIABLES HAVE TO BE SET ACCORDING TO YOUR SYSTEM!
-LLVM_INSTALL_DIR = env['ENV']['LLVM_INSTALL_DIR']
-PACKETIZER_INSTALL_DIR = env['ENV']['PACKETIZER_INSTALL_DIR']
-
-
 # build variables
-debug             = ARGUMENTS.get('debug', 0)
-debug_runtime     = ARGUMENTS.get('debug-runtime', 0)
-profile           = ARGUMENTS.get('profile', 0)
-use_openmp        = ARGUMENTS.get('openmp', 0)
-num_threads       = ARGUMENTS.get('threads', 0)
-packetize         = ARGUMENTS.get('packetize', 0)
-packetizer_shared = ARGUMENTS.get('packetizer_shared', 0)
-split             = ARGUMENTS.get('split', 0)
+debug             = ARGUMENTS.get('debug', 0)             # enable debug information
+debug_runtime     = ARGUMENTS.get('debug_runtime', 0)     # enable debugging of runtime (JIT) code
+profile           = ARGUMENTS.get('profile', 0)           # enable profiling
+use_openmp        = ARGUMENTS.get('openmp', 0)            # enable OpenMP
+num_threads       = ARGUMENTS.get('threads', 0)           # set number of threads to use in OpenMP
+split             = ARGUMENTS.get('split', 0)             # disable load/store optimizations (= always perform scalar load/store)
+packetize         = ARGUMENTS.get('packetize', 0)         # enable packetization
+packetizer_shared = ARGUMENTS.get('packetizer_shared', 0) # should be set if Packetizer was compiled as a shared library (see below)
+llvm_no_debug     = ARGUMENTS.get('llvm_no_debug', 0)     # should be set if LLVM was compiled in release mode (at least on windows)
 
-compile_static_lib_driver = ARGUMENTS.get('static', 0)
+compile_static_lib_driver = ARGUMENTS.get('static', 0)    # compile static library link applications statically (circumvents OpenCL ICD mechanism)
+
+if int(debug_runtime):
+	debug = 1
 
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
@@ -30,10 +32,10 @@ isDarwin = env['PLATFORM'] == 'darwin' # query HOST_OS or TARGET_OS instead of P
 if isWin:
 	is32Bit = env['TARGET_ARCH'] == 'x86'
 else:
-	is32Bit = 0
+	is32Bit = 0 # only 64bit for unix/darwin atm
 #print env['PLATFORM']
 #print env['ENV']
-# In current SCons, those are only defined by VS-compilers!!!
+# In current SCons, the following are only defined by VS-compilers!!!
 #print env['HOST_OS']
 #print env['HOST_ARCH']
 #print env['TARGET_OS']
@@ -65,14 +67,21 @@ if isWin:
 else:
 	llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
 
-# set up CXXFLAGS
-if isWin:
-	# /Wall gives LOTS of warnings -> leave at default warning level
-	cxxflags = env.Split("/MDd /EHsc")+llvm_vars.get('CCFLAGS')
-else:
-	cxxflags = env.Split("-Wall -pedantic -Wno-long-long -msse3")+llvm_vars.get('CCFLAGS')
 
-if int(debug) or int(debug_runtime):
+# set up CXXFLAGS
+cxxflags = llvm_vars.get('CCFLAGS')
+
+if isWin:
+	# /Wall gives LOTS of warnings -> leave at default warning level, or steal commandline of LLVM-VS-project
+	cxxflags += env.Split("/EHsc")
+	if int(llvm_no_debug):
+		cxxflags += env.Split("/MD")
+	else:
+		cxxflags += env.Split("/MDd")
+else:
+	cxxflags += env.Split("-Wall -pedantic -Wno-long-long -msse3")
+
+if int(debug):
 	if isWin:
 		cxxflags=cxxflags+env.Split("/Od /Zi")
 	else:
@@ -80,15 +89,18 @@ if int(debug) or int(debug_runtime):
 
 if int(debug):
 	cxxflags=cxxflags+env.Split("-DDEBUG -D_DEBUG")
+else:
+	cxxflags=cxxflags+env.Split("-DNDEBUG")
 
 if int(debug_runtime):
 	cxxflags=cxxflags+env.Split("-DDEBUG_RUNTIME")
 
-if not int(debug) and not int(debug_runtime):
+if not int(debug):
 	if isWin:
-		cxxflags=cxxflags+env.Split("/Ox -DNDEBUG")
+		cxxflags=cxxflags+env.Split("/Ox /Ob2 /Oi /GL")
+		env.Append(LINKFLAGS = env.Split("/LTCG"))
 	else:
-		cxxflags=cxxflags+env.Split("-O3 -DNDEBUG")
+		cxxflags=cxxflags+env.Split("-O3")
 
 if int(profile):
 	if isWin:
@@ -123,11 +135,10 @@ if int(packetize) and not int(packetizer_shared):
 env.Append(CXXFLAGS = cxxflags)
 
 # set up paths
-# LLVM_INSTALL_DIR and PACKETIZER_INSTALL_DIR are supposed to be set by setupenv.sh
-env.Append(CPPPATH = env.Split("include"))
-env.Append(CPPPATH = llvm_vars.get('CPPPATH'))
 env.Append(CPPPATH = [os.path.join(LLVM_INSTALL_DIR, 'include')])
 env.Append(CPPPATH = [os.path.join(PACKETIZER_INSTALL_DIR, 'include')])
+env.Append(CPPPATH = llvm_vars.get('CPPPATH'))
+env.Append(CPPPATH = env.Split("include"))
 
 env.Append(LIBPATH = [os.path.join(LLVM_INSTALL_DIR, 'lib')])
 env.Append(LIBPATH = [os.path.join(PACKETIZER_INSTALL_DIR, 'lib')])
@@ -137,6 +148,7 @@ if is32Bit:
 	env.Append(LIBPATH = env.Split("lib/x86"))
 else:
 	env.Append(LIBPATH = env.Split("lib/x86_64"))
+
 
 # set up libraries
 # glut and GLEW are not required for all, but this is easier :P
@@ -164,20 +176,28 @@ else:
 	#env.Append(CPPPATH = [os.path.join(env['ENV']['VTUNE_GLOBAL_DIR'], 'analyzer/include')])
 	#env.Append(LIBPATH = [os.path.join(env['ENV']['VTUNE_GLOBAL_DIR'], 'analyzer/bin')])
 
-# build Packetized OpenCL Driver
+
+###
+### build Packetized OpenCL library
+###
+
 driverSrc = env.Glob('src/*.cpp')
 if int(compile_static_lib_driver):
 	PacketizedOpenCL = env.StaticLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 else:
 	PacketizedOpenCL = env.SharedLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 
+###
+### build AMD-ATI SDKUtil as a static library (required for test applications)
+###
 
-# build AMD-ATI SDKUtil as a static library (required for test applications)
-SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=Split('test/SDKUtil/SDKApplication.cpp test/SDKUtil/SDKBitMap.cpp test/SDKUtil/SDKCommandArgs.cpp test/SDKUtil/SDKCommon.cpp test/SDKUtil/SDKFile.cpp'))
+sdkSrc = env.Glob('test/SDKUtil/*.cpp')
+SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 env.Depends(SDKUtil, PacketizedOpenCL)
 
+
 ###
-### test applications ###
+### build test applications
 ###
 
 testApps = env.Split("""
@@ -239,7 +259,7 @@ else:
 
 
 ###
-### build bitcode from OpenCL files ###
+### build bitcode from OpenCL files
 ###
 
 # NOTE: using --march automatically generates a stub-function
@@ -247,11 +267,11 @@ else:
 # NOTE: --march=x86-64 generates bad code for packetization :(
 #       --march=x86 (or left out) generates 32bit data structures etc., making wrapper unusable
 
-#env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
-#env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86 --msse2 $SOURCE")
+##env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
+##env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86 --msse2 $SOURCE")
 
-#cmd_ll = "clc -o $TARGET --msse2 $SOURCE"
-#cmd_bc = "llvm-as $SOURCE -o $TARGET"
+##cmd_ll = "clc -o $TARGET --msse2 $SOURCE"
+##cmd_bc = "llvm-as $SOURCE -o $TARGET"
 
 #for a in testApps:
 	#env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
@@ -259,7 +279,12 @@ else:
 				#"llvm-as -o ${TARGET.file}.bc ${TARGET.file}.ll",
 				#Delete('${TARGET.file}.ll')])
 
-# For some reason, those are not removed :(
+
+###
+### clean up
+###
+
+# For some reason, those are not removed automatically by scons -c :(
 if GetOption("clean"):
 	Execute(Delete('build'))
 	Execute(Delete('lib/PacketizedOpenCL.dll'))

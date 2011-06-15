@@ -53,10 +53,12 @@ installing the driver for use with OpenCL ICD:
 
 running samples:
 
+- in order to successfully run samples using PacketizedOpenCL, make sure ./lib is in your $PATH (otherwise the OpenCL ICD will not find the driver and list it as an available platform)
+
 - in order to successfully run samples using AMD OpenCL, make sure as.exe and ld.exe from $AMDAPPSDKROOT/bin are used (e.g. MinGW puts its own bin-directories in front of the PATH variable)
 - also make sure $AMDAPPSDKROOT is always quoted (directories with spaces)
 
-- switch between AMD/Intel by running the executables in the "proprietary" folder with flag "-p X", where X is the number of the appropriate platform
+- switch between PacketizedOpenCL/AMD/Intel by running the executables in the "proprietary" folder with flag "-p X", where X is the number of the appropriate platform
 
 
 
