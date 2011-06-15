@@ -123,17 +123,39 @@ class NBodySimple : public SDKSample
 
     cl_float delT;                      /**< dT (timestep) */
     cl_float espSqr;                    /**< Softening Factor*/
-    cl_float* initPos;                  /**< initial position */
-    cl_float* initVel;                  /**< initial velocity */
-    cl_float* vel;                      /**< Output velocity */
-    cl_float* refPos;                   /**< Reference position */
-    cl_float* refVel;                   /**< Reference velocity */
+    cl_float* initPosX;                  /**< initial position */
+    cl_float* initPosY;                  /**< initial position */
+    cl_float* initPosZ;                  /**< initial position */
+    cl_float* initPosW;                  /**< initial position */
+    cl_float* initVelX;                  /**< initial velocity */
+    cl_float* initVelY;                  /**< initial velocity */
+    cl_float* initVelZ;                  /**< initial velocity */
+    cl_float* velX;                      /**< Output velocity */
+    cl_float* velY;                      /**< Output velocity */
+    cl_float* velZ;                      /**< Output velocity */
+    cl_float* refPosX;                   /**< Reference position */
+    cl_float* refPosY;                   /**< Reference position */
+    cl_float* refPosZ;                   /**< Reference position */
+    cl_float* refPosW;                   /**< Reference position */
+    cl_float* refVelX;                   /**< Reference velocity */
+    cl_float* refVelY;                   /**< Reference velocity */
+    cl_float* refVelZ;                   /**< Reference velocity */
     cl_context context;                 /**< CL context */
     cl_device_id *devices;              /**< CL device list */
-    cl_mem currPos;                  /**< Position of partciles */
-    cl_mem currVel;                  /**< Velocity of partciles */
-    cl_mem newPos;                  /**< Position of partciles */
-    cl_mem newVel;                  /**< Velocity of partciles */
+    cl_mem currPosX;                  /**< Position of partciles */
+    cl_mem currPosY;                  /**< Position of partciles */
+    cl_mem currPosZ;                  /**< Position of partciles */
+    cl_mem currPosW;                  /**< Position of partciles */
+    cl_mem currVelX;                  /**< Velocity of partciles */
+    cl_mem currVelY;                  /**< Velocity of partciles */
+    cl_mem currVelZ;                  /**< Velocity of partciles */
+    cl_mem newPosX;                  /**< Position of partciles */
+    cl_mem newPosY;                  /**< Position of partciles */
+    cl_mem newPosZ;                  /**< Position of partciles */
+    cl_mem newPosW;                  /**< Position of partciles */
+    cl_mem newVelX;                  /**< Velocity of partciles */
+    cl_mem newVelY;                  /**< Velocity of partciles */
+    cl_mem newVelZ;                  /**< Velocity of partciles */
     cl_command_queue commandQueue;      /**< CL command queue */
     cl_program program;                 /**< CL program */
     cl_kernel kernel;                   /**< CL kernel */
@@ -158,11 +180,23 @@ public:
         kernelTime(0),
         delT(0.005f),
         espSqr(50.0f),
-        initPos(NULL),
-        initVel(NULL),
-        vel(NULL),
-        refPos(NULL),
-        refVel(NULL),
+        initPosX(NULL),
+        initPosY(NULL),
+        initPosZ(NULL),
+        initPosW(NULL),
+        initVelX(NULL),
+        initVelY(NULL),
+        initVelZ(NULL),
+        velX(NULL),
+        velY(NULL),
+        velZ(NULL),
+        refPosX(NULL),
+        refPosY(NULL),
+        refPosZ(NULL),
+        refPosW(NULL),
+        refVelX(NULL),
+        refVelY(NULL),
+        refVelZ(NULL),
         devices(NULL),
         maxWorkItemSizes(NULL),
         groupSize(GROUP_SIZE),
@@ -182,11 +216,23 @@ public:
         kernelTime(0),
         delT(0.005f),
         espSqr(50.0f),
-        initPos(NULL),
-        initVel(NULL),
-        vel(NULL),
-        refPos(NULL),
-        refVel(NULL),
+        initPosX(NULL),
+        initPosY(NULL),
+        initPosZ(NULL),
+        initPosW(NULL),
+        initVelX(NULL),
+        initVelY(NULL),
+        initVelZ(NULL),
+        velX(NULL),
+        velY(NULL),
+        velZ(NULL),
+        refPosX(NULL),
+        refPosY(NULL),
+        refPosZ(NULL),
+        refPosW(NULL),
+        refVelX(NULL),
+        refVelY(NULL),
+        refVelZ(NULL),
         devices(NULL),
         maxWorkItemSizes(NULL),
         groupSize(GROUP_SIZE),

@@ -96,7 +96,10 @@ jurisdiction and venue of these courts.
 #include<malloc.h>
 
 int numBodies;      /**< No. of particles*/
-cl_float* pos;      /**< Output position */
+cl_float* posX;      /**< Output position */
+cl_float* posY;      /**< Output position */
+cl_float* posZ;      /**< Output position */
+cl_float* posW;      /**< Output position */
 void* me;           /**< Pointing to NBodySimple class */
 cl_bool display;
 
@@ -119,38 +122,53 @@ NBodySimple::setupNBodySimple()
 
     numBodies = numParticles;
 
-    initPos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
-    if(initPos == NULL)	
+    initPosX = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    initPosY = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    initPosZ = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    initPosW = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    if(initPosX == NULL || initPosY == NULL || initPosZ == NULL || initPosW == NULL)	
     { 
         sampleCommon->error("Failed to allocate host memory. (initPos)");
         return SDK_FAILURE;
     }
 
-    initVel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
-    if(initVel == NULL)	
+    initVelX = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    initVelY = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    initVelZ = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    if(initVelX == NULL || initVelY == NULL || initVelZ == NULL)	
     { 
         sampleCommon->error("Failed to allocate host memory. (initVel)");
         return SDK_FAILURE;
     }
 
 #if defined (_WIN32)
-    pos = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float4), 16);
+    posX = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
+    posY = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
+    posZ = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
+    posW = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
 #else
-    pos = (cl_float*)memalign(16, numBodies * sizeof(cl_float4));
+    posX = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
+    posY = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
+    posZ = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
+    posW = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
 #endif
-    if(pos == NULL)
+    if(posX == NULL || posY == NULL || posZ == NULL || posW == NULL)
     { 
         sampleCommon->error("Failed to allocate host memory. (pos)");
         return SDK_FAILURE;
     }
 
 #if defined (_WIN32)
-    vel = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float4), 16);
+    velX = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
+    velY = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
+    velZ = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
 #else
-    vel = (cl_float*)memalign(16, numBodies * sizeof(cl_float4));
+    velX = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
+    velY = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
+    velZ = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
 #endif
 
-    if(vel == NULL)
+    if(velX == NULL || velY == NULL || velZ == NULL)
     { 
         sampleCommon->error("Failed to allocate host memory. (vel)");
         return SDK_FAILURE;
@@ -159,29 +177,29 @@ NBodySimple::setupNBodySimple()
     /* initialization of inputs */
     for(int i = 0; i < numBodies; ++i)
     {
-        int index = 4 * i;
+        int index = i;
 
         // First 3 values are position in x,y and z direction
-        for(int j = 0; j < 3; ++j)
-        {
-            initPos[index + j] = random(3, 50);
-        }
+		initPosX[index] = random(1, 50);
+		initPosY[index] = random(1, 50);
+		initPosZ[index] = random(1, 50);
 
         // Mass value
-        initPos[index + 3] = random(1, 1000);
+        initPosW[index] = random(1, 1000);
 
         // First 3 values are velocity in x,y and z direction
-        for(int j = 0; j < 3; ++j)
-        {
-            initVel[index + j] = 0.0f;
-        }
-
-        // unused
-        initVel[3] = 0.0f;
+		initVelX[index] = 0.0f;
+		initVelY[index] = 0.0f;
+		initVelZ[index] = 0.0f;
     }
 
-    memcpy(pos, initPos, 4 * numBodies * sizeof(cl_float));
-    memcpy(vel, initVel, 4 * numBodies * sizeof(cl_float));
+    memcpy(posX, initPosX, numBodies * sizeof(cl_float));
+    memcpy(posY, initPosY, numBodies * sizeof(cl_float));
+    memcpy(posZ, initPosZ, numBodies * sizeof(cl_float));
+    memcpy(posW, initPosW, numBodies * sizeof(cl_float));
+    memcpy(velX, initVelX, numBodies * sizeof(cl_float));
+    memcpy(velY, initVelY, numBodies * sizeof(cl_float));
+    memcpy(velZ, initVelZ, numBodies * sizeof(cl_float));
 
     return SDK_SUCCESS;
 }
@@ -750,10 +768,49 @@ NBodySimple::setupCL()
     */
 
     /* Create memory objects for position */
-    currPos = clCreateBuffer(
+    currPosX = clCreateBuffer(
         context,
         CL_MEM_READ_WRITE,
-        numBodies * sizeof(cl_float4),
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    currPosY = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    currPosZ = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    currPosW = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float),
         0,
         &status);
     if(!sampleCommon->checkVal(
@@ -766,11 +823,59 @@ NBodySimple::setupCL()
 
     /* Initialize position buffer */
     status = clEnqueueWriteBuffer(commandQueue,
-                                  currPos,
+                                  currPosX,
                                   1,
                                   0,
-                                  numBodies * sizeof(cl_float4),
-                                  pos,
+                                  numBodies * sizeof(cl_float),
+                                  posX,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currPosY,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float),
+                                  posY,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currPosZ,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float),
+                                  posZ,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currPosW,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float),
+                                  posW,
                                   0,
                                   0,
                                   0);
@@ -784,25 +889,90 @@ NBodySimple::setupCL()
 
 
     /* Create memory objects for position */
-    newPos = clCreateBuffer(
-        context,
+    newPosX = clCreateBuffer(
+		context,
         CL_MEM_READ_WRITE,
-        numBodies * sizeof(cl_float4),
+        numBodies * sizeof(cl_float),
         0,
         &status);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
-        "clCreateBuffer failed. (newPos)"))
+        "clCreateBuffer failed. (newPosX)"))
+    {
+        return SDK_FAILURE;
+    }
+    newPosY = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newPosY)"))
+    {
+        return SDK_FAILURE;
+    }
+    newPosZ = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newPosZ)"))
+    {
+        return SDK_FAILURE;
+    }
+    newPosW = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newPosW)"))
     {
         return SDK_FAILURE;
     }
 
     /* Create memory objects for velocity */
-    currVel = clCreateBuffer(
+    currVelX = clCreateBuffer(
         context,
         CL_MEM_READ_WRITE,
-        numBodies * sizeof(cl_float4),
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (oldVel)"))
+    {
+        return SDK_FAILURE;
+    }
+    currVelY = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (oldVel)"))
+    {
+        return SDK_FAILURE;
+    }
+    currVelZ = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE,
+        numBodies * sizeof(cl_float),
         0,
         &status);
     if(!sampleCommon->checkVal(
@@ -815,11 +985,43 @@ NBodySimple::setupCL()
 
     /* Initialize velocity buffer */
     status = clEnqueueWriteBuffer(commandQueue,
-                                  currVel,
+                                  currVelX,
                                   1,
                                   0,
-                                  numBodies * sizeof(cl_float4),
-                                  vel,
+                                  numBodies * sizeof(cl_float),
+                                  velX,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldVel)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currVelY,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float),
+                                  velY,
+                                  0,
+                                  0,
+                                  0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueWriteBuffer failed. (oldVel)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueWriteBuffer(commandQueue,
+                                  currVelZ,
+                                  1,
+                                  0,
+                                  numBodies * sizeof(cl_float),
+                                  velZ,
                                   0,
                                   0,
                                   0);
@@ -832,19 +1034,46 @@ NBodySimple::setupCL()
     }
 
     /* Create memory objects for velocity */
-    newVel = clCreateBuffer(
+    newVelX = clCreateBuffer(
         context,
         CL_MEM_READ_ONLY,
-        numBodies * sizeof(cl_float4),
+        numBodies * sizeof(cl_float),
         0,
         &status);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
-        "clCreateBuffer failed. (newVel)"))
+        "clCreateBuffer failed. (newVelX)"))
     {
         return SDK_FAILURE;
     }
+    newVelY = clCreateBuffer(
+        context,
+        CL_MEM_READ_ONLY,
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newVelY)"))
+    {
+        return SDK_FAILURE;
+    }
+    newVelZ = clCreateBuffer(
+        context,
+        CL_MEM_READ_ONLY,
+        numBodies * sizeof(cl_float),
+        0,
+        &status);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clCreateBuffer failed. (newVelZ)"))
+    {
+        return SDK_FAILURE;
+    }
+
 
     /* create a CL program using the kernel source */
     streamsdk::SDKFile kernelFile;
@@ -1026,7 +1255,43 @@ NBodySimple::setupCLKernels()
         kernel,
         0,
         sizeof(cl_mem),
-        (void*)&currPos);
+        (void*)&currPosX);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        1,
+        sizeof(cl_mem),
+        (void*)&currPosY);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        2,
+        sizeof(cl_mem),
+        (void*)&currPosZ);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        3,
+        sizeof(cl_mem),
+        (void*)&currPosW);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS, 
@@ -1038,9 +1303,33 @@ NBodySimple::setupCLKernels()
     /* Particle velocity */
     status = clSetKernelArg(
         kernel,
-        1,
+        4,
         sizeof(cl_mem),
-        (void *)&currVel);
+        (void *)&currVelX);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedVel)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        5,
+        sizeof(cl_mem),
+        (void *)&currVelY);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (updatedVel)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        6,
+        sizeof(cl_mem),
+        (void *)&currVelZ);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS, 
@@ -1052,7 +1341,7 @@ NBodySimple::setupCLKernels()
     /* numBodies */
     status = clSetKernelArg(
         kernel,
-        2,
+        7, //2
         sizeof(cl_int),
         (void *)&numBodies);
     if(!sampleCommon->checkVal(
@@ -1066,7 +1355,7 @@ NBodySimple::setupCLKernels()
     /* time step */
     status = clSetKernelArg(
         kernel,
-        3,
+        8, //3
         sizeof(cl_float),
         (void *)&delT);
     if(!sampleCommon->checkVal(
@@ -1080,7 +1369,7 @@ NBodySimple::setupCLKernels()
     /* upward Pseudoprobability */
     status = clSetKernelArg(
         kernel,
-        4,
+        9,
         sizeof(cl_float),
         (void *)&espSqr);
     if(!sampleCommon->checkVal(
@@ -1095,8 +1384,44 @@ NBodySimple::setupCLKernels()
     /* local memory */
     status = clSetKernelArg(
         kernel,
-        5,
-        GROUP_SIZE * 4 * sizeof(float),
+        10,
+        GROUP_SIZE * sizeof(float),
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (localPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        11,
+        GROUP_SIZE * sizeof(float),
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (localPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        12,
+        GROUP_SIZE * sizeof(float),
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (localPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        13,
+        GROUP_SIZE * sizeof(float),
         NULL);
     if(!sampleCommon->checkVal(
         status,
@@ -1109,9 +1434,45 @@ NBodySimple::setupCLKernels()
     /* Particle positions */
     status = clSetKernelArg(
         kernel,
-        6,
+        14,
         sizeof(cl_mem),
-        (void*)&newPos);
+        (void*)&newPosX);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (unewPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        15,
+        sizeof(cl_mem),
+        (void*)&newPosY);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (unewPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        16,
+        sizeof(cl_mem),
+        (void*)&newPosZ);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (unewPos)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        17,
+        sizeof(cl_mem),
+        (void*)&newPosW);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS, 
@@ -1123,14 +1484,59 @@ NBodySimple::setupCLKernels()
     /* Particle velocity */
     status = clSetKernelArg(
         kernel,
-        7,
+        18,
         sizeof(cl_mem),
-        (void *)&newVel);
+        (void *)&newVelX);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS, 
-        "clSetKernelArg failed. (newVel)"))
+        "clSetKernelArg failed. (newVelX)"))
     {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        19,
+        sizeof(cl_mem),
+        (void *)&newVelY);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (newVelY)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clSetKernelArg(
+        kernel,
+        20,
+        sizeof(cl_mem),
+        (void *)&newVelZ);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clSetKernelArg failed. (newVelZ)"))
+    {
+        return SDK_FAILURE;
+    }
+
+    status = clGetKernelWorkGroupInfo(kernel,
+        devices[0],
+        CL_KERNEL_LOCAL_MEM_SIZE,
+        sizeof(cl_ulong),
+        &usedLocalMemory,
+        NULL);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clGetKernelWorkGroupInfo CL_KERNEL_LOCAL_MEM_SIZE failed."))
+    {
+        return SDK_FAILURE;
+    }
+
+    if(usedLocalMemory > totalLocalMemory)
+    {
+        std::cout << "Unsupported: Insufficient local memory on device" <<
+            std::endl;
         return SDK_FAILURE;
     }
 
@@ -1235,28 +1641,108 @@ NBodySimple::runCLKernels()
 
     /* Copy data from new to old */
     status = clEnqueueCopyBuffer(commandQueue,
-                                 newPos,
-                                 currPos,
+                                 newPosX,
+                                 currPosX,
                                  0,
                                  0,
-                                 sizeof(cl_float4) * numBodies,
+                                 sizeof(cl_float) * numBodies,
                                  0,
                                  0,
                                  0);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS, 
-        "clEnqueueCopyBuffer failed.(newPos->oldPos)"))
+        "clEnqueueCopyBuffer failed.(newPosX->oldPosX)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newPosY,
+                                 currPosY,
+                                 0,
+                                 0,
+                                 sizeof(cl_float) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newPosY->oldPosY)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newPosZ,
+                                 currPosZ,
+                                 0,
+                                 0,
+                                 sizeof(cl_float) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newPosZ->oldPosZ)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newPosW,
+                                 currPosW,
+                                 0,
+                                 0,
+                                 sizeof(cl_float) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newPosW->oldPosW)"))
     {
         return SDK_FAILURE;
     }
 
     status = clEnqueueCopyBuffer(commandQueue,
-                                 newVel,
-                                 currVel,
+                                 newVelX,
+                                 currVelX,
                                  0,
                                  0,
-                                 sizeof(cl_float4) * numBodies,
+                                 sizeof(cl_float) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newVel->oldVels)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newVelY,
+                                 currVelY,
+                                 0,
+                                 0,
+                                 sizeof(cl_float) * numBodies,
+                                 0,
+                                 0,
+                                 0);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS, 
+        "clEnqueueCopyBuffer failed.(newVel->oldVels)"))
+    {
+        return SDK_FAILURE;
+    }
+    status = clEnqueueCopyBuffer(commandQueue,
+                                 newVelZ,
+                                 currVelZ,
+                                 0,
+                                 0,
+                                 sizeof(cl_float) * numBodies,
                                  0,
                                  0,
                                  0);
@@ -1280,11 +1766,56 @@ NBodySimple::runCLKernels()
     /* Enqueue readBuffer*/
     status = clEnqueueReadBuffer(
         commandQueue,
-        currPos,
+        currPosX,
         CL_TRUE,
         0,
-        numBodies* sizeof(cl_float4),
-        pos,
+        numBodies* sizeof(cl_float),
+        posX,
+        0,
+        NULL,
+        &events[0]);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueReadBuffer failed."))
+        return SDK_FAILURE;
+    status = clEnqueueReadBuffer(
+        commandQueue,
+        currPosY,
+        CL_TRUE,
+        0,
+        numBodies* sizeof(cl_float),
+        posY,
+        0,
+        NULL,
+        &events[0]);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueReadBuffer failed."))
+        return SDK_FAILURE;
+    status = clEnqueueReadBuffer(
+        commandQueue,
+        currPosZ,
+        CL_TRUE,
+        0,
+        numBodies* sizeof(cl_float),
+        posZ,
+        0,
+        NULL,
+        &events[0]);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clEnqueueReadBuffer failed."))
+        return SDK_FAILURE;
+    status = clEnqueueReadBuffer(
+        commandQueue,
+        currPosW,
+        CL_TRUE,
+        0,
+        numBodies* sizeof(cl_float),
+        posW,
         0,
         NULL,
         &events[0]);
@@ -1316,36 +1847,34 @@ NBodySimple::nBodyCPUReference()
     //Iterate for all samples
     for(int i = 0; i < numBodies; ++i)
     {
-        int myIndex = 4 * i;
+        int myIndex = i;
         float acc[3] = {0.0f, 0.0f, 0.0f};
         for(int j = 0; j < numBodies; ++j)
         {
             float r[3];
-            int index = 4 * j;
+            int index = j;
 
-            float distSqr = 0.0f;
-            for(int k = 0; k < 3; ++k)
-            {
-                r[k] = refPos[index + k] - refPos[myIndex + k];
-
-                distSqr += r[k] * r[k];
-            }
+			r[0] = refPosX[index] - refPosX[myIndex];
+			r[1] = refPosY[index] - refPosY[myIndex];
+			r[2] = refPosZ[index] - refPosZ[myIndex];
+            
+			float distSqr = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
 
             float invDist = 1.0f / sqrt(distSqr + espSqr);
             float invDistCube =  invDist * invDist * invDist;
-            float s = refPos[index + 3] * invDistCube;
+            float s = refPosW[index] * invDistCube;
 
-            for(int k = 0; k < 3; ++k)
-            {
-                acc[k] += s * r[k];
-            }
+			acc[0] += s * r[0];
+			acc[1] += s * r[1];
+			acc[2] += s * r[2];
         }
 
-        for(int k = 0; k < 3; ++k)
-        {
-            refPos[myIndex + k] += refVel[myIndex + k] * delT + 0.5f * acc[k] * delT * delT;
-            refVel[myIndex + k] += acc[k] * delT;
-        }
+		refPosX[myIndex] += refVelX[myIndex] * delT + 0.5f * acc[0] * delT * delT;
+		refPosY[myIndex] += refVelY[myIndex] * delT + 0.5f * acc[1] * delT * delT;
+		refPosZ[myIndex] += refVelZ[myIndex] * delT + 0.5f * acc[2] * delT * delT;
+		refVelX[myIndex] += acc[0] * delT;
+		refVelY[myIndex] += acc[1] * delT;
+		refVelZ[myIndex] += acc[2] * delT;
     }
 }
 
@@ -1477,7 +2006,7 @@ void displayfunc()
     for(int i=0; i < numBodies; ++i)
     {
         //divided by 300 just for scaling
-        glVertex3d(pos[i*4+ 0]/300, pos[i*4+1]/300, pos[i*4+2]/300);
+        glVertex3d(posX[i]/300, posY[i]/300, posZ[i]/300);
     }
     glEnd();
 
@@ -1535,7 +2064,10 @@ NBodySimple::run()
 
     if(!quiet)
     {
-        sampleCommon->printArray<cl_float>("Output", pos, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output", posX, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output", posY, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output", posZ, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output", posW, numBodies, 1);
     }
 
     return SDK_SUCCESS;
@@ -1550,22 +2082,47 @@ NBodySimple::verifyResults()
         * it overwrites the input array with the output
         */
 
-        refPos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
-        if(refPos == NULL)
+        refPosX = (cl_float*)malloc(numBodies * sizeof(cl_float));
+        if(refPosX == NULL)
         { 
-            sampleCommon->error("Failed to allocate host memory. (refPos)");
+            sampleCommon->error("Failed to allocate host memory. (refPosX)");
+            return SDK_FAILURE;
+        }
+        refPosY = (cl_float*)malloc(numBodies * sizeof(cl_float));
+        if(refPosY == NULL)
+        { 
+            sampleCommon->error("Failed to allocate host memory. (refPosY)");
+            return SDK_FAILURE;
+        }
+        refPosZ = (cl_float*)malloc(numBodies * sizeof(cl_float));
+        if(refPosZ == NULL)
+        { 
+            sampleCommon->error("Failed to allocate host memory. (refPosZ)");
+            return SDK_FAILURE;
+        }
+        refPosW = (cl_float*)malloc(numBodies * sizeof(cl_float));
+        if(refPosW == NULL)
+        { 
+            sampleCommon->error("Failed to allocate host memory. (refPosW)");
             return SDK_FAILURE;
         }
 
-        refVel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
-        if(refVel == NULL)
+        refVelX = (cl_float*)malloc(numBodies * sizeof(cl_float));
+        refVelY = (cl_float*)malloc(numBodies * sizeof(cl_float));
+        refVelZ = (cl_float*)malloc(numBodies * sizeof(cl_float));
+        if(refVelX == NULL || refVelY == NULL || refVelZ == NULL)
         { 
             sampleCommon->error("Failed to allocate host memory. (refVel)");
             return SDK_FAILURE;
         }
 
-        memcpy(refPos, initPos, 4 * numBodies * sizeof(cl_float));
-        memcpy(refVel, initVel, 4 * numBodies * sizeof(cl_float));
+        memcpy(refPosX, initPosX, numBodies * sizeof(cl_float));
+        memcpy(refPosY, initPosY, numBodies * sizeof(cl_float));
+        memcpy(refPosZ, initPosZ, numBodies * sizeof(cl_float));
+        memcpy(refPosW, initPosW, numBodies * sizeof(cl_float));
+        memcpy(refVelX, initVelX, numBodies * sizeof(cl_float));
+        memcpy(refVelY, initVelY, numBodies * sizeof(cl_float));
+        memcpy(refVelZ, initVelZ, numBodies * sizeof(cl_float));
 
         for(int i = 0; i < iterations; ++i)
         {
@@ -1573,7 +2130,10 @@ NBodySimple::verifyResults()
         }
 
         /* compare the results and see if they match */
-        if(sampleCommon->compare(pos, refPos, 4 * numBodies, 0.00001))
+        if(sampleCommon->compare(posX, refPosX, numBodies, 0.00001) &&
+           sampleCommon->compare(posY, refPosY, numBodies, 0.00001) &&
+           sampleCommon->compare(posZ, refPosZ, numBodies, 0.00001) &&
+           sampleCommon->compare(posW, refPosW, numBodies, 0.00001))
         {
             std::cout << "Passed!\n";
             return SDK_SUCCESS;
@@ -1634,7 +2194,31 @@ NBodySimple::cleanup()
         return SDK_FAILURE;
     }
 
-    status = clReleaseMemObject(currPos);
+    status = clReleaseMemObject(currPosX);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+    {
+        return SDK_FAILURE;
+    }
+    status = clReleaseMemObject(currPosY);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+    {
+        return SDK_FAILURE;
+    }
+    status = clReleaseMemObject(currPosZ);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+    {
+        return SDK_FAILURE;
+    }
+    status = clReleaseMemObject(currPosW);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
@@ -1643,7 +2227,23 @@ NBodySimple::cleanup()
         return SDK_FAILURE;
     }
 
-    status = clReleaseMemObject(currVel);
+    status = clReleaseMemObject(currVelX);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+    {
+        return SDK_FAILURE;
+    }
+    status = clReleaseMemObject(currVelY);
+    if(!sampleCommon->checkVal(
+        status,
+        CL_SUCCESS,
+        "clReleaseMemObject failed."))
+    {
+        return SDK_FAILURE;
+    }
+    status = clReleaseMemObject(currVelZ);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
@@ -1676,35 +2276,105 @@ NBodySimple::cleanup()
 NBodySimple::~NBodySimple()
 {
     /* release program resources */
-    if(initPos)
+    if(initPosX)
     {
-        free(initPos);
-        initPos = NULL;
+        free(initPosX);
+        initPosX = NULL;
+    }
+    if(initPosY)
+    {
+        free(initPosY);
+        initPosY = NULL;
+    }
+    if(initPosZ)
+    {
+        free(initPosZ);
+        initPosZ = NULL;
+    }
+    if(initPosW)
+    {
+        free(initPosW);
+        initPosW = NULL;
     }
 
-    if(initVel)
+    if(initVelX)
     {
-        free(initVel);
-        initVel = NULL;
+        free(initVelX);
+        initVelX = NULL;
+    }
+    if(initVelY)
+    {
+        free(initVelY);
+        initVelY = NULL;
+    }
+    if(initVelZ)
+    {
+        free(initVelZ);
+        initVelZ = NULL;
     }
 
-    if(pos)
+    if(posX)
     {
 #if defined (_WIN32)
-        _aligned_free(pos);
+        _aligned_free(posX);
 #else
-        free(pos);
+        free(posX);
 #endif
-        pos = NULL;
+        posX = NULL;
     }
-    if(vel)
+    if(posY)
     {
 #if defined (_WIN32)
-        _aligned_free(vel);
+        _aligned_free(posY);
 #else
-        free(vel);
+        free(posY);
 #endif
-        vel = NULL;
+        posY = NULL;
+    }
+    if(posZ)
+    {
+#if defined (_WIN32)
+        _aligned_free(posZ);
+#else
+        free(posZ);
+#endif
+        posZ = NULL;
+    }
+    if(posW)
+    {
+#if defined (_WIN32)
+        _aligned_free(posW);
+#else
+        free(posW);
+#endif
+        posW = NULL;
+    }
+    if(velX)
+    {
+#if defined (_WIN32)
+        _aligned_free(velX);
+#else
+        free(velX);
+#endif
+        velX = NULL;
+    }
+    if(velY)
+    {
+#if defined (_WIN32)
+        _aligned_free(velY);
+#else
+        free(velY);
+#endif
+        velY = NULL;
+    }
+    if(velZ)
+    {
+#if defined (_WIN32)
+        _aligned_free(velZ);
+#else
+        free(velZ);
+#endif
+        velZ = NULL;
     }
 
     if(devices)
@@ -1713,16 +2383,41 @@ NBodySimple::~NBodySimple()
         devices = NULL;
     }
 
-    if(refPos)
+    if(refPosX)
     {
-        free(refPos);
-        refPos = NULL;
+        free(refPosX);
+        refPosX = NULL;
+    }
+    if(refPosY)
+    {
+        free(refPosY);
+        refPosY = NULL;
+    }
+    if(refPosZ)
+    {
+        free(refPosZ);
+        refPosZ = NULL;
+    }
+    if(refPosW)
+    {
+        free(refPosW);
+        refPosW = NULL;
     }
 
-    if(refVel)
+    if(refVelX)
     {
-        free(refVel);
-        refVel = NULL;
+        free(refVelX);
+        refVelX = NULL;
+    }
+    if(refVelY)
+    {
+        free(refVelY);
+        refVelY = NULL;
+    }
+    if(refVelZ)
+    {
+        free(refVelZ);
+        refVelZ = NULL;
     }
 
     if(maxWorkItemSizes)

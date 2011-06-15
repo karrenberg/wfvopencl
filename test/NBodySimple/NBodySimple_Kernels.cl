@@ -15,120 +15,100 @@ __kernel
 void 
 
 nbody_sim(
-
-    __global float4* pos ,
-
-    __global float4* vel,
-
+    __global float* posX,
+    __global float* posY,
+    __global float* posZ,
+    __global float* posW,
+    __global float* velX,
+    __global float* velY,
+    __global float* velZ,
     int numBodies,
-
     float deltaTime,
-
     float epsSqr,
-
-    __local float4* localPos,
-    __global float4* newPosition,
-    __global float4* newVelocity)
+    __local float* localPosX,
+    __local float* localPosY,
+    __local float* localPosZ,
+    __local float* localPosW,
+    __global float* newPositionX,
+    __global float* newPositionY,
+    __global float* newPositionZ,
+    __global float* newPositionW,
+    __global float* newVelocityX,
+    __global float* newVelocityY,
+    __global float* newVelocityZ)
 
 {
     unsigned int tid = get_local_id(0);
-
     unsigned int gid = get_global_id(0);
-
     unsigned int localSize = get_local_size(0);
 
-
-
     // Number of tiles we need to iterate
-
     unsigned int numTiles = numBodies / localSize;
 
-
-
     // position of this work-item
-
-    float4 myPos = pos[gid];
-
-    float4 acc = (float4)(0.0f, 0.0f, 0.0f, 0.0f);
-
-
+    float myPosX = posX[gid];
+    float myPosY = posY[gid];
+    float myPosZ = posZ[gid];
+    float myPosW = posW[gid];
+    float accX = 0.0f;
+    float accY = 0.0f;
+    float accZ = 0.0f;
 
     for(int i = 0; i < numTiles; ++i)
-
     {
-
         // load one tile into local memory
-
         int idx = i * localSize + tid;
-
-        localPos[tid] = pos[idx];
-
-
+        localPosX[tid] = posX[idx];
+        localPosY[tid] = posY[idx];
+        localPosZ[tid] = posZ[idx];
+        localPosW[tid] = posW[idx];
 
         // Synchronize to make sure data is available for processing
-
         barrier(CLK_LOCAL_MEM_FENCE);
-
-
 
         // calculate acceleration effect due to each body
-
         // a[i->j] = m[j] * r[i->j] / (r^2 + epsSqr)^(3/2)
-
         for(int j = 0; j < localSize; ++j)
-
         {
-
-            // Calculate acceleartion caused by particle j on particle i
-
-            float4 r = localPos[j] - myPos;
-
-            float distSqr = r.x * r.x  +  r.y * r.y  +  r.z * r.z;
-
+            // Calculate acceleration caused by particle j on particle i
+            float rX = localPosX[j] - myPosX;
+            float rY = localPosY[j] - myPosY;
+            float rZ = localPosZ[j] - myPosZ;
+            float distSqr = rX * rX  +  rY * rY  +  rZ * rZ;
             float invDist = 1.0f / sqrt(distSqr + epsSqr);
-
             float invDistCube = invDist * invDist * invDist;
-
-            float s = localPos[j].w * invDistCube;
-
-
+            float s = localPosW[j] * invDistCube;
 
             // accumulate effect of all particles
-
-            acc += s * r;
-
+            accX += s * rX;
+            accY += s * rY;
+            accZ += s * rZ;
         }
 
-
-
         // Synchronize so that next tile can be loaded
-
-        barrier(CLK_LOCAL_MEM_FENCE);
-
+        barrier(CLK_LOCAL_MEM_FENCE); // not required? (at least scalar, single-threaded mode passes)
     }
 
-
-
-    float4 oldVel = vel[gid];
-
-
+    float oldVelX = velX[gid];
+    float oldVelY = velY[gid];
+    float oldVelZ = velZ[gid];
 
     // updated position and velocity
+    float newPosX = myPosX + oldVelX * deltaTime + accX * 0.5f * deltaTime * deltaTime;
+    float newPosY = myPosY + oldVelY * deltaTime + accY * 0.5f * deltaTime * deltaTime;
+    float newPosZ = myPosZ + oldVelZ * deltaTime + accZ * 0.5f * deltaTime * deltaTime;
+    float newPosW = myPosW;
 
-    float4 newPos = myPos + oldVel * deltaTime + acc * 0.5f * deltaTime * deltaTime;
-
-    newPos.w = myPos.w;
-
-
-
-    float4 newVel = oldVel + acc * deltaTime;
-
-
+    float newVelX = oldVelX + accX * deltaTime;
+    float newVelY = oldVelY + accY * deltaTime;
+    float newVelZ = oldVelZ + accZ * deltaTime;
 
     // write to global memory
-
-    newPosition[gid] = newPos;
-
-    newVelocity[gid] = newVel;
+    newPositionX[gid] = newPosX;
+    newPositionY[gid] = newPosY;
+    newPositionZ[gid] = newPosZ;
+    newPositionW[gid] = newPosW;
+    newVelocityX[gid] = newVelX;
+    newVelocityY[gid] = newVelY;
+    newVelocityZ[gid] = newVelZ;
 }
-
