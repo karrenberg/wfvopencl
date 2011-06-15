@@ -414,15 +414,26 @@ Reduction::setupCL()
     }
     else
     {
-		streamsdk::SDKFile kernelFile;
-		std::string kernelPath = sampleCommon->getPath();
+		// special case for packetized OpenCL (can not yet compile .cl directly)
+		char vName[100];
+		status = clGetPlatformInfo(platform,
+				CL_PLATFORM_VENDOR,
+				sizeof(vName),
+				vName,
+				NULL);
+		const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+
 		kernelPath.append("Reduction_Kernels.cl");
 		if(!kernelFile.open(kernelPath.c_str()))
 		{
 			std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
 			return SDK_FAILURE;
 		}
-		const char * source = kernelFile.source().c_str();
+
+		const char * source = platformIsPacketizedOpenCL ?
+			"Reduction_Kernels.bc" :
+			kernelFile.source().c_str();
+
 		size_t sourceSize[] = {strlen(source)};
         program = clCreateProgramWithSource(context,
                                             1,
@@ -918,26 +929,13 @@ Reduction::genBinaryImage()
     /* create a CL program using the kernel source */
     streamsdk::SDKFile kernelFile;
     std::string kernelPath = sampleCommon->getPath();
-		// special case for packetized OpenCL (can not yet compile .cl directly)
-		char vName[100];
-		status = clGetPlatformInfo(platform,
-				CL_PLATFORM_VENDOR,
-				sizeof(vName),
-				vName,
-				NULL);
-		const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
-
-		kernelPath.append("Reduction_Kernels.cl");
-		if(!kernelFile.open(kernelPath.c_str()))
-		{
-			std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
-			return SDK_FAILURE;
-		}
-
-		const char * source = platformIsPacketizedOpenCL ?
-			"Reduction_Kernels.bc" :
-			kernelFile.source().c_str();
-
+    kernelPath.append("Reduction_Kernels.cl");
+    if(!kernelFile.open(kernelPath.c_str()))
+    {
+        std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+        return SDK_FAILURE;
+    }
+    const char * source = kernelFile.source().c_str();
     size_t sourceSize[] = {strlen(source)};
     program = clCreateProgramWithSource(context,
                                         1,
