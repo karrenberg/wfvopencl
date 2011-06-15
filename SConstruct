@@ -19,7 +19,7 @@ packetize         = ARGUMENTS.get('packetize', 0)
 packetizer_shared = ARGUMENTS.get('packetizer_shared', 0)
 split             = ARGUMENTS.get('split', 0)
 
-compile_dynamic_lib_driver = ARGUMENTS.get('dynamic', 0)
+compile_static_lib_driver = ARGUMENTS.get('static', 0)
 
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
@@ -97,7 +97,7 @@ if int(profile):
 		cxxflags=cxxflags+env.Split("-O0 -g")
 	# disabled until we have 64bit VTune libraries
 	#cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_ENABLE_JIT_PROFILING")
-	#compile_dynamic_lib_driver=0
+	#compile_static_lib_driver=1
 
 if int(use_openmp):
 	if isWin:
@@ -143,20 +143,20 @@ else:
 driverLibs = llvm_vars.get('LIBS') + env.Split('Packetizer')
 if isWin:
 	# get glut from http://www.idfun.de/glut64/
-	if int(compile_dynamic_lib_driver):
-		appLibs = env.Split('OpenCL SDKUtil glut32 glew32')
-	else:
+	if int(compile_static_lib_driver):
 		appLibs = env.Split('PacketizedOpenCL SDKUtil glut32 glew32')
+	else:
+		appLibs = env.Split('OpenCL SDKUtil glut32 glew32')
 else:
-	if int(compile_dynamic_lib_driver):
+	if int(compile_static_lib_driver):
+		appLibs = env.Split('PacketizedOpenCL SDKUtil glut GLEW')
+	else:
 		appLibs = env.Split('OpenCL SDKUtil glut GLEW')
 		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
 		#if isDarwin:
 			#appLibs = env.Split('SDKUtil glut GLEW')
 		#else:
 			#appLibs = env.Split('OpenCL SDKUtil glut GLEW')
-	else:
-		appLibs = env.Split('PacketizedOpenCL SDKUtil glut GLEW')
 
 # disabled until we have 64bit VTune libraries
 #if int(profile):
@@ -166,10 +166,10 @@ else:
 
 # build Packetized OpenCL Driver
 driverSrc = env.Glob('src/*.cpp')
-if int(compile_dynamic_lib_driver):
-	PacketizedOpenCL = env.SharedLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
-else:
+if int(compile_static_lib_driver):
 	PacketizedOpenCL = env.StaticLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
+else:
+	PacketizedOpenCL = env.SharedLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 
 
 # build AMD-ATI SDKUtil as a static library (required for test applications)
@@ -217,7 +217,14 @@ FastWalshTransform
 #""")
 
 Execute(Mkdir('build/bin'))
-if int(compile_dynamic_lib_driver):
+if int(compile_static_lib_driver):
+	for a in testApps:
+		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
+		Obj = env.StaticObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
+		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
+		env.Depends(App, Obj)
+		env.Depends(App, SDKUtil)
+else:
 	for a in testApps:
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
 		Obj = env.SharedObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
@@ -227,13 +234,6 @@ if int(compile_dynamic_lib_driver):
 		#else:
 			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
-		env.Depends(App, Obj)
-		env.Depends(App, SDKUtil)
-else:
-	for a in testApps:
-		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
-		Obj = env.StaticObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
-		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
 		env.Depends(App, Obj)
 		env.Depends(App, SDKUtil)
 
