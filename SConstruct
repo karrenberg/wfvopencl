@@ -201,32 +201,48 @@ env.Depends(SDKUtil, PacketizedOpenCL)
 ###
 
 testApps = env.Split("""
+AESEncryptDecrypt
+BinarySearch
+BinomialOption
+BitonicSort
+BlackScholes
+BlackScholesDP
+DCT
+DwtHaar1D
+EigenValue
+FFT
 FastWalshTransform
+FloydWarshall
+FluidSimulation2D
+Histogram
+HistogramAtomics
+LUDecomposition
+Mandelbrot
+MatrixMulImage
+MatrixMultiplication
+MatrixTranspose
+MersenneTwister
+MonteCarloAsian
+MonteCarloAsianDP
+NBody
+PrefixSum
+QuasiRandomSequence
+RadixSort
+RecursiveGaussian
+Reduction
+ScanLargeArrays
+SimpleConvolution
+SobelFilter
+URNG
+URNGNoiseGL
 """)
 
 #testApps = env.Split("""
 #AmbientOcclusionRenderer
-#BinomialOption
 #BinomialOptionSimple
-#BitonicSort
-#BlackScholes
 #BlackScholesSimple
-#DCT
-#DwtHaar1D
-#EigenValue
-#FastWalshTransform
-#FloydWarshall
-#Histogram
 #Mandelbrot
-#MatrixTranspose
-#NBody
 #NBodySimple
-#PrefixSum
-#RadixSort
-#Reduction
-#ScanLargeArrays
-#SHA1
-#SimpleConvolution
 #TestSimple
 #TestBarrier
 #TestBarrier2
@@ -240,21 +256,17 @@ Execute(Mkdir('build/bin'))
 if int(compile_static_lib_driver):
 	for a in testApps:
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
-		Obj = env.StaticObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
-		env.Depends(App, Obj)
 		env.Depends(App, SDKUtil)
 else:
 	for a in testApps:
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
-		Obj = env.SharedObject('build/obj/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
 		#if isDarwin:
 			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenCL'])
 		#else:
 			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
-		env.Depends(App, Obj)
 		env.Depends(App, SDKUtil)
 
 
@@ -267,17 +279,18 @@ else:
 # NOTE: --march=x86-64 generates bad code for packetization :(
 #       --march=x86 (or left out) generates 32bit data structures etc., making wrapper unusable
 
-##env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
-##env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86 --msse2 $SOURCE")
+#env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
+#env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86 --msse2 $SOURCE")
 
-##cmd_ll = "clc -o $TARGET --msse2 $SOURCE"
-##cmd_bc = "llvm-as $SOURCE -o $TARGET"
+#cmd_ll = "clc -o $TARGET --msse2 $SOURCE"
+#cmd_bc = "llvm-as $SOURCE -o $TARGET"
 
-#for a in testApps:
-	#env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
-				#["clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
-				#"llvm-as -o ${TARGET.file}.bc ${TARGET.file}.ll",
-				#Delete('${TARGET.file}.ll')])
+if not isWin:
+	for a in testApps:
+		env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
+					["clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
+					"llvm-as -o ${TARGET.file}.bc ${TARGET.file}.ll",
+					Delete('${TARGET.file}.ll')])
 
 
 ###
