@@ -10,13 +10,14 @@ PACKETIZER_INSTALL_DIR = env['ENV']['PACKETIZER_INSTALL_DIR']
 
 
 # build variables
-debug         = ARGUMENTS.get('debug', 0)
-debug_runtime = ARGUMENTS.get('debug-runtime', 0)
-profile       = ARGUMENTS.get('profile', 0)
-use_openmp    = ARGUMENTS.get('openmp', 0)
-num_threads   = ARGUMENTS.get('threads', 0)
-packetize     = ARGUMENTS.get('packetize', 0)
-split         = ARGUMENTS.get('split', 0)
+debug             = ARGUMENTS.get('debug', 0)
+debug_runtime     = ARGUMENTS.get('debug-runtime', 0)
+profile           = ARGUMENTS.get('profile', 0)
+use_openmp        = ARGUMENTS.get('openmp', 0)
+num_threads       = ARGUMENTS.get('threads', 0)
+packetize         = ARGUMENTS.get('packetize', 0)
+packetizer_shared = ARGUMENTS.get('packetizer_shared', 0)
+split             = ARGUMENTS.get('split', 0)
 
 compile_dynamic_lib_driver = ARGUMENTS.get('dynamic', 0)
 
@@ -37,6 +38,13 @@ else:
 #print env['HOST_ARCH']
 #print env['TARGET_OS']
 #print env['TARGET_ARCH']
+
+# NOTE: Dynamically linking the packetizer will not work because both the driver and the packetizer statically link LLVM
+#       on Windows (because there are no shared libraries as of LLVM 2.9). Thus, pointer equality of LLVM types (e.g. for
+#       Type* == Type*) will not work between the two libs (and possibly more stuff).
+if isWin and int(packetize) and int(packetizer_shared):
+	print "\nERROR: Dynamic linking of packetizer library does not work on Windows!\n"
+	Exit(1)
 
 # set up compiler
 if isWin:
@@ -106,7 +114,9 @@ if not int(packetize):
 if int(split):
 	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_SPLIT_EVERYTHING")
 
-if int(packetize) and not int(compile_dynamic_lib_driver):
+# This is only required if the packetizer was built as a shared library (and only on Windows for dllexport/dllimport)
+# TODO: Can we detect this automatically? :)
+if int(packetize) and not int(packetizer_shared):
 	cxxflags=cxxflags+env.Split("-DPACKETIZER_STATIC_LIBS")
 
 
@@ -229,25 +239,6 @@ else:
 
 
 ###
-### build test applications against AMD OpenCL driver ###
-### TODO: We should actually use the OpenCL ICD to chose the driver (and thus only compile it once),
-###       but that would require changing the SDKUtil parameter handling, plus we do not provide
-###       support for the ICD from packetizedOpenCL side.
-###
-
-#env2 = env.Clone()
-#env2.Append(CXXFLAGS = env.Split('-DTESTBENCH_BUILD_FROM_CL -DUSE_OPENCL_DRIVER_AMD'))
-#env2.Append(LIBPATH = [os.path.join(env['ENV']['AMDAPPSDKROOT'], 'lib/x86_64')])
-#appLibs2 = env2.Split('OpenCL SDKUtil glut32 glew32')
-#Execute(Mkdir('build/bin/AMD'))
-#for a in testApps:
-	#Execute(Copy('build/bin/AMD', 'test/'+a+'/'+a+'_Kernels.cl'))
-	#Obj = env2.StaticObject('build/obj/AMD/'+a, env2.Glob('test/'+a+'/*.cpp'), LIBS=appLibs2)
-	#App = env2.Program('build/bin/AMD/'+a, env2.Glob('build/obj/AMD/'+a+'.obj'), LIBS=appLibs2)
-	#env2.Depends(App, Obj)
-	#env2.Depends(App, SDKUtil)
-
-###
 ### build bitcode from OpenCL files ###
 ###
 
@@ -268,3 +259,10 @@ else:
 				#"llvm-as -o ${TARGET.file}.bc ${TARGET.file}.ll",
 				#Delete('${TARGET.file}.ll')])
 
+# For some reason, those are not removed :(
+if GetOption("clean"):
+	Execute(Delete('build'))
+	Execute(Delete('lib/PacketizedOpenCL.dll'))
+	Execute(Delete('lib/PacketizedOpenCL.dll.manifest'))
+	Execute(Delete('lib/PacketizedOpenCL.exp'))
+	Execute(Delete('lib/libPacketizedOpenCL.so'))
