@@ -1235,6 +1235,7 @@ namespace PacketizedOpenCL {
 		delete [] num_groupss;
 		delete [] global_ids;
 		delete [] local_ids;
+		PACKETIZED_OPENCL_DEBUG( outs() << "generateBlockSizeLoopsForWrapper finished!\n"; );
 	}
 	// NOTE: This function relies on the switch-wrapper function (the one calling
 	//       the continuations) being untouched (no optimization/inlining) after
@@ -1436,6 +1437,7 @@ namespace PacketizedOpenCL {
 
 #ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
 	inline Function* createKernelSequential(Function* f, const std::string& kernel_name, const unsigned num_dimensions, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret) {
+		PACKETIZED_OPENCL_DEBUG( outs() << "createKernelSequential(" << kernel_name << ")\n"; );
 		// eliminate barriers
 		FunctionPassManager FPM(module);
 		CallSiteBlockSplitter* CSBS = new CallSiteBlockSplitter(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER);
@@ -1463,11 +1465,14 @@ namespace PacketizedOpenCL {
 		FPM.run(*f);
 
 		Function* barrierFreeFunction = CG->getBarrierFreeFunction();
-
+		
 		llvm::Function* f_wrapper = NULL;
 
 		if (barrierFreeFunction) {
+			
+			// function had barriers that were now transformed into continuations
 
+			PACKETIZED_OPENCL_DEBUG( outs() << "Function " << kernel_name << " had barriers!\n"; );
 			PACKETIZED_OPENCL_DEBUG( verifyFunction(*barrierFreeFunction); );
 			PACKETIZED_OPENCL_DEBUG( outs() << *barrierFreeFunction << "\n"; );
 
@@ -1523,6 +1528,8 @@ namespace PacketizedOpenCL {
 
 			// generate wrapper for kernel (= all kernels have same signature)
 			//
+			PACKETIZED_OPENCL_DEBUG( outs() << "Function " << kernel_name << " has no barriers!\n"; );
+
 			std::stringstream strs2;
 			strs2 << kernel_name << "_wrapper";
 			const std::string wrapper_name = strs2.str();
@@ -1544,13 +1551,14 @@ namespace PacketizedOpenCL {
 			const int simdDim = -1;
 			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simdDim, context, module);
 		}
+		PACKETIZED_OPENCL_DEBUG( outs() << "wrapper finished!\n"; );
 
 		assert (f_wrapper);
 
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-		PacketizedOpenCL::optimizeFunction(f_wrapper);
+		//PacketizedOpenCL::optimizeFunction(f_wrapper);
 		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_final.ll"); );
@@ -1827,7 +1835,7 @@ namespace PacketizedOpenCL {
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-		PacketizedOpenCL::optimizeFunction(f_wrapper);
+		//PacketizedOpenCL::optimizeFunction(f_wrapper);
 		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
@@ -3963,7 +3971,7 @@ clCreateKernel(cl_program      program,
 
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
 	PacketizedOpenCL::inlineFunctionCalls(f, program->targetData);
-	PacketizedOpenCL::optimizeFunction(f);
+	//PacketizedOpenCL::optimizeFunction(f);
 
 	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f, "debug_kernel_orig.ll"); );
 	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_orig.mod.ll"); );

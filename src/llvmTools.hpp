@@ -61,18 +61,18 @@
 #include <llvm/Support/TypeBuilder.h>
 
 #ifdef DEBUG
-#define PACKETIZED_OPENCL_DEBUG(x) do { x } while (false)
-#define PACKETIZED_OPENCL_DEBUG_VISIBLE(x) x
+#	define PACKETIZED_OPENCL_DEBUG(x) do { x } while (false)
+#	define PACKETIZED_OPENCL_DEBUG_VISIBLE(x) x
 #else
-#define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
-#define PACKETIZED_OPENCL_DEBUG_VISIBLE(x)
+#	define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
+#	define PACKETIZED_OPENCL_DEBUG_VISIBLE(x)
 #endif
 
 #ifdef NDEBUG // force debug output disabled
-#undef PACKETIZED_OPENCL_DEBUG
-#define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
-#undef PACKETIZED_OPENCL_DEBUG_VISIBLE
-#define PACKETIZED_OPENCL_DEBUG_VISIBLE(x)
+#	undef PACKETIZED_OPENCL_DEBUG
+#	define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
+#	undef PACKETIZED_OPENCL_DEBUG_VISIBLE
+#	define PACKETIZED_OPENCL_DEBUG_VISIBLE(x)
 #endif
 
 #define PACKETIZED_OPENCL_SIMD_WIDTH 4
@@ -1407,113 +1407,8 @@ namespace PacketizedOpenCL {
 		//PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
 	}
 
-#ifdef DO_NOT_OPTIMIZE
-	void optimizeModule(Module* mod) {}
-	void optimizeFunction(Function* f) {}
-	void optimizeFunction(const std::string& functionName, Module* mod) {}
-	void optimizeFunctionFast(Function* f) {}
-#else
-	/// Optimize - Perform link time optimizations. This will run the scalar
-	/// optimizations, any loaded plugin-optimization modules, and then the
-	/// inter-procedural optimizations if applicable.
-	/// adopted from: llvm-2.5/lib/tools/llvm-ld/Optimize.cpp
-	/// adopted from: llvm-2.7svn/include/llvm/Support/StandardPasses.h
-	void optimizeModule(Module* mod) {
-		assert (mod);
 
-		// Instantiate the pass manager to organize the passes.
-		PassManager Passes;
-
-		//  // If we're verifying, start off with a verification pass.
-		//  if (VerifyEach)
-		//    Passes.add(createVerifierPass());
-
-		// Add an appropriate TargetData instance for this module...
-		Passes.add(new TargetData(mod));
-
-		//TODO: activate
-		//Passes.add(createStripSymbolsPass(false)); //false = do not only strip debug symbols
-
-		//TODO: activate
-		//createStandardLTOPasses(&Passes,
-		//							true, // run internalize pass
-		//							true, // use a function inlining pass
-		//							false); // run verifyier after each pass
-
-		//TODO: activate?
-		//createStandardModulePasses(...);
-
-		// Propagate constants at call sites into the functions they call.  This
-		// opens opportunities for globalopt (and inlining) by substituting function
-		// pointers passed as arguments to direct uses of functions.
-		//    Passes.add(createIPSCCPPass());
-
-		// Now that we internalized some globals, see if we can hack on them!
-		Passes.add(createGlobalOptimizerPass());
-
-		// Linking modules together can lead to duplicated global constants, only
-		// keep one copy of each constant...
-		Passes.add(createConstantMergePass());
-
-		// Remove unused arguments from functions...
-		Passes.add(createDeadArgEliminationPass());
-
-		// Reduce the code after globalopt and ipsccp.  Both can open up significant
-		// simplification opportunities, and both can propagate functions through
-		// function pointers.  When this happens, we often have to resolve varargs
-		// calls, etc, so let instcombine do this.
-		Passes.add(createInstructionCombiningPass());
-
-		//Passes.add(createFunctionInliningPass()); // Inline small functions //->assertion "invalid LLVM intrinsic name"
-
-		//Passes.add(createPruneEHPass());            // Remove dead EH info   //->assertion "invalid LLVM intrinsic name"
-		Passes.add(createGlobalOptimizerPass());    // Optimize globals again.
-		Passes.add(createGlobalDCEPass());          // Remove dead functions
-
-		// If we didn't decide to inline a function, check to see if we can
-		// transform it to pass arguments by value instead of by reference.
-		Passes.add(createArgumentPromotionPass());
-
-		// The IPO passes may leave cruft around.  Clean up after them.
-		Passes.add(createInstructionCombiningPass());
-		Passes.add(createJumpThreadingPass());        // Thread jumps.
-		Passes.add(createScalarReplAggregatesPass(2048)); // Break up allocas, override default threshold of maximum struct size of 128 bytes
-
-		// Run a few AA driven optimizations here and now, to cleanup the code.
-		Passes.add(createGlobalsModRefPass());      // IP alias analysis
-
-		Passes.add(createLICMPass());               // Hoist loop invariants
-		Passes.add(createGVNPass());                  // Remove redundancies
-		Passes.add(createMemCpyOptPass());          // Remove dead memcpy's
-		Passes.add(createDeadStoreEliminationPass()); // Nuke dead stores
-
-		// Cleanup and simplify the code after the scalar optimizations.
-		Passes.add(createInstructionCombiningPass());
-
-		//Passes.add(createJumpThreadingPass());        // Thread jumps.
-		Passes.add(createPromoteMemoryToRegisterPass()); // Cleanup jumpthread.
-
-		// Delete basic blocks, which optimization passes may have killed...
-		Passes.add(createCFGSimplificationPass());
-
-		// Now that we have optimized the program, discard unreachable functions...
-		Passes.add(createGlobalDCEPass());
-
-		// The user's passes may leave cruft around. Clean up after them them but
-		// only if we haven't got DisableOptimizations set
-		//    Passes.add(createInstructionCombiningPass());
-		//    Passes.add(createCFGSimplificationPass());
-		//    Passes.add(createAggressiveDCEPass());
-		//    Passes.add(createGlobalDCEPass());
-
-		// Make sure everything is still good.
-		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
-
-		// Run our queue of passes all at once now, efficiently.
-		Passes.run(*mod);
-	}
-
-#if 1
+#if 0
 	/// adopted from: llvm-2.5/tools/llvm-ld
 	void optimizeFunction(Function* f) {
 		assert (f);
@@ -1522,10 +1417,6 @@ namespace PacketizedOpenCL {
 		TargetData* targetData = new TargetData(mod);
 
 		//PACKETIZED_OPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
-
-#ifdef DEBUG_LLVM_PASSES
-		DebugFlag = true;
-#endif
 
 
 		//PassManager Passes;
@@ -1582,10 +1473,6 @@ namespace PacketizedOpenCL {
 		Passes.run(*f);
 		Passes.doFinalization();
 
-#ifdef DEBUG_LLVM_PASSES
-		DebugFlag = false;
-#endif
-
 		//PACKETIZED_OPENCL_DEBUG( t.stopTimer(); );
 		//PACKETIZED_OPENCL_DEBUG( outs() << "done.\ndone.\n"; );
 		//PACKETIZED_OPENCL_DEBUG( tg.print(outs()); );
@@ -1598,12 +1485,6 @@ namespace PacketizedOpenCL {
 		assert (f->getParent());
 		Module* mod = f->getParent();
 		TargetData* targetData = new TargetData(mod);
-
-		//PACKETIZED_OPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
-
-#ifdef DEBUG_LLVM_PASSES
-		DebugFlag = true;
-#endif
 
 		const unsigned OptimizationLevel = 3;
 		const bool OptimizeSize = false;
@@ -1628,26 +1509,6 @@ namespace PacketizedOpenCL {
 		Passes.add(createCFGSimplificationPass());
 		Passes.add(createPromoteMemoryToRegisterPass());
 		Passes.add(createInstructionCombiningPass());
-
-		//
-		// createStandardModulePasses
-		//
-
-		//Passes.add(createGlobalOptimizerPass());
-		//Passes.add(createIPSCCPPass());
-		//Passes.add(createDeadArgEliminationPass());
-		//Passes.add(createInstructionCombiningPass());  // Clean up after IPCP & DAE
-		//Passes.add(createCFGSimplificationPass());     // Clean up after IPCP & DAE
-
-		// Start of CallGraph SCC passes.
-		//if (UnitAtATime && HaveExceptions)
-		//Passes.add(createPruneEHPass());           // Remove dead EH info
-		//if (InliningPass)
-		//Passes.add(InliningPass);
-		//if (UnitAtATime)
-		//Passes.add(createFunctionAttrsPass());       // Set readonly/readnone attrs
-		//if (OptimizationLevel > 2)
-		//Passes.add(createArgumentPromotionPass());   // Scalarize uninlined fn args
 
 		// Start of function pass.
 
@@ -1684,80 +1545,13 @@ namespace PacketizedOpenCL {
 		Passes.add(createAggressiveDCEPass());         // Delete dead instructions
 		Passes.add(createCFGSimplificationPass());     // Merge & remove BBs
 
-		if (UnitAtATime) {
-			//Passes.add(createStripDeadPrototypesPass()); // Get rid of dead prototypes
-			//Passes.add(createDeadTypeEliminationPass()); // Eliminate dead types
-
-			// GlobalOpt already deletes dead functions and globals, at -O3 try a
-			// late pass of GlobalDCE.  It is capable of deleting dead cycles.
-			//if (OptimizationLevel > 2)
-			//Passes.add(createGlobalDCEPass());         // Remove dead fns and globals.
-
-			//if (OptimizationLevel > 1)
-			//Passes.add(createConstantMergePass());       // Merge dup global constants
-		}
-
 		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
 
 		Passes.doInitialization();
 		Passes.run(*f);
 		Passes.doFinalization();
-
-#ifdef DEBUG_LLVM_PASSES
-		DebugFlag = false;
-#endif
 	}
 #endif
-	void optimizeFunction(const std::string& functionName, Module* mod) {
-		assert (mod);
-		Function* f = mod->getFunction(functionName);
-
-		if (!f) {
-			errs() << "failed.\nError while optimizing function in module '"
-				<< mod->getModuleIdentifier() << "': function '"
-				<< functionName << "' not found!\n";
-			return;
-		}
-		optimizeFunction(f);
-	}
-
-	void optimizeFunctionFast(Function* f) {
-		assert (f);
-		assert (f->getParent());
-		Module* mod = f->getParent();
-		TargetData* targetData = new TargetData(mod);
-
-		//PACKETIZED_OPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
-
-		FunctionPassManager Passes(mod);
-		Passes.add(targetData);
-
-		Passes.add(createInstructionCombiningPass());
-		Passes.add(createReassociatePass());
-		Passes.add(createGVNPass());
-		Passes.add(createCFGSimplificationPass());
-		Passes.add(createAggressiveDCEPass()); //fpm.add(createDeadCodeEliminationPass());
-
-		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
-
-		//PACKETIZED_OPENCL_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
-		//PACKETIZED_OPENCL_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
-		//PACKETIZED_OPENCL_DEBUG( t.startTimer(); );
-
-		Passes.doInitialization();
-		Passes.run(*f);
-		Passes.doFinalization();
-
-		//PACKETIZED_OPENCL_DEBUG( t.stopTimer(); );
-		//PACKETIZED_OPENCL_DEBUG( outs() << "done.\ndone.\n"; );
-		//PACKETIZED_OPENCL_DEBUG( tg.print(outs()); );
-
-		//std::string* errInfo = NULL;
-		//mp.releaseModule(errInfo);
-		//if (errInfo) errs() << "ERROR: could not release module.\n  " << *errInfo << "\n";
-	}
-#endif
-
 
 
 	Constant * createPointerConstant(void * thePointer, const Type * pointerType) {

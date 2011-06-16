@@ -201,37 +201,42 @@ env.Depends(SDKUtil, PacketizedOpenCL)
 ###
 
 testApps = env.Split("""
-BinarySearch
-BinomialOption
-BitonicSort
-BlackScholes
 BlackScholesSimple
-DCT
-DwtHaar1D
-EigenValue
-FFT
 FastWalshTransform
-FloydWarshall
-Histogram
-Mandelbrot
-MatrixMulImage
-MatrixMultiplication
-MatrixTranspose
-MersenneTwister
-MonteCarloAsian
-NBody
-NBodySimple
-PrefixSum
-QuasiRandomSequence
-RadixSort
-RecursiveGaussian
-Reduction
-ScanLargeArrays
-SimpleConvolution
-SobelFilter
-URNG
-URNGNoiseGL
 """)
+
+#testApps = env.Split("""
+#BinarySearch
+#BinomialOption
+#BitonicSort
+#BlackScholes
+#BlackScholesSimple
+#DCT
+#DwtHaar1D
+#EigenValue
+#FFT
+#FastWalshTransform
+#FloydWarshall
+#Histogram
+#Mandelbrot
+#MatrixMulImage
+#MatrixMultiplication
+#MatrixTranspose
+#MersenneTwister
+#MonteCarloAsian
+#NBody
+#NBodySimple
+#PrefixSum
+#QuasiRandomSequence
+#RadixSort
+#RecursiveGaussian
+#Reduction
+#ScanLargeArrays
+#SimpleConvolution
+#SobelFilter
+#URNG
+#URNGNoiseGL
+#""")
 
 # These use AMD specific extensions not available in our clc (TODO: do we use clc from 2.3 already?)
 #testApps = env.Split("""
