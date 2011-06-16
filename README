@@ -14,23 +14,25 @@ installation:
 
 - build llvm
 - build packetizer
+- set environment variables $LLVM_INSTALL_DIR and $PACKETIZER_INSTALL_DIR appropriately
 - install AMD APP SDK
-	- place ICD registration config files in /etc/OpenCL/vendors
+	- Linux: place ICD registration config files in /etc/OpenCL/vendors
 		- should be attempted automatically by installer
-		-> if no root access, use christophs hack after installation (if possible)
-	- set AMDAPPSDKROOT and AMDAPPSDKSAMPLESROOT environment variables to stream sdk root dir
-	- build SDK
-- adjust 'setupenv.sh' to match your system
-- source 'setupenv.sh'
-- run scons, options (default shown):
-	debug=0
-	debug-runtime=0
-	profile=0
-	packetize=0 (enable packetization)
-	openmp=0 (enable openmp multi threading)
-	threads=0 (set number of threads to use if openmp is enabled (default: 4))
-	split=0  (disable mem access optimizations)
-	dynamic=0 (build dynamic driver library instead of static)
+		-> requires root access!
+	- set $AMDAPPSDKROOT and $AMDAPPSDKSAMPLESROOT environment variables to stream sdk root dir
+	- building the SDK is not required (only need the libraries)
+- install Intel OpenCL SDK
+	- TODO: more information
+- run scons
+	- options (default shown):
+		debug         = 0
+		debug-runtime = 0
+		profile       = 0
+		packetize     = 0 (enable packetization)
+		openmp        = 0 (enable openmp multi threading)
+		threads       = 0 (set number of threads to use if openmp is enabled (default: 4))
+		split         = 0 (disable mem access optimizations)
+		static        = 0 (build static driver library instead of dynamic)
 
 additional step for windows installation:
 
@@ -41,14 +43,15 @@ installing the driver for use with OpenCL ICD:
 ( consider htpp://www.khronos.org/registry/cl/extensions/khr/cl_khr_icd.txt )
 
 - Windows:
-	- add DWORD value to HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\OpenCL\Vendors with name "packetizedOpenCL.dll"
-	- make sure ./lib is in your $PATH
+	1) add DWORD value to HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\OpenCL\Vendors with name "PacketizedOpenCL.dll"
+	2a) make sure ./lib is in your $PATH
 	OR
-	- copy lib/packetizedOpenCL.dll to %WINDOWS%\system32
+	2b) copy lib/packetizedOpenCL.dll to %WINDOWS%\system32
 
 - Linux:
-	- copy lib/packetizedOpenCL.icd to /etc/OpenCL/vendors/
-	- make sure ./lib is in your $PATH ($LD_LIBRARY_PATH?)
+	1) copy lib/packetizedOpenCL.icd to /etc/OpenCL/vendors/
+	2) make sure ./lib/x86_64 is in your $LD_LIBRARY_PATH
+	3) make sure ./lib is in your $PATH (?)
 
 
 running samples:
@@ -61,7 +64,22 @@ running samples:
 - switch between PacketizedOpenCL/AMD/Intel by running the executables in the "proprietary" folder with flag "-p X", where X is the number of the appropriate platform
 
 
+TROUBLESHOOTING:
 
-TODO:
+Linux 64bit
+----------------------------------------------------------------------
+error while loading shared libraries: libOpenCL.so.1: cannot open shared object file: No such file or directory
+----------------------------------------------------------------------
+You are missing ./lib/x86_64 (x86 for 32bit) from your LD_LIBRARY_PATH.
 
-- is using __declspec(dllexport) the right thing to do? (had to modify OpenCL includes in order to compile...)
+Linux 64bit
+----------------------------------------------------------------------
+Error: clGetPlatformIDs failed. Error code : CL_PLATFORM_NOT_FOUND_KHR
+validatePlatfromAndDeviceOptions failed.
+----------------------------------------------------------------------
+a) The OpenCL ICD list does not point to the correct AMD APP SDK lib (libamdocl64.so)
+b) You are missing the path to the AMD APP SDK libs (libamdocl64.so) from your LD_LIBRARY_PATH (should be $AMDAPPSDKROOT/lib/x86_64).
+This can happen e.g. if you have the ICD of an older SDK installed and the library was renamed.
+The error is likely only to appear if you only have that one platform - in cases with other valid platforms, it will be silently ignored
+
+

@@ -1,11 +1,11 @@
 import os
 
-# MODIFY THIS ACCORDING TO YOUR SYSTEM
-LLVM_INSTALL_DIR = '/local/karrenberg/proj/llvm'
-PACKETIZER_INSTALL_DIR = '/local/karrenberg/proj/packetizer/'
-
 # simply clone entire environment
 env = Environment(ENV = os.environ)
+
+# These two variables have to be set in the environment
+LLVM_INSTALL_DIR = env['ENV']['LLVM_INSTALL_DIR']
+PACKETIZER_INSTALL_DIR = env['ENV']['PACKETIZER_INSTALL_DIR']
 
 # build variables
 debug             = ARGUMENTS.get('debug', 0)             # enable debug information
@@ -65,7 +65,7 @@ if isWin:
 	" -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -lLLVMObject -lLLVMMCJIT -lLLVMMCDisassembler -lLLVMLinker -lLLVMipo -lLLVMInterpreter -lLLVMInstrumentation -lLLVMJIT -lLLVMExecutionEngine -lLLVMBitWriter -lLLVMX86Disassembler -lLLVMX86AsmParser -lLLVMX86CodeGen -lLLVMX86AsmPrinter -lLLVMX86Utils -lLLVMX86Info -lLLVMAsmParser -lLLVMArchive -lLLVMBitReader -lLLVMSelectionDAG -lLLVMAsmPrinter -lLLVMMCParser -lLLVMCodeGen -lLLVMScalarOpts -lLLVMInstCombine -lLLVMTransformUtils -lLLVMipa -lLLVMAnalysis -lLLVMTarget -lLLVMCore -lLLVMMC -lLLVMSupport -lshell32 -ladvapi32"
 	])
 else:
-	llvm_vars = env.ParseFlags('!llvm-config --cflags --ldflags --libs')
+	llvm_vars = env.ParseFlags('!$LLVM_INSTALL_DIR/bin/llvm-config --cflags --ldflags --libs')
 
 
 # set up CXXFLAGS
@@ -293,10 +293,9 @@ else:
 if not isWin:
 	for a in testApps:
 		env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
-					["clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
-					"llvm-as -o ${TARGET.file}.bc ${TARGET.file}.ll",
+					["bin/x86_64/clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
+					LLVM_INSTALL_DIR+"/bin/llvm-as"+" -o ${TARGET.file}.bc ${TARGET.file}.ll",
 					Delete('${TARGET.file}.ll')])
-
 
 ###
 ### clean up
