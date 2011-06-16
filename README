@@ -66,6 +66,12 @@ running samples:
 
 TROUBLESHOOTING:
 
+Any System
+----------------------------------------------------------------------
+Packetized OpenCL Platform does not appear.
+----------------------------------------------------------------------
+Make sure the ICD is correctly registered and the path to the corresponding library is in your LD_LIBRARY_PATH (Unix) or PATH (Windows).
+
 Linux 64bit
 ----------------------------------------------------------------------
 error while loading shared libraries: libOpenCL.so.1: cannot open shared object file: No such file or directory
