@@ -52,6 +52,12 @@
 
 using namespace llvm;
 
+
+// forward declaration of initializer
+namespace llvm {
+	void initializeLivenessAnalyzerPass(PassRegistry&);
+}
+
 namespace {
 	class LivenessAnalyzer : public FunctionPass {
     public:
@@ -457,7 +463,9 @@ namespace {
 }
 
 char LivenessAnalyzer::ID = 0;
-static RegisterPass<LivenessAnalyzer> LA("liveness-analysis", "Liveness Analysis");
+INITIALIZE_PASS_BEGIN(LivenessAnalyzer, "liveness-analysis", "Liveness Analysis", false, false);
+INITIALIZE_PASS_DEPENDENCY(LoopInfo)
+INITIALIZE_PASS_END(LivenessAnalyzer, "liveness-analysis", "Liveness Analysis", false, false);
 
 // Public interface to the LivenessAnalysis pass
 namespace llvm {

@@ -57,6 +57,13 @@
 
 using namespace llvm;
 
+
+// forward declaration of initializer
+namespace llvm {
+	void initializeCallSiteBlockSplitterPass(PassRegistry&);
+}
+
+
 namespace {
 
 class CallSiteBlockSplitter : public FunctionPass {
@@ -161,8 +168,9 @@ private:
 } // namespace
 
 char CallSiteBlockSplitter::ID = 0;
-//INITIALIZE_PASS(CallSiteBlockSplitter, "callsite-block-splitting", "CallSite Block Splitting", false, false); // "initializeCallSiteBlockSplitterPass is no element of llvm"
-static RegisterPass<CallSiteBlockSplitter> CSBS("callsite-block-splitting", "CallSite Block Splitting");
+INITIALIZE_PASS_BEGIN(CallSiteBlockSplitter, "callsite-block-splitting", "CallSite Block Splitting", false, false);
+//INITIALIZE_PASS_DEPENDENCY() // has no dependency :p
+INITIALIZE_PASS_END(CallSiteBlockSplitter, "callsite-block-splitting", "CallSite Block Splitting", false, false);
 
 // Public interface to the CallSiteBlockSplitter pass
 namespace llvm {

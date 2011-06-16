@@ -62,6 +62,13 @@
 
 using namespace llvm;
 
+
+// forward declaration of initializer
+namespace llvm {
+	void initializeContinuationGeneratorPass(PassRegistry&);
+}
+
+
 namespace {
 
 void printValueMap(ValueMap<const Value*, Value*>& valueMap, raw_ostream& o) {
@@ -2100,7 +2107,12 @@ private:
 } // namespace
 
 char ContinuationGenerator::ID = 0;
-static RegisterPass<ContinuationGenerator> CG("continuation-generation", "Continuation Generation");
+INITIALIZE_PASS_BEGIN(ContinuationGenerator, "continuation-generation", "Continuation Generation", false, false);
+INITIALIZE_PASS_DEPENDENCY(CallSiteBlockSplitter)
+INITIALIZE_PASS_DEPENDENCY(LoopInfo)
+INITIALIZE_PASS_DEPENDENCY(LivenessAnalyzer)
+INITIALIZE_PASS_END(ContinuationGenerator, "continuation-generation", "Continuation Generation", false, false);
+
 
 // Public interface to the ContinuationGeneration pass
 namespace llvm {
