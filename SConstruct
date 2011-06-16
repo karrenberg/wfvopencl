@@ -201,8 +201,10 @@ env.Depends(SDKUtil, PacketizedOpenCL)
 ###
 
 testApps = env.Split("""
+DCT
 BlackScholesSimple
 FastWalshTransform
+NBodySimple
 """)
 
 #testApps = env.Split("""

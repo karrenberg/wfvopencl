@@ -1558,7 +1558,7 @@ namespace PacketizedOpenCL {
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-		//PacketizedOpenCL::optimizeFunction(f_wrapper);
+		PacketizedOpenCL::optimizeFunction(f_wrapper, true); // disable LICM. TODO: why does it crash? LICM is important!!!
 		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_final.ll"); );
@@ -1835,7 +1835,7 @@ namespace PacketizedOpenCL {
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-		//PacketizedOpenCL::optimizeFunction(f_wrapper);
+		PacketizedOpenCL::optimizeFunction(f_wrapper);
 		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
@@ -3971,7 +3971,7 @@ clCreateKernel(cl_program      program,
 
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
 	PacketizedOpenCL::inlineFunctionCalls(f, program->targetData);
-	//PacketizedOpenCL::optimizeFunction(f);
+	PacketizedOpenCL::optimizeFunction(f); // this is essential, we have to get rid of allocas etc.
 
 	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f, "debug_kernel_orig.ll"); );
 	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_orig.mod.ll"); );

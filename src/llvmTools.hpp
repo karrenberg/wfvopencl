@@ -1478,9 +1478,9 @@ namespace PacketizedOpenCL {
 		//PACKETIZED_OPENCL_DEBUG( tg.print(outs()); );
 	}
 #else
-	/// adopted from: llvm-2.7/tools/opt
-	// breaks packetized OpenCL Mandelbrot/Histogram and packetized Mandelbrot shader :p
-	void optimizeFunction(Function* f) {
+
+	/// adopted from: llvm-2.9/include/llvm/Support/StandardPasses.h
+	void optimizeFunction(Function* f, const bool disableLICM=false) {
 		assert (f);
 		assert (f->getParent());
 		Module* mod = f->getParent();
@@ -1491,17 +1491,17 @@ namespace PacketizedOpenCL {
 		const bool UnitAtATime = true;
 		const bool UnrollLoops = true;
 		const bool SimplifyLibCalls = true;
-		const bool HaveExceptions = true;
-		Pass* InliningPass = createFunctionInliningPass(250);
+		const bool HaveExceptions = false;
+		Pass* InliningPass = createFunctionInliningPass(275);
 
 		//PassManager Passes;
 		FunctionPassManager Passes(mod);
 		Passes.add(targetData);
-
+		
 		//
 		// custom
 		//
-		Passes.add(createScalarReplAggregatesPass(2048)); // Break up allocas, override default threshold of maximum struct size of 128 bytes
+		Passes.add(createScalarReplAggregatesPass(-1, false));
 
 		//
 		// createStandardFunctionPasses
@@ -1510,13 +1510,20 @@ namespace PacketizedOpenCL {
 		Passes.add(createPromoteMemoryToRegisterPass());
 		Passes.add(createInstructionCombiningPass());
 
-		// Start of function pass.
+		// Add TypeBasedAliasAnalysis before BasicAliasAnalysis so that
+		// BasicAliasAnalysis wins if they disagree. This is intended to help
+		// support "obvious" type-punning idioms.
+		Passes.add(createTypeBasedAliasAnalysisPass());
+		Passes.add(createBasicAliasAnalysisPass());
 
-		Passes.add(createScalarReplAggregatesPass(2048));  // Break up aggregate allocas
+		// Start of function pass.
+		// Break up aggregate allocas, using SSAUpdater.
+		Passes.add(createScalarReplAggregatesPass(-1, false));
+		Passes.add(createEarlyCSEPass());              // Catch trivial redundancies
 		if (SimplifyLibCalls)
 			Passes.add(createSimplifyLibCallsPass());    // Library Call Optimizations
-		Passes.add(createInstructionCombiningPass());  // Cleanup for scalarrepl.
 		Passes.add(createJumpThreadingPass());         // Thread jumps.
+		Passes.add(createCorrelatedValuePropagationPass()); // Propagate conditionals
 		Passes.add(createCFGSimplificationPass());     // Merge & remove BBs
 		Passes.add(createInstructionCombiningPass());  // Combine silly seq's
 
@@ -1524,10 +1531,11 @@ namespace PacketizedOpenCL {
 		Passes.add(createCFGSimplificationPass());     // Merge & remove BBs
 		Passes.add(createReassociatePass());           // Reassociate expressions
 		Passes.add(createLoopRotatePass());            // Rotate Loop
-		Passes.add(createLICMPass());                  // Hoist loop invariants
+		if (!disableLICM) Passes.add(createLICMPass());                  // Hoist loop invariants
 		Passes.add(createLoopUnswitchPass(OptimizeSize || OptimizationLevel < 3));
 		Passes.add(createInstructionCombiningPass());
 		Passes.add(createIndVarSimplifyPass());        // Canonicalize indvars
+		Passes.add(createLoopIdiomPass());             // Recognize idioms like memset.
 		Passes.add(createLoopDeletionPass());          // Delete dead loops
 		if (UnrollLoops)
 			Passes.add(createLoopUnrollPass());          // Unroll small loops
@@ -1541,15 +1549,20 @@ namespace PacketizedOpenCL {
 		// opened up by them.
 		Passes.add(createInstructionCombiningPass());
 		Passes.add(createJumpThreadingPass());         // Thread jumps
+		Passes.add(createCorrelatedValuePropagationPass());
 		Passes.add(createDeadStoreEliminationPass());  // Delete dead stores
 		Passes.add(createAggressiveDCEPass());         // Delete dead instructions
 		Passes.add(createCFGSimplificationPass());     // Merge & remove BBs
 
 		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
+		
+		//writeModuleToFile(mod, "BEFORE.ll");
 
 		Passes.doInitialization();
 		Passes.run(*f);
 		Passes.doFinalization();
+
+		//writeModuleToFile(mod, "AFTER.ll");
 	}
 #endif
 
