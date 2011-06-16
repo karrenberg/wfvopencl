@@ -1,4 +1,4 @@
-required software:
+REQUIRED SOFTWARE:
 
 - scons
 - libglew1.5-dev
@@ -10,7 +10,10 @@ required software:
 - Intel OpenCL Beta
 - clc tool from former ATI Stream SDK (included in folder 'bin')
 
-installation:
+
+INSTALLATION:
+
+IMPORTANT: .bc files can not be generated under windows (clc only works on UNIX)
 
 - build llvm
 - build packetizer
@@ -19,10 +22,18 @@ installation:
 	- Linux: place ICD registration config files in /etc/OpenCL/vendors
 		- should be attempted automatically by installer
 		-> requires root access!
-	- set $AMDAPPSDKROOT and $AMDAPPSDKSAMPLESROOT environment variables to stream sdk root dir
+	- set $AMDAPPSDKROOT to sdk root dir if not done by installer
+	- $PATH has to include path to libamdocl64.so / amdocl64.dll (libamdocl.so/amdocl.dll for 32bit)
+		- should be $AMDAPPSDKROOT/lib/x86_64/ (x86 for 32bit) or Windows\System32
 	- building the SDK is not required (only need the libraries)
 - install Intel OpenCL SDK
-	- TODO: more information
+	- Linux: place ICD registration config files in /etc/OpenCL/vendors
+		- should be attempted automatically by installer
+		-> requires root access!
+	- set $INTELOCLSDKROOT to sdk root dir if not done by installer
+	- $PATH has to include path to libintelocl.so / intelocl.dll
+		- should be $INTELOCLSDKROOT/lib/x64/ (x86 for 32bit)
+	- building the SDK is not required (only need the libraries)
 - run scons
 	- options (default shown):
 		debug         = 0
@@ -34,12 +45,13 @@ installation:
 		split         = 0 (disable mem access optimizations)
 		static        = 0 (build static driver library instead of dynamic)
 
+
 additional step for windows installation:
 
 - copy glut32.dll and glew32.dll from lib to Windows/system32
 
 
-installing the driver for use with OpenCL ICD:
+Installing the OpenCL Installable Client Driver (ICD):
 ( consider htpp://www.khronos.org/registry/cl/extensions/khr/cl_khr_icd.txt )
 
 - Windows:
@@ -54,11 +66,11 @@ installing the driver for use with OpenCL ICD:
 	3) make sure ./lib is in your $PATH (?)
 
 
-running samples:
+RUNNING SAMPLES:
 
 - in order to successfully run samples using PacketizedOpenCL, make sure ./lib and ./lib/x86_64 (x86 for 32bit) are in your $PATH ($LD_LIBRARY_PATH on unix), otherwise the OpenCL ICD will not find the driver and list it as an available platform
 
-- in order to successfully run samples using AMD OpenCL, make sure as.exe and ld.exe from $AMDAPPSDKROOT/bin are used (e.g. MinGW puts its own bin-directories in front of the PATH variable)
+- in order to successfully run samples using AMD OpenCL, make sure as.exe and ld.exe from $AMDAPPSDKROOT/bin/x86_64 are used (e.g. MinGW puts its own bin-directories in front of the PATH variable)
 - also make sure $AMDAPPSDKROOT is always quoted (directories with spaces)
 
 - switch between PacketizedOpenCL/AMD/Intel by running the executables in the "proprietary" folder with flag "-p X", where X is the number of the appropriate platform
