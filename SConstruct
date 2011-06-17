@@ -152,9 +152,14 @@ driverLibs = llvm_vars.get('LIBS') + env.Split('Packetizer')
 if isWin:
 	# get glut from http://www.idfun.de/glut64/
 	if int(compile_static_lib_driver):
-		appLibs = env.Split('PacketizedOpenCL SDKUtil glut32 glew32')
+		appLibs = env.Split('PacketizedOpenCL SDKUtil glut32')
 	else:
-		appLibs = env.Split('OpenCL SDKUtil glut32 glew32')
+		appLibs = env.Split('OpenCL SDKUtil glut32')
+	if is32Bit:
+		appLibs+=env.Split('glew32s')
+		env.Append(CXXFLAGS = '-DGLEW_STATIC')
+	else:
+		appLibs+=env.Split('glew32')
 else:
 	if int(compile_static_lib_driver):
 		appLibs = env.Split('PacketizedOpenCL SDKUtil glut GLEW')
