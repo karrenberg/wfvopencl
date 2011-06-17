@@ -71,7 +71,7 @@
 
 #define PACKETIZED_OPENCL_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
 #define PACKETIZED_OPENCL_ICD_SUFFIX "pkt"
-#define PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128"
+#define PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32:64"
 #define PACKETIZED_OPENCL_ADDRESS_BITS 32
 #define PACKETIZED_OPENCL_MAX_WORK_GROUP_SIZE 100000//8192
 #define PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS 3
@@ -450,6 +450,7 @@ namespace PacketizedOpenCL {
 		return NULL;
 	}
 
+	// TODO: make sure all functions have appropriate attributes (nounwind, readonly/readnone, ...)
 	inline void fixFunctionNames(Module* mod) {
 		assert (mod);
 		// fix __sqrt_f32
@@ -467,6 +468,7 @@ namespace PacketizedOpenCL {
 		// fix __exp_f32
 		if (PacketizedOpenCL::getFunction("__exp_f32", mod)) {
 
+#if 1
 			// create llvm.exp.f32 intrinsic
 			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
@@ -475,6 +477,14 @@ namespace PacketizedOpenCL {
 			assert (PacketizedOpenCL::getFunction("llvm.exp.f32", mod));
 
 			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__exp_f32", mod), PacketizedOpenCL::getFunction("llvm.exp.f32", mod));
+#else
+			// TODO: This requires llvm/Intrinsics.h to be included in this file.
+			//       Do we really want to capsulate all LLVM stuff into llvmTools.hpp ???
+			const Type** types = new const Type*[1]();
+			types[0] = Type::getFloatTy(getGlobalContext());
+			Function* exp = Intrinsic::getDeclaration(mod, Intrinsic::exp, types, 1);
+			mod->getFunction("__exp_f32")->replaceAllUsesWith(exp);
+#endif
 		}
 		// fix __log_f32
 		if (PacketizedOpenCL::getFunction("__log_f32", mod)) {
@@ -1558,7 +1568,18 @@ namespace PacketizedOpenCL {
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-		PacketizedOpenCL::optimizeFunction(f_wrapper, true); // disable LICM. TODO: why does it crash? LICM is important!!!
+		PacketizedOpenCL::optimizeFunction(f_wrapper, true); // disable LICM.
+#if 0
+		// TODO: why does the driver crash (later) if LICM was used? It is important for performance :(
+		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "ASDF.ll"); );
+		outs() << *f_wrapper << "\nNow running LICM...\n";
+		FunctionPassManager Passes(f_wrapper->getParent());
+		Passes.add(targetData);
+		Passes.add(createLICMPass());                  // Hoist loop invariants
+		Passes.doInitialization();
+		Passes.run(*f_wrapper);
+		Passes.doFinalization();
+#endif
 		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_final.ll"); );
@@ -2805,7 +2826,6 @@ public:
 		size_t gap_bytes = argument_struct_size % max_elem_size;
 		if (gap_bytes != 0) argument_struct_size += max_elem_size - gap_bytes;
 
-
 		// allocate memory for argument_struct
 		// TODO: do we have to care about type padding?
 		argument_struct = malloc(argument_struct_size);
@@ -3896,7 +3916,17 @@ clBuildProgram(cl_program           program,
 	// TODO: do this here or only after packetization?
 	mod->setDataLayout(PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64);
 	// we have to reset the target triple (LLVM does not know amd-opencl)
-	mod->setTargetTriple("");
+	//mod->setTargetTriple("");
+#if defined _WIN32
+	mod->setTargetTriple("x86_64-pc-win32");
+#elif defined __APPLE__
+	assert (false && "NOT IMPLEMENTED: insert correct target triple for mac");
+	mod->setTargetTriple("TODO");
+#elif defined __linux
+	mod->setTargetTriple("x86_64-unknown-linux-gnu");
+#else
+#	error "unknown platform found, can not assign correct target triple!");
+#endif
 	program->targetData = new TargetData(mod);
 
 	program->module = mod;

@@ -189,7 +189,6 @@ else:
 
 sdkSrc = env.Glob('test/SDKUtil/*.cpp')
 SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
-env.Depends(SDKUtil, PacketizedOpenCL)
 
 
 ###

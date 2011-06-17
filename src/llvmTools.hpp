@@ -1555,14 +1555,10 @@ namespace PacketizedOpenCL {
 		Passes.add(createCFGSimplificationPass());     // Merge & remove BBs
 
 		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
-		
-		//writeModuleToFile(mod, "BEFORE.ll");
 
 		Passes.doInitialization();
 		Passes.run(*f);
 		Passes.doFinalization();
-
-		//writeModuleToFile(mod, "AFTER.ll");
 	}
 #endif
 
