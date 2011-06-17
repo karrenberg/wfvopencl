@@ -828,34 +828,34 @@ Mandelbrot::setupCL(void)
                                             &status);
     }
     else
-    {
-	// special case for packetized OpenCL (can not yet compile .cl directly)
-	char vName[100];
-	status = clGetPlatformInfo(platform,
-			CL_PLATFORM_VENDOR,
-			sizeof(vName),
-			vName,
-			NULL);
-	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
-
-	kernelPath.append("Mandelbrot_Kernels.cl");
-	if(!kernelFile.open(kernelPath.c_str()))
 	{
-		std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
-		return SDK_FAILURE;
+		// special case for packetized OpenCL (can not yet compile .cl directly)
+		char vName[100];
+		status = clGetPlatformInfo(platform,
+				CL_PLATFORM_VENDOR,
+				sizeof(vName),
+				vName,
+				NULL);
+		const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+
+		kernelPath.append("Mandelbrot_Kernels.cl");
+		if(!kernelFile.open(kernelPath.c_str()))
+		{
+			std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+			return SDK_FAILURE;
+		}
+
+		const char * source = platformIsPacketizedOpenCL ?
+			"Mandelbrot_Kernels.bc" :
+			kernelFile.source().c_str();
+
+		size_t sourceSize[] = { strlen(source) };
+		program = clCreateProgramWithSource(context,
+				1,
+				&source,
+				sourceSize,
+				&status);
 	}
-
-	const char * source = platformIsPacketizedOpenCL ?
-		"Mandelbrot_Kernels.bc" :
-		kernelFile.source().c_str();
-
-        size_t sourceSize[] = { strlen(source) };
-        program = clCreateProgramWithSource(context,
-                                            1,
-                                            &source,
-                                            sourceSize,
-                                            &status);
-    }
     if(!sampleCommon->checkVal(
             status,
             CL_SUCCESS,

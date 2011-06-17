@@ -195,46 +195,45 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ### build test applications
 ###
 
-testApps = env.Split("""
-DCT
-DotProduct
-BlackScholesSimple
-FastWalshTransform
-NBodySimple
-""")
-
 #testApps = env.Split("""
-#BinarySearch
-#BinomialOption
-#BitonicSort
-#BlackScholes
-#BlackScholesSimple
 #DCT
-#DwtHaar1D
-#EigenValue
-#FFT
+#BlackScholesSimple
 #FastWalshTransform
-#FloydWarshall
-#Histogram
-#Mandelbrot
-#MatrixMulImage
-#MatrixMultiplication
-#MatrixTranspose
-#MersenneTwister
-#MonteCarloAsian
-#NBody
 #NBodySimple
-#PrefixSum
-#QuasiRandomSequence
-#RadixSort
-#RecursiveGaussian
-#Reduction
-#ScanLargeArrays
-#SimpleConvolution
-#SobelFilter
-#URNG
-#URNGNoiseGL
 #""")
+
+testApps = env.Split("""
+BinarySearch
+BinomialOption
+BitonicSort
+BlackScholes
+BlackScholesSimple
+DCT
+DwtHaar1D
+EigenValue
+FFT
+FastWalshTransform
+FloydWarshall
+Histogram
+Mandelbrot
+MandelbrotSimple
+MatrixMulImage
+MatrixMultiplication
+MatrixTranspose
+MersenneTwister
+MonteCarloAsian
+NBody
+NBodySimple
+PrefixSum
+QuasiRandomSequence
+RadixSort
+RecursiveGaussian
+Reduction
+ScanLargeArrays
+SimpleConvolution
+SobelFilter
+URNG
+""")
 
 # These use AMD specific extensions not available in our clc (TODO: do we use clc from 2.3 already?)
 #testApps = env.Split("""
@@ -242,6 +241,7 @@ NBodySimple
 #FluidSimulation2D
 #HistogramAtomics
 #LUDecomposition
+#URNGNoiseGL #uses opencl1.1 gl stuff
 #""")
 
 # Currently disabled (have to be adjusted to latest SDK)
@@ -269,6 +269,7 @@ if int(compile_static_lib_driver):
 else:
 	for a in testApps:
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
+		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
 		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
 		#if isDarwin:
 			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenCL'])
