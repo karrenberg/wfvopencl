@@ -81,26 +81,22 @@ if isWin:
 else:
 	cxxflags += env.Split("-Wall -pedantic -Wno-long-long -msse3")
 
-if int(debug):
-	if isWin:
-		cxxflags=cxxflags+env.Split("/Od /Zi")
-	else:
-		cxxflags=cxxflags+env.Split("-O0 -g")
-
-if int(debug):
-	cxxflags=cxxflags+env.Split("-DDEBUG -D_DEBUG")
-else:
-	cxxflags=cxxflags+env.Split("-DNDEBUG")
-
 if int(debug_runtime):
 	cxxflags=cxxflags+env.Split("-DDEBUG_RUNTIME")
 
-if not int(debug):
+if int(debug):
+	cxxflags=cxxflags+env.Split("-DDEBUG -D_DEBUG")
+	if isWin:
+		cxxflags=cxxflags+env.Split("/Od /Zi")
+		env.Append(LINKFLAGS = env.Split("/DEBUG")) # link.exe might not like this if compiling a static lib
+	else:
+		cxxflags=cxxflags+env.Split("-O0 -g")
+else:
 	if isWin:
 		cxxflags=cxxflags+env.Split("/Ox /Ob2 /Oi /GL")
 		env.Append(LINKFLAGS = env.Split("/LTCG"))
 	else:
-		cxxflags=cxxflags+env.Split("-O3")
+		cxxflags=cxxflags+env.Split("-O3 -DNDEBUG")
 
 if int(profile):
 	if isWin:
@@ -202,6 +198,7 @@ env.Depends(SDKUtil, PacketizedOpenCL)
 
 testApps = env.Split("""
 DCT
+DotProduct
 BlackScholesSimple
 FastWalshTransform
 NBodySimple
