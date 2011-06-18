@@ -75,14 +75,17 @@ blackScholes(const __global float *randArray,
              __global float *call,
              __global float *put)
 {
+#if 1
     float d1, d2;
     float phiD1, phiD2;
     float sigmaSqrtT;
     float KexpMinusRT;
     
     size_t xPos = get_global_id(0);
+    size_t yPos = get_global_id(1);
     float two = (float)2.0f;
-    float inRand = randArray[xPos];
+    //float inRand = randArray[xPos];
+    float inRand = randArray[yPos * width + xPos];
     float S = S_LOWER_LIMIT * inRand + S_UPPER_LIMIT * (1.0f - inRand);
     float K = K_LOWER_LIMIT * inRand + K_UPPER_LIMIT * (1.0f - inRand);
     float T = T_LOWER_LIMIT * inRand + T_UPPER_LIMIT * (1.0f - inRand);
@@ -97,8 +100,14 @@ blackScholes(const __global float *randArray,
 
     KexpMinusRT = K * exp(-R * T);
     phi(d1, &phiD1), phi(d2, &phiD2);
-    call[xPos] = S * phiD1 - KexpMinusRT * phiD2;
+    //call[xPos] = S * phiD1 - KexpMinusRT * phiD2;
+    call[yPos * width + xPos] = S * phiD1 - KexpMinusRT * phiD2;
     phi(-d1, &phiD1), phi(-d2, &phiD2);
-    put[xPos]  = KexpMinusRT * phiD2 - S * phiD1;
+    //put[xPos]  = KexpMinusRT * phiD2 - S * phiD1;
+    put[yPos * width + xPos]  = KexpMinusRT * phiD2 - S * phiD1;
+#else
+    size_t xPos = get_global_id(0);
+	put[xPos] = randArray[xPos];
+#endif
 }
 
