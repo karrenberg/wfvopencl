@@ -103,7 +103,7 @@ jurisdiction and venue of these courts.
 #include <SDKFile.hpp>
 
 
-#define GROUP_SIZE 256
+#define GROUP_SIZE 2048
 /**
  * BlackScholesSimple 
  * Class implements Black-Scholes implementation for European Options
@@ -147,7 +147,7 @@ public:
      */
     BlackScholesSimple(std::string name)
         : SDKSample(name),
-        samples(256 * 256 * 4),
+        samples(GROUP_SIZE * GROUP_SIZE * 4),
         blockSizeX(1),
         blockSizeY(1),
         setupTime(0),
@@ -172,7 +172,7 @@ public:
      */
     BlackScholesSimple(const char* name)
         : SDKSample(name),
-        samples(256 * 256 * 4),
+        samples(GROUP_SIZE * GROUP_SIZE * 4),
         blockSizeX(1),
         blockSizeY(1),
         setupTime(0),
