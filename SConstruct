@@ -226,6 +226,7 @@ MatrixMulImage
 MatrixMultiplication
 MatrixTranspose
 MersenneTwister
+MersenneTwisterSimple
 MonteCarloAsian
 NBody
 NBodySimple
