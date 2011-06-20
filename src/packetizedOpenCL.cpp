@@ -1856,7 +1856,7 @@ namespace PacketizedOpenCL {
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-		PacketizedOpenCL::optimizeFunction(f_wrapper);
+		PacketizedOpenCL::optimizeFunction(f_wrapper); // enable all optimizations
 		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
@@ -4001,7 +4001,14 @@ clCreateKernel(cl_program      program,
 
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
 	PacketizedOpenCL::inlineFunctionCalls(f, program->targetData);
-	PacketizedOpenCL::optimizeFunction(f); // this is essential, we have to get rid of allocas etc.
+	// Optimize
+	// This is essential, we have to get rid of allocas etc.
+	// Unfortunately, for packetization enabled, loop rotate has to be disabled (otherwise, Mandelbrot breaks).
+#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
+	PacketizedOpenCL::optimizeFunction(f); // enable all optimizations
+#else
+	PacketizedOpenCL::optimizeFunction(f, false, true); // enable LICM, disable loop rotate
+#endif
 
 	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f, "debug_kernel_orig.ll"); );
 	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_orig.mod.ll"); );

@@ -54,6 +54,9 @@ echo
 echo MersenneTwister
 build/bin/MersenneTwister -q -e "$@"
 echo
+echo MersenneTwisterSimple
+build/bin/MersenneTwisterSimple -q -e "$@"
+echo
 echo MonteCarloAsian
 build/bin/MonteCarloAsian -q -e "$@"
 echo

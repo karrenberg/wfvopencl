@@ -498,8 +498,11 @@ namespace PacketizedOpenCL {
 	// TODO: do we need separate checks for casts, phis, and selects as in functions below?
 	// NOTE: The optimization has to be performed BEFORE packetization and callback replacement,
 	//       so we still have calls instead of argument accesses!
-	bool isNonVaryingMultiplicationTerm(Value* value, const unsigned simdDim) {
+	bool isNonVaryingMultiplicationTerm(Value* value, const unsigned simdDim, std::set<Value*>& visitedValues) {
 		assert (value);
+
+		if (visitedValues.find(value) != visitedValues.end()) return true; // TODO: is this safe?
+		visitedValues.insert(value);
 
 		if (isa<Constant>(value)) return true;
 		if (isa<Argument>(value)) return false; // TODO: optimize for uniform arguments
@@ -526,7 +529,7 @@ namespace PacketizedOpenCL {
 		for (Instruction::op_iterator O=inst->op_begin(), OE=inst->op_end(); O!=OE; ++O) {
 			if (!isa<Value>(O)) continue;
 			Value* opVal = cast<Value>(O);
-			if (!isNonVaryingMultiplicationTerm(opVal, simdDim)) return false;
+			if (!isNonVaryingMultiplicationTerm(opVal, simdDim, visitedValues)) return false;
 		}
 
 		return true;
@@ -681,7 +684,8 @@ namespace PacketizedOpenCL {
 				// example: arr[local id + local size * 2] = 0+16*2 / 1+16*2 / 2+16*2 / 3+16*2 = 32 / 33 / 34 / 35 = consecutive
 				// example: arr[local id + local size * (2/3/4/5)] = 0+16*2 / 1+16*3 / 2+16*4 / 3+16*5 = 32 / 49 / 66 / 83 = non-consecutive
 
-				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp, simdDim);
+				std::set<Value*> visitedValues;
+				return hasLocalSizeMultiplicationTerm(binOp) && isNonVaryingMultiplicationTerm(binOp, simdDim, visitedValues);
 			}
 			default: {
 				PACKETIZED_OPENCL_DEBUG( outs() << "    found unknown operation in consective modification calculation!\n"; );
@@ -1480,7 +1484,7 @@ namespace PacketizedOpenCL {
 #else
 
 	/// adopted from: llvm-2.9/include/llvm/Support/StandardPasses.h
-	void optimizeFunction(Function* f, const bool disableLICM=false) {
+	void optimizeFunction(Function* f, const bool disableLICM=false, const bool disableLoopRotate=false) {
 		assert (f);
 		assert (f->getParent());
 		Module* mod = f->getParent();
@@ -1530,8 +1534,8 @@ namespace PacketizedOpenCL {
 		Passes.add(createTailCallEliminationPass());   // Eliminate tail calls
 		Passes.add(createCFGSimplificationPass());     // Merge & remove BBs
 		Passes.add(createReassociatePass());           // Reassociate expressions
-		Passes.add(createLoopRotatePass());            // Rotate Loop
-		if (!disableLICM) Passes.add(createLICMPass());                  // Hoist loop invariants
+		if (!disableLoopRotate) Passes.add(createLoopRotatePass());            // Rotate Loop // makes packetized Mandelbrot fail
+		if (!disableLICM) Passes.add(createLICMPass());                  // Hoist loop invariants // makes scalar driver crash after optimization
 		Passes.add(createLoopUnswitchPass(OptimizeSize || OptimizationLevel < 3));
 		Passes.add(createInstructionCombiningPass());
 		Passes.add(createIndVarSimplifyPass());        // Canonicalize indvars
