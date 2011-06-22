@@ -200,11 +200,12 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ### build test applications
 ###
 
+# Those work in all configurations, including packetizer:
 #testApps = env.Split("""
-#DCT
 #BlackScholesSimple
 #FastWalshTransform
-#NBodySimple
+#Histogram
+#MandelbrotSimple
 #""")
 
 testApps = env.Split("""
@@ -254,9 +255,6 @@ URNG
 #testApps = env.Split("""
 #AmbientOcclusionRenderer
 #BinomialOptionSimple
-#BlackScholesSimple
-#Mandelbrot
-#NBodySimple
 #TestSimple
 #TestBarrier
 #TestBarrier2
@@ -270,6 +268,7 @@ Execute(Mkdir('build/bin'))
 if int(compile_static_lib_driver):
 	for a in testApps:
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
+		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
 		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
 		env.Depends(App, SDKUtil)
 else:

@@ -21,7 +21,7 @@
  */
 __kernel
 void histogram256(__global const uint* data,
-                  __local uchar* sharedArray,
+                  __local uint* sharedArray, // CHANGED FROM 'uchar*' FOR PACKETIZATION! 
                   __global uint* binResult)
 {
     size_t localId = get_local_id(0);
