@@ -1,6 +1,6 @@
 REQUIRED SOFTWARE:
 
-- scons
+- scons (requires python)
 - libglew1.5-dev
 - glew-utils (?)
 - libglut3-dev (?)
@@ -9,6 +9,9 @@ REQUIRED SOFTWARE:
 - AMD APP SDK
 - Intel OpenCL Beta
 - clc tool from former ATI Stream SDK (included in folder 'bin')
+
+On Windows and Unix, glew/glut are possibly not required with the included libraries.
+On Mac OS X, glew has to be downloaded and built in order to get a working libGLEW.a.
 
 
 INSTALLATION:

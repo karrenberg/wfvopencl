@@ -95,8 +95,13 @@ jurisdiction and venue of these courts.
 #ifdef linux
 # define GL_GLEXT_PROTOTYPES
 #endif // !linux
-#include <GL/glew.h>
-#include <GL/glut.h>
+#ifdef __APPLE__
+#	include <GL/glew.h>
+#	include <GLUT/glut.h>
+#else
+#	include <GL/glew.h>
+#	include <GL/glut.h>
+#endif
 #include <cstdlib>
 #include <cstdio>
 

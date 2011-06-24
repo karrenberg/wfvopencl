@@ -91,9 +91,15 @@ jurisdiction and venue of these courts.
 
 
 #include "NBody.hpp"
-#include<GL/glut.h>
+#if defined __APPLE__
+#	include <GLUT/glut.h>
+#else
+#	include<GL/glut.h>
+#endif
 #include <cmath>
-#include<malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 int numBodies;      /**< No. of particles*/
 cl_float* pos;      /**< Output position */
@@ -135,6 +141,8 @@ NBody::setupNBody()
 
 #if defined (_WIN32)
     pos = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float4), 16);
+#elif defined (__APPLE__)
+    pos = (cl_float*)malloc(numBodies * sizeof(cl_float4));
 #else
     pos = (cl_float*)memalign(16, numBodies * sizeof(cl_float4));
 #endif
@@ -146,6 +154,8 @@ NBody::setupNBody()
 
 #if defined (_WIN32)
     vel = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float4), 16);
+#elif defined (__APPLE__)
+    vel = (cl_float*)malloc(numBodies * sizeof(cl_float4));
 #else
     vel = (cl_float*)memalign(16, numBodies * sizeof(cl_float4));
 #endif

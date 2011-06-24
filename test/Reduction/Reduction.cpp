@@ -91,7 +91,9 @@ jurisdiction and venue of these courts.
 
 
 #include "Reduction.hpp"
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 int
 Reduction::setupReduction()
@@ -105,6 +107,8 @@ Reduction::setupReduction()
 
 #if defined (_WIN32)
     input = (cl_uint*)_aligned_malloc(length * sizeof(cl_uint4), 16);
+#elif defined (__APPLE__)
+    input = (cl_uint*)malloc(length * sizeof(cl_uint4));
 #else
     input = (cl_uint*)memalign(16, length * sizeof(cl_uint4));
 #endif
@@ -595,6 +599,8 @@ Reduction::runCLKernels()
 
 #if defined (_WIN32)
     tempOut = (cl_uint*)_aligned_malloc(numBlocks * sizeof(cl_uint4), 16);
+#elif defined (__APPLE__)
+    tempOut = (cl_uint*)malloc(numBlocks * sizeof(cl_uint4));
 #else
     tempOut = (cl_uint*)memalign(16, numBlocks * sizeof(cl_uint4));
 #endif

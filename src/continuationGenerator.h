@@ -2107,11 +2107,11 @@ private:
 } // namespace
 
 char ContinuationGenerator::ID = 0;
-INITIALIZE_PASS_BEGIN(ContinuationGenerator, "continuation-generation", "Continuation Generation", false, false);
+INITIALIZE_PASS_BEGIN(ContinuationGenerator, "continuation-generation", "Continuation Generation", false, false)
 INITIALIZE_PASS_DEPENDENCY(CallSiteBlockSplitter)
 INITIALIZE_PASS_DEPENDENCY(LoopInfo)
 INITIALIZE_PASS_DEPENDENCY(LivenessAnalyzer)
-INITIALIZE_PASS_END(ContinuationGenerator, "continuation-generation", "Continuation Generation", false, false);
+INITIALIZE_PASS_END(ContinuationGenerator, "continuation-generation", "Continuation Generation", false, false)
 
 
 // Public interface to the ContinuationGeneration pass

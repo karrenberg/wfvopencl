@@ -71,7 +71,11 @@
 
 #define PACKETIZED_OPENCL_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
 #define PACKETIZED_OPENCL_ICD_SUFFIX "pkt"
-#define PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32:64"
+#ifdef __APPLE__
+#	define PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
+#else
+#	define PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32:64"
+#endif
 #define PACKETIZED_OPENCL_ADDRESS_BITS 32
 #define PACKETIZED_OPENCL_MAX_WORK_GROUP_SIZE 100000//8192
 #define PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS 3
@@ -3036,7 +3040,7 @@ struct _cl_event {
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetPlatformIDs(cl_uint          num_entries,
                  cl_platform_id * platforms,
-                 cl_uint *        num_platforms) CL_API_SUFFIX__VERSION_1_0
+                 cl_uint *        num_platforms)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetPlatformIDs!\n"; );
 	if (!platforms && !num_platforms) return CL_INVALID_VALUE;
@@ -3053,7 +3057,7 @@ clGetPlatformInfo(cl_platform_id   platform,
                   cl_platform_info param_name,
                   size_t           param_value_size,
                   void *           param_value,
-                  size_t *         param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                  size_t *         param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetPlatformInfo!\n"; );
 	PACKETIZED_OPENCL_DEBUG ( outs() << "  platform:             " << platform << "\n"; );
@@ -3119,7 +3123,7 @@ clGetDeviceIDs(cl_platform_id   platform,
                cl_device_type   device_type,
                cl_uint          num_entries,
                cl_device_id *   devices,
-               cl_uint *        num_devices) CL_API_SUFFIX__VERSION_1_0
+               cl_uint *        num_devices)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetDeviceIDs!\n"; );
 	if (device_type != CL_DEVICE_TYPE_CPU) {
@@ -3142,7 +3146,7 @@ clGetDeviceInfo(cl_device_id    device,
                 cl_device_info  param_name,
                 size_t          param_value_size,
                 void *          param_value,
-                size_t *        param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                size_t *        param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetDeviceInfo!\n"; );
 	if (!device) return CL_INVALID_DEVICE;
@@ -3442,7 +3446,7 @@ clCreateContext(const cl_context_properties * properties,
                 const cl_device_id *          devices,
                 void (CL_CALLBACK *           pfn_notify)(const char *, const void *, size_t, void *),
                 void *                        user_data,
-                cl_int *                      errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                cl_int *                      errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateContext!\n"; );
 	*errcode_ret = CL_SUCCESS;
@@ -3456,7 +3460,7 @@ clCreateContextFromType(const cl_context_properties * properties,
                         cl_device_type                device_type,
                         void (CL_CALLBACK *           pfn_notify)(const char *, const void *, size_t, void *),
                         void *                        user_data,
-                        cl_int *                      errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                        cl_int *                      errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateContextFromType!\n"; );
 	if (!pfn_notify && user_data) { *errcode_ret = CL_INVALID_VALUE; return NULL; }
@@ -3470,7 +3474,7 @@ clCreateContextFromType(const cl_context_properties * properties,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clRetainContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
+clRetainContext(cl_context context)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainContext!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3478,7 +3482,7 @@ clRetainContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
+clReleaseContext(cl_context context)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseContext!\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseContext()\n"; );
@@ -3491,7 +3495,7 @@ clGetContextInfo(cl_context         context,
                  cl_context_info    param_name,
                  size_t             param_value_size,
                  void *             param_value,
-                 size_t *           param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                 size_t *           param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetContextInfo!\n"; );
 	if (!context) return CL_INVALID_CONTEXT;
@@ -3537,7 +3541,7 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_command_queue CL_API_CALL
 clCreateCommandQueue(cl_context                     context,
                      cl_device_id                   device,
                      cl_command_queue_properties    properties,
-                     cl_int *                       errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                     cl_int *                       errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateCommandQueue!\n"; );
 	errcode_ret = CL_SUCCESS;
@@ -3548,7 +3552,7 @@ clCreateCommandQueue(cl_context                     context,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clRetainCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
+clRetainCommandQueue(cl_command_queue command_queue)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainCommandQueue!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3556,7 +3560,7 @@ clRetainCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clReleaseCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
+clReleaseCommandQueue(cl_command_queue command_queue)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseCommandQueue!\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseCommandQueue()\n"; );
@@ -3568,7 +3572,7 @@ clGetCommandQueueInfo(cl_command_queue      command_queue,
                       cl_command_queue_info param_name,
                       size_t                param_value_size,
                       void *                param_value,
-                      size_t *              param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                      size_t *              param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetCommandQueueInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3580,7 +3584,7 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetCommandQueueProperty(cl_command_queue              command_queue,
 			cl_command_queue_properties					properties, 
 			cl_bool										enable,
-			cl_command_queue_properties *				old_properties) CL_EXT_SUFFIX__VERSION_1_0_DEPRECATED
+			cl_command_queue_properties *				old_properties)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetCommandQueueProperty!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3604,7 +3608,7 @@ clCreateBuffer(cl_context   context,
                cl_mem_flags flags,
                size_t       size, //in bytes
                void *       host_ptr,
-               cl_int *     errcode_ret) CL_API_SUFFIX__VERSION_1_0
+               cl_int *     errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateBuffer!\n"; );
 	if (!context) { if (errcode_ret) *errcode_ret = CL_INVALID_CONTEXT; return NULL; }
@@ -3675,7 +3679,7 @@ clCreateSubBuffer(cl_mem                   buffer,
                   cl_mem_flags             flags,
                   cl_buffer_create_type    buffer_create_type,
                   const void *             buffer_create_info,
-                  cl_int *                 errcode_ret) CL_API_SUFFIX__VERSION_1_1
+                  cl_int *                 errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateSubBuffer!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3690,7 +3694,7 @@ clCreateImage2D(cl_context              context,
                 size_t                  image_height,
                 size_t                  image_row_pitch,
                 void *                  host_ptr,
-                cl_int *                errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                cl_int *                errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateImage2D!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3707,7 +3711,7 @@ clCreateImage3D(cl_context              context,
                 size_t                  image_row_pitch,
                 size_t                  image_slice_pitch,
                 void *                  host_ptr,
-                cl_int *                errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                cl_int *                errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateImage3D!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3715,7 +3719,7 @@ clCreateImage3D(cl_context              context,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clRetainMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
+clRetainMemObject(cl_mem memobj)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainMemObject!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3723,7 +3727,7 @@ clRetainMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clReleaseMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
+clReleaseMemObject(cl_mem memobj)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseMemObject!\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseMemObject()\n"; );
@@ -3736,7 +3740,7 @@ clGetSupportedImageFormats(cl_context           context,
                            cl_mem_object_type   image_type,
                            cl_uint              num_entries,
                            cl_image_format *    image_formats,
-                           cl_uint *            num_image_formats) CL_API_SUFFIX__VERSION_1_0
+                           cl_uint *            num_image_formats)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetSupportedImageFormats!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3748,7 +3752,7 @@ clGetMemObjectInfo(cl_mem           memobj,
                    cl_mem_info      param_name,
                    size_t           param_value_size,
                    void *           param_value,
-                   size_t *         param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                   size_t *         param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetMemObjectInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3760,7 +3764,7 @@ clGetImageInfo(cl_mem           image,
                cl_image_info    param_name,
                size_t           param_value_size,
                void *           param_value,
-               size_t *         param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+               size_t *         param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetImageInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3770,7 +3774,7 @@ clGetImageInfo(cl_mem           image,
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetMemObjectDestructorCallback(cl_mem memobj, 
 								 void (CL_CALLBACK * pfn_notify)( cl_mem /* memobj */, void* /*user_data*/), 
-								 void * user_data) CL_API_SUFFIX__VERSION_1_1
+								 void * user_data)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetMemObjectDestructorCallback!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3783,7 +3787,7 @@ clCreateSampler(cl_context          context,
                 cl_bool             normalized_coords,
                 cl_addressing_mode  addressing_mode,
                 cl_filter_mode      filter_mode,
-                cl_int *            errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                cl_int *            errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateSampler!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3791,7 +3795,7 @@ clCreateSampler(cl_context          context,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clRetainSampler(cl_sampler sampler) CL_API_SUFFIX__VERSION_1_0
+clRetainSampler(cl_sampler sampler)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainSampler!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3799,7 +3803,7 @@ clRetainSampler(cl_sampler sampler) CL_API_SUFFIX__VERSION_1_0
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clReleaseSampler(cl_sampler sampler) CL_API_SUFFIX__VERSION_1_0
+clReleaseSampler(cl_sampler sampler)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseSampler!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3811,7 +3815,7 @@ clGetSamplerInfo(cl_sampler         sampler,
                  cl_sampler_info    param_name,
                  size_t             param_value_size,
                  void *             param_value,
-                 size_t *           param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                 size_t *           param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetSamplerInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3831,7 +3835,7 @@ clCreateProgramWithSource(cl_context        context,
                           cl_uint           count,
                           const char **     strings,
                           const size_t *    lengths,
-                          cl_int *          errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                          cl_int *          errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateProgramWithSource!\n"; );
 	*errcode_ret = CL_SUCCESS;
@@ -3850,7 +3854,7 @@ clCreateProgramWithBinary(cl_context                     context,
                           const size_t *                 lengths,
                           const unsigned char **         binaries,
                           cl_int *                       binary_status,
-                          cl_int *                       errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                          cl_int *                       errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateProgramWithBinary!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3858,7 +3862,7 @@ clCreateProgramWithBinary(cl_context                     context,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clRetainProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
+clRetainProgram(cl_program program)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainProgram!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3866,7 +3870,7 @@ clRetainProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
+clReleaseProgram(cl_program program)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseProgram!\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseProgram()\n"; );
@@ -3897,7 +3901,7 @@ clBuildProgram(cl_program           program,
                const cl_device_id * device_list,
                const char *         options, 
                void (CL_CALLBACK *  pfn_notify)(cl_program /* program */, void * /* user_data */),
-               void *               user_data) CL_API_SUFFIX__VERSION_1_0
+               void *               user_data)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clBuildProgram!\n"; );
 	if (!program) return CL_INVALID_PROGRAM;
@@ -3920,8 +3924,7 @@ clBuildProgram(cl_program           program,
 #if defined _WIN32
 	mod->setTargetTriple("x86_64-pc-win32");
 #elif defined __APPLE__
-	assert (false && "NOT IMPLEMENTED: insert correct target triple for mac");
-	mod->setTargetTriple("TODO");
+	mod->setTargetTriple("x86_64-apple-darwin10.0.0");
 #elif defined __linux
 	mod->setTargetTriple("x86_64-unknown-linux-gnu");
 #else
@@ -3934,7 +3937,7 @@ clBuildProgram(cl_program           program,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clUnloadCompiler(void) CL_API_SUFFIX__VERSION_1_0
+clUnloadCompiler(void)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clUnloadCompiler!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3946,7 +3949,7 @@ clGetProgramInfo(cl_program         program,
                  cl_program_info    param_name,
                  size_t             param_value_size,
                  void *             param_value,
-                 size_t *           param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                 size_t *           param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetProgramInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3959,7 +3962,7 @@ clGetProgramBuildInfo(cl_program            program,
                       cl_program_build_info param_name,
                       size_t                param_value_size,
                       void *                param_value,
-                      size_t *              param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                      size_t *              param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetProgramBuildInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -3973,7 +3976,7 @@ clGetProgramBuildInfo(cl_program            program,
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_kernel CL_API_CALL
 clCreateKernel(cl_program      program,
                const char *    kernel_name,
-               cl_int *        errcode_ret) CL_API_SUFFIX__VERSION_1_0
+               cl_int *        errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateKernel!\n"; );
 	if (!program) { *errcode_ret = CL_INVALID_PROGRAM; return NULL; }
@@ -4058,7 +4061,7 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clCreateKernelsInProgram(cl_program     program,
                          cl_uint        num_kernels,
                          cl_kernel *    kernels,
-                         cl_uint *      num_kernels_ret) CL_API_SUFFIX__VERSION_1_0
+                         cl_uint *      num_kernels_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateKernelsInProgram!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4066,7 +4069,7 @@ clCreateKernelsInProgram(cl_program     program,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clRetainKernel(cl_kernel    kernel) CL_API_SUFFIX__VERSION_1_0
+clRetainKernel(cl_kernel    kernel)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainKernel!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4074,7 +4077,7 @@ clRetainKernel(cl_kernel    kernel) CL_API_SUFFIX__VERSION_1_0
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clReleaseKernel(cl_kernel   kernel) CL_API_SUFFIX__VERSION_1_0
+clReleaseKernel(cl_kernel   kernel)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseKernel!\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseKernel()\n"; );
@@ -4085,7 +4088,7 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetKernelArg(cl_kernel    kernel,
                cl_uint      arg_index,
                size_t       arg_size,
-               const void * arg_value) CL_API_SUFFIX__VERSION_1_0
+               const void * arg_value)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetKernelArg!\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "\nclSetKernelArg(" << kernel->function_wrapper->getNameStr() << ", " << arg_index << ", " << arg_size << ")\n"; );
@@ -4101,7 +4104,7 @@ clGetKernelInfo(cl_kernel       kernel,
                 cl_kernel_info  param_name,
                 size_t          param_value_size,
                 void *          param_value,
-                size_t *        param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                size_t *        param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetKernelInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4114,7 +4117,7 @@ clGetKernelWorkGroupInfo(cl_kernel                  kernel,
                          cl_kernel_work_group_info  param_name,
                          size_t                     param_value_size,
                          void *                     param_value,
-                         size_t *                   param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                         size_t *                   param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetKernelWorkGroupInfo!\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
@@ -4140,7 +4143,7 @@ clGetKernelWorkGroupInfo(cl_kernel                  kernel,
 /* Event Object APIs  */
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clWaitForEvents(cl_uint             num_events,
-                const cl_event *    event_list) CL_API_SUFFIX__VERSION_1_0
+                const cl_event *    event_list)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clWaitForEvents!\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clWaitForEvents()\n"; );
@@ -4152,7 +4155,7 @@ clGetEventInfo(cl_event         event,
                cl_event_info    param_name,
                size_t           param_value_size,
                void *           param_value,
-               size_t *         param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+               size_t *         param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetEventInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4161,7 +4164,7 @@ clGetEventInfo(cl_event         event,
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_event CL_API_CALL
 clCreateUserEvent(cl_context    context,
-                  cl_int *      errcode_ret) CL_API_SUFFIX__VERSION_1_1
+                  cl_int *      errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateUserEvent!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4169,7 +4172,7 @@ clCreateUserEvent(cl_context    context,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clRetainEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
+clRetainEvent(cl_event event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainEvent!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4177,7 +4180,7 @@ clRetainEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
+clReleaseEvent(cl_event event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseEvent!\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseEvent()\n"; );
@@ -4186,7 +4189,7 @@ clReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetUserEventStatus(cl_event   event,
-                     cl_int     execution_status) CL_API_SUFFIX__VERSION_1_1
+                     cl_int     execution_status)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetUserEventStatus!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4197,7 +4200,7 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetEventCallback( cl_event    event,
                     cl_int      command_exec_callback_type,
                     void (CL_CALLBACK * pfn_notify)(cl_event, cl_int, void *),
-                    void *      user_data) CL_API_SUFFIX__VERSION_1_1
+                    void *      user_data)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetEventCallback!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4211,7 +4214,7 @@ clGetEventProfilingInfo(cl_event            event,
                         cl_profiling_info   param_name,
                         size_t              param_value_size,
                         void *              param_value,
-                        size_t *            param_value_size_ret) CL_API_SUFFIX__VERSION_1_0
+                        size_t *            param_value_size_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetEventProfilingInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4220,7 +4223,7 @@ clGetEventProfilingInfo(cl_event            event,
 
 /* Flush and Finish APIs */
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clFlush(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
+clFlush(cl_command_queue command_queue)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clFlush!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4228,7 +4231,7 @@ clFlush(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clFinish(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
+clFinish(cl_command_queue command_queue)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clFinish!\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
@@ -4246,7 +4249,7 @@ clEnqueueReadBuffer(cl_command_queue    command_queue,
                     void *              ptr,
                     cl_uint             num_events_in_wait_list,
                     const cl_event *    event_wait_list,
-                    cl_event *          event) CL_API_SUFFIX__VERSION_1_0
+                    cl_event *          event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadBuffer!\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
@@ -4291,7 +4294,7 @@ clEnqueueReadBufferRect(cl_command_queue    command_queue,
 						void *				ptr,
 						cl_uint             num_events_in_wait_list,
 						const cl_event *    event_wait_list,
-						cl_event *          event) CL_API_SUFFIX__VERSION_1_1
+						cl_event *          event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadBufferRec!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4307,7 +4310,7 @@ clEnqueueWriteBuffer(cl_command_queue   command_queue,
                      const void *       ptr,
                      cl_uint            num_events_in_wait_list,
                      const cl_event *   event_wait_list,
-                     cl_event *         event) CL_API_SUFFIX__VERSION_1_0
+                     cl_event *         event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteBuffer!\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
@@ -4349,7 +4352,7 @@ clEnqueueWriteBufferRect(cl_command_queue    command_queue,
                          const void *        ptr,
                          cl_uint             num_events_in_wait_list,
                          const cl_event *    event_wait_list,
-                         cl_event *          event) CL_API_SUFFIX__VERSION_1_1
+                         cl_event *          event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteBufferRec!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4366,7 +4369,7 @@ clEnqueueCopyBuffer(cl_command_queue    command_queue,
                     size_t              cb,
                     cl_uint             num_events_in_wait_list,
                     const cl_event *    event_wait_list,
-                    cl_event *          event) CL_API_SUFFIX__VERSION_1_0
+                    cl_event *          event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBuffer!\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
@@ -4414,7 +4417,7 @@ clEnqueueCopyBufferRect(cl_command_queue    command_queue,
                         size_t              dst_slice_pitch,
                         cl_uint             num_events_in_wait_list,
                         const cl_event *    event_wait_list,
-                        cl_event *          event) CL_API_SUFFIX__VERSION_1_1
+                        cl_event *          event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBufferRec!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4432,7 +4435,7 @@ clEnqueueReadImage(cl_command_queue     command_queue,
                    void *               ptr,
                    cl_uint              num_events_in_wait_list,
                    const cl_event *     event_wait_list,
-                   cl_event *           event) CL_API_SUFFIX__VERSION_1_0
+                   cl_event *           event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4450,7 +4453,7 @@ clEnqueueWriteImage(cl_command_queue    command_queue,
                     const void *        ptr,
                     cl_uint             num_events_in_wait_list,
                     const cl_event *    event_wait_list,
-                    cl_event *          event) CL_API_SUFFIX__VERSION_1_0
+                    cl_event *          event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4466,7 +4469,7 @@ clEnqueueCopyImage(cl_command_queue     command_queue,
                    const size_t         region[3],
                    cl_uint              num_events_in_wait_list,
                    const cl_event *     event_wait_list,
-                   cl_event *           event) CL_API_SUFFIX__VERSION_1_0
+                   cl_event *           event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4482,7 +4485,7 @@ clEnqueueCopyImageToBuffer(cl_command_queue command_queue,
                            size_t           dst_offset,
                            cl_uint          num_events_in_wait_list,
                            const cl_event * event_wait_list,
-                           cl_event *       event) CL_API_SUFFIX__VERSION_1_0
+                           cl_event *       event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImageToBuffer!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4498,7 +4501,7 @@ clEnqueueCopyBufferToImage(cl_command_queue command_queue,
                            const size_t     region[3],
                            cl_uint          num_events_in_wait_list,
                            const cl_event * event_wait_list,
-                           cl_event *       event) CL_API_SUFFIX__VERSION_1_0
+                           cl_event *       event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBufferToImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4515,7 +4518,7 @@ clEnqueueMapBuffer(cl_command_queue command_queue,
                    cl_uint          num_events_in_wait_list,
                    const cl_event * event_wait_list,
                    cl_event *       event,
-                   cl_int *         errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                   cl_int *         errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueMapBuffer!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4534,7 +4537,7 @@ clEnqueueMapImage(cl_command_queue  command_queue,
                   cl_uint           num_events_in_wait_list,
                   const cl_event *  event_wait_list,
                   cl_event *        event,
-                  cl_int *          errcode_ret) CL_API_SUFFIX__VERSION_1_0
+                  cl_int *          errcode_ret)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueMapImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4547,7 +4550,7 @@ clEnqueueUnmapMemObject(cl_command_queue command_queue,
                         void *           mapped_ptr,
                         cl_uint          num_events_in_wait_list,
                         const cl_event *  event_wait_list,
-                        cl_event *        event) CL_API_SUFFIX__VERSION_1_0
+                        cl_event *        event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueUnmapMemObject!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4795,7 +4798,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
                        const size_t *   local_work_size,
                        cl_uint          num_events_in_wait_list,
                        const cl_event * event_wait_list,
-                       cl_event *       event) CL_API_SUFFIX__VERSION_1_0
+                       cl_event *       event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueNDRangeKernel!\n"; );
 	const unsigned num_dimensions = work_dim; // rename for better understandability ;)
@@ -4858,7 +4861,7 @@ clEnqueueTask(cl_command_queue  command_queue,
               cl_kernel         kernel,
               cl_uint           num_events_in_wait_list,
               const cl_event *  event_wait_list,
-              cl_event *        event) CL_API_SUFFIX__VERSION_1_0
+              cl_event *        event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueTask!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4875,7 +4878,7 @@ clEnqueueNativeKernel(cl_command_queue  command_queue,
                       const void **     args_mem_loc,
                       cl_uint           num_events_in_wait_list,
                       const cl_event *  event_wait_list,
-                      cl_event *        event) CL_API_SUFFIX__VERSION_1_0
+                      cl_event *        event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueNativeKernel!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4884,7 +4887,7 @@ clEnqueueNativeKernel(cl_command_queue  command_queue,
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueMarker(cl_command_queue    command_queue,
-                cl_event *          event) CL_API_SUFFIX__VERSION_1_0
+                cl_event *          event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueMarker!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4894,7 +4897,7 @@ clEnqueueMarker(cl_command_queue    command_queue,
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWaitForEvents(cl_command_queue command_queue,
                        cl_uint          num_events,
-                       const cl_event * event_list) CL_API_SUFFIX__VERSION_1_0
+                       const cl_event * event_list)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueWaitForEvents!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4902,7 +4905,7 @@ clEnqueueWaitForEvents(cl_command_queue command_queue,
 }
 
 PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clEnqueueBarrier(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
+clEnqueueBarrier(cl_command_queue command_queue)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueBarrier!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
@@ -4916,7 +4919,7 @@ clEnqueueBarrier(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
  * check to make sure the address is not NULL, before using or
  * calling the returned function address.
  */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name) CL_API_SUFFIX__VERSION_1_0
+PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetExtensionFunctionAddress!\n"; );
 	PACKETIZED_OPENCL_DEBUG ( outs() << "  func_name: " << func_name << "\n"; );

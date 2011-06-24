@@ -160,16 +160,18 @@ if isWin:
 		env.Append(CXXFLAGS = '-DGLEW_STATIC')
 	else:
 		appLibs+=env.Split('glew32')
+elif isDarwin:
+	if int(compile_static_lib_driver):
+		appLibs = env.Split('PacketizedOpenCL SDKUtil glew')
+	else:
+		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
+		#appLibs = env.Split('SDKUtil glew')
+		appLibs = env.Split('OpenCL SDKUtil glew')
 else:
 	if int(compile_static_lib_driver):
 		appLibs = env.Split('PacketizedOpenCL SDKUtil glut GLEW')
 	else:
 		appLibs = env.Split('OpenCL SDKUtil glut GLEW')
-		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
-		#if isDarwin:
-			#appLibs = env.Split('SDKUtil glut GLEW')
-		#else:
-			#appLibs = env.Split('OpenCL SDKUtil glut GLEW')
 
 # disabled until we have 64bit VTune libraries
 #if int(profile):
@@ -201,46 +203,49 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ###
 
 # Those work in all configurations, including packetizer:
-#testApps = env.Split("""
-#BlackScholesSimple
-#FastWalshTransform
-#Histogram
-#MandelbrotSimple
-#""")
-
 testApps = env.Split("""
-BinarySearch
-BinomialOption
 BitonicSort
-BlackScholes
 BlackScholesSimple
-DCT
-DwtHaar1D
-EigenValue
-FFT
 FastWalshTransform
-FloydWarshall
 Histogram
-Mandelbrot
 MandelbrotSimple
-MatrixMulImage
-MatrixMultiplication
 MatrixTranspose
-MersenneTwister
-MersenneTwisterSimple
-MonteCarloAsian
-NBody
-NBodySimple
-PrefixSum
-QuasiRandomSequence
-RadixSort
-RecursiveGaussian
-Reduction
-ScanLargeArrays
 SimpleConvolution
-SobelFilter
-URNG
 """)
+
+#testApps = env.Split("""
+#BinarySearch
+#BinomialOption
+#BitonicSort
+#BlackScholes
+#BlackScholesSimple
+#DCT
+#DwtHaar1D
+#EigenValue
+#FFT
+#FastWalshTransform
+#FloydWarshall
+#Histogram
+#Mandelbrot
+#MandelbrotSimple
+#MatrixMulImage
+#MatrixMultiplication
+#MatrixTranspose
+#MersenneTwister
+#MersenneTwisterSimple
+#MonteCarloAsian
+#NBody
+#NBodySimple
+#PrefixSum
+#QuasiRandomSequence
+#RadixSort
+#RecursiveGaussian
+#Reduction
+#ScanLargeArrays
+#SimpleConvolution
+#SobelFilter
+#URNG
+#""")
 
 # These use AMD specific extensions not available in our clc (TODO: do we use clc from 2.3 already?)
 #testApps = env.Split("""
@@ -267,20 +272,26 @@ URNG
 Execute(Mkdir('build/bin'))
 if int(compile_static_lib_driver):
 	for a in testApps:
-		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
-		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
-		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
+		if isDarwin:
+			# On Darwin, SDK currently lacks code to find the execution path, so we need to copy the .cl files somewhere else than on unix/windows
+			Execute(Copy('.', 'test/'+a+'/'+a+'_Kernels.cl'))
+			Execute(Copy('.', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
+			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'GLUT', '-framework', 'OpenGL'])
+		else:
+			Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
+			Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
+			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs)
 		env.Depends(App, SDKUtil)
 else:
 	for a in testApps:
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
-		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
-		#if isDarwin:
-			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenCL'])
-		#else:
-			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
-		App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
+		if isDarwin:
+			# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
+			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenCL', '-framework', 'GLUT', '-framework', 'OpenGL'])
+			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'GLUT', '-framework', 'OpenGL'])
+		else:
+			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		env.Depends(App, SDKUtil)
 
 
@@ -299,7 +310,7 @@ else:
 #cmd_ll = "clc -o $TARGET --msse2 $SOURCE"
 #cmd_bc = "llvm-as $SOURCE -o $TARGET"
 
-if not isWin:
+if not isWin and not isDarwin:
 	for a in testApps:
 		env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
 					["bin/x86_64/clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
@@ -317,3 +328,9 @@ if GetOption("clean"):
 	Execute(Delete('lib/PacketizedOpenCL.dll.manifest'))
 	Execute(Delete('lib/PacketizedOpenCL.exp'))
 	Execute(Delete('lib/libPacketizedOpenCL.so'))
+	for a in testApps:
+		if isDarwin:
+			Execute(Delete(a+'_Kernels.cl'))
+			Execute(Delete(a+'_Input.bmp'))
+		if not isWin and not isDarwin:
+			Execute(Delete(a+'_Kernels.bc'))

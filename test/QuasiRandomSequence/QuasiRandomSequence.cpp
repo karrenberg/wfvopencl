@@ -91,7 +91,9 @@ jurisdiction and venue of these courts.
 
 
 #include "QuasiRandomSequence.hpp"
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 
 /*
@@ -164,6 +166,8 @@ QuasiRandomSequence::setupQuasiRandomSequence()
     input = (cl_uint*)_aligned_malloc(nDimensions * N_DIRECTIONS * 
                                       sizeof(cl_uint),
                                       16);
+#elif defined (__APPLE__)
+    input = (cl_uint*)malloc(nDimensions * N_DIRECTIONS * sizeof(cl_uint));
 #else
     input = (cl_uint*)memalign(16, 
                                nDimensions * N_DIRECTIONS * 
@@ -201,6 +205,8 @@ QuasiRandomSequence::setupQuasiRandomSequence()
     output = (cl_float*)_aligned_malloc(nVectors * nDimensions * 
                                         sizeof(cl_float), 
                                         16);
+#elif defined (__APPLE__)
+    output = (cl_float*)malloc(nVectors * nDimensions * sizeof(cl_float));
 #else
     output = (cl_float*)memalign(16, 
                                  nVectors * nDimensions * 

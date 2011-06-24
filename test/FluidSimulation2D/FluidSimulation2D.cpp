@@ -94,7 +94,9 @@ jurisdiction and venue of these courts.
 #include "ColorScale.h"
 #include <GL/glut.h>
 #include <cmath>
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 // Directions
 double e[9][2] = {{0,0}, {1,0}, {0,1}, {-1,0}, {0,-1}, {1,1}, {-1,1}, {-1,-1}, {1,-1}};

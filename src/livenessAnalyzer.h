@@ -463,9 +463,9 @@ namespace {
 }
 
 char LivenessAnalyzer::ID = 0;
-INITIALIZE_PASS_BEGIN(LivenessAnalyzer, "liveness-analysis", "Liveness Analysis", false, false);
+INITIALIZE_PASS_BEGIN(LivenessAnalyzer, "liveness-analysis", "Liveness Analysis", false, false)
 INITIALIZE_PASS_DEPENDENCY(LoopInfo)
-INITIALIZE_PASS_END(LivenessAnalyzer, "liveness-analysis", "Liveness Analysis", false, false);
+INITIALIZE_PASS_END(LivenessAnalyzer, "liveness-analysis", "Liveness Analysis", false, false)
 
 // Public interface to the LivenessAnalysis pass
 namespace llvm {

@@ -93,7 +93,9 @@ jurisdiction and venue of these courts.
 #include "MersenneTwisterSimple.hpp"
 
 #include <math.h>
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 int 
 MersenneTwisterSimple::setupMersenneTwisterSimple()
@@ -113,6 +115,8 @@ MersenneTwisterSimple::setupMersenneTwisterSimple()
     /* Allocate and init memory used by host */
 #if defined (_WIN32)
     seeds = (cl_uint*)_aligned_malloc(width * height * sizeof(cl_uint), 16);
+#elif defined (__APPLE__)
+    seeds = (cl_uint*)malloc(width * height * sizeof(cl_uint));
 #else
     seeds = (cl_uint*)memalign(16, width * height * sizeof(cl_uint));
 #endif

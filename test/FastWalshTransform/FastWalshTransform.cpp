@@ -271,7 +271,7 @@ FastWalshTransform::genBinaryImage()
     kernelPath.append("FastWalshTransform_Kernels.cl");
     if(!kernelFile.open(kernelPath.c_str()))
     {
-        std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+        std::cout << "(1) Failed to load kernel file : " << kernelPath << std::endl;
         return SDK_FAILURE;
     }
     const char * source = kernelFile.source().c_str();
@@ -438,7 +438,7 @@ FastWalshTransform::genBinaryImage()
                                              binaries[i], 
                                              binarySizes[i]))
             {
-                std::cout << "Failed to load kernel file : " << fileName << std::endl;
+                std::cout << "(2) Failed to load kernel file : " << fileName << std::endl;
                 return SDK_FAILURE;
             }
         }
@@ -567,24 +567,6 @@ FastWalshTransform::setupCL(void)
 
                 platform = platforms[i];
 
-				void* addr = clGetExtensionFunctionAddress("clIcdGetPlatformIDsKHR");
-				printf("clGetExtensionFunctionAddress returned: %x", addr);
-				cl_uint num_entries = 0;
-				cl_platform_id* platformsX = NULL;
-				cl_uint num_platforms = 0;
-				//cl_int res = ((clIcdGetPlatformIDsKHR_fn*)addr)(num_entries, &platformsX, &num_platforms);
-				//printf("clIcdGetPlatformIDsKHR (initial) returned: %d", res);
-				//printf("  platforms: %x", platformsX);
-				//printf("  num_platforms: %d", num_platforms);
-				//
-				//platformsX = new cl_platform_id[num_platforms]();
-				//res = ((clIcdGetPlatformIDsKHR_fn*)addr)(num_platforms, &platformsX, NULL);
-				//printf("clIcdGetPlatformIDsKHR returned: %d", res);
-				//for (int i=0;i<num_platforms; ++i) {
-					//printf("  platforms[%d]: %x", i, platformsX[i]);
-				//}
-				//printf("  num_platforms: %d", num_platforms);
-
                 if (!strcmp(pbuf, "Advanced Micro Devices, Inc.")) 
                 {
                     break;
@@ -707,7 +689,7 @@ FastWalshTransform::setupCL(void)
         kernelPath.append(loadBinary.c_str());
         if(!kernelFile.readBinaryFromFile(kernelPath.c_str()))
         {
-            std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+            std::cout << "(3) Failed to load kernel file : " << kernelPath << std::endl;
             return SDK_FAILURE;
         }
 
@@ -740,7 +722,7 @@ FastWalshTransform::setupCL(void)
         kernelPath.append("FastWalshTransform_Kernels.cl");
         if(!kernelFile.open(kernelPath.c_str()))
         {
-            std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+            std::cout << "(4) Failed to load kernel file : " << kernelPath << std::endl;
             return SDK_FAILURE;
         }
 

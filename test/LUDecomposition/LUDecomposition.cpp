@@ -123,6 +123,8 @@ int LUD::setupLUD()
     
 #ifdef _WIN32
     input = static_cast<double*>(_aligned_malloc(SIZE, 4096));
+#elif defined __APPLE__
+    input = static_cast<double*>(malloc(SIZE));
 #else
     input = static_cast<double*>(memalign(4096, SIZE));
 #endif
@@ -143,6 +145,8 @@ int LUD::setupLUD()
 
 #ifdef _WIN32
     matrixGPU = static_cast<double*>(_aligned_malloc(SIZE, 4096));
+#elif defined __APPLE__
+    matrixGPU = static_cast<double*>(malloc(SIZE));
 #else
     matrixGPU = static_cast<double*>(memalign(4096, SIZE));
 #endif

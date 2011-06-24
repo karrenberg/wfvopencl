@@ -93,7 +93,9 @@ jurisdiction and venue of these courts.
 #include "MonteCarloAsian.hpp"
 
 #include <math.h>
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 
 /*
@@ -175,6 +177,8 @@ MonteCarloAsian::setupMonteCarloAsian()
 
 #if defined (_WIN32)
     randNum = (cl_uint*)_aligned_malloc(width * height * sizeof(cl_uint4), 16);
+#elif defined (__APPLE__)
+    randNum = (cl_uint*)malloc(width * height * sizeof(cl_uint4));
 #else
     randNum = (cl_uint*)memalign(16, width * height * sizeof(cl_uint4));
 #endif

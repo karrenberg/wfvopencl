@@ -727,6 +727,8 @@ namespace streamsdk
 #if defined(__MINGW32__) && defined(__MINGW64_VERSION_MAJOR)
         //This is to fix compilation issue with MinGW64-w64
         return (unsigned int)(long long)_tid;
+#elif defined (__APPLE__)
+        return (unsigned int)(long long)_tid;
 #else
         return (unsigned int)_tid;
 #endif //__MINGW32__  and __MINGW64_VERSION_MAJOR

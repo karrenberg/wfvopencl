@@ -91,9 +91,15 @@ jurisdiction and venue of these courts.
 
 
 #include "NBodySimple.hpp"
-#include<GL/glut.h>
+#if defined __APPLE__
+#	include <GLUT/glut.h>
+#else
+#	include<GL/glut.h>
+#endif
 #include <cmath>
-#include<malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 int numBodies;      /**< No. of particles*/
 cl_float* posX;      /**< Output position */
@@ -146,6 +152,11 @@ NBodySimple::setupNBodySimple()
     posY = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
     posZ = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
     posW = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
+#elif defined (__APPLE__)
+    posX = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    posY = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    posZ = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    posW = (cl_float*)malloc(numBodies * sizeof(cl_float));
 #else
     posX = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
     posY = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
@@ -162,6 +173,10 @@ NBodySimple::setupNBodySimple()
     velX = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
     velY = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
     velZ = (cl_float*)_aligned_malloc(numBodies * sizeof(cl_float), 16);
+#elif defined (__APPLE__)
+    velX = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    velY = (cl_float*)malloc(numBodies * sizeof(cl_float));
+    velZ = (cl_float*)malloc(numBodies * sizeof(cl_float));
 #else
     velX = (cl_float*)memalign(16, numBodies * sizeof(cl_float));
     velY = (cl_float*)memalign(16, numBodies * sizeof(cl_float));

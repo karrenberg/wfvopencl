@@ -93,7 +93,9 @@ jurisdiction and venue of these courts.
 #include "BlackScholes.hpp"
 
 #include <math.h>
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 
 /**
@@ -185,6 +187,8 @@ BlackScholes::setupBlackScholes()
 
 #if defined (_WIN32)
     randArray = (cl_float*)_aligned_malloc(width * height * sizeof(cl_float4), 16);
+#elif defined (__APPLE__)
+    randArray = (cl_float *)malloc(width * height * sizeof(cl_float4));
 #else
     randArray = (cl_float*)memalign(16, width * height * sizeof(cl_float4));
 #endif

@@ -92,7 +92,9 @@ jurisdiction and venue of these courts.
 
 #include "BinomialOption.hpp"
 #include <cmath>
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 int
 BinomialOption::setupBinomialOption()
@@ -103,6 +105,8 @@ BinomialOption::setupBinomialOption()
 
 #if defined (_WIN32)
     randArray = (cl_float*)_aligned_malloc(numSamples * sizeof(cl_float4), 16);
+#elif defined (__APPLE__)
+    randArray = (cl_float *)malloc(numSamples * sizeof(cl_float4));
 #else
     randArray = (cl_float*)memalign(16, numSamples * sizeof(cl_float4));
 #endif
@@ -120,6 +124,8 @@ BinomialOption::setupBinomialOption()
 
 #if defined (_WIN32)
     output = (cl_float*)_aligned_malloc(numSamples * sizeof(cl_float4), 16);
+#elif defined (__APPLE__)
+    output = (cl_float *)malloc(numSamples * sizeof(cl_float4));
 #else
     output = (cl_float*)memalign(16, numSamples * sizeof(cl_float4));
 #endif

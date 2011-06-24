@@ -91,7 +91,9 @@ jurisdiction and venue of these courts.
 
 
 #include "FFT.hpp"
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 
 int FFT::setupFFT()
@@ -106,6 +108,11 @@ int FFT::setupFFT()
     input_r = (cl_float*)_aligned_malloc(inputSizeBytes, 16);
     output_i = (cl_float*)_aligned_malloc(inputSizeBytes, 16);
     output_r = (cl_float*)_aligned_malloc(inputSizeBytes, 16);
+#elif defined (__APPLE__)
+    input_i = (cl_float*)malloc(inputSizeBytes);
+    input_r = (cl_float*)malloc(inputSizeBytes);
+    output_i = (cl_float*)malloc(inputSizeBytes);
+    output_r = (cl_float*)malloc(inputSizeBytes);
 #else
     input_i = (cl_float*)memalign(16, inputSizeBytes);
     input_r = (cl_float*)memalign(16, inputSizeBytes);

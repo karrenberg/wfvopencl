@@ -91,7 +91,9 @@ jurisdiction and venue of these courts.
 
 
 #include "BinarySearch.hpp"
-#include <malloc.h>
+#if !defined __APPLE__
+#	include <malloc.h>
+#endif
 
 /* 
  * \brief set up program input data 
@@ -115,6 +117,8 @@ int BinarySearch::setupBinarySearch()
    
 #if defined (_WIN32)
     output = (cl_uint *)_aligned_malloc(sizeof(cl_uint4), 16);
+#elif defined (__APPLE__)
+    output = (cl_uint *)malloc(sizeof(cl_uint4));
 #else
     output = (cl_uint *)memalign(16, sizeof(cl_uint4));
 #endif 
