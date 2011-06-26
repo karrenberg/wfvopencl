@@ -103,7 +103,7 @@ jurisdiction and venue of these courts.
 #include <SDKFile.hpp>
 
 
-#define GROUP_SIZE 4096
+#define GROUP_SIZE 256
 /**
  * BlackScholesSimple 
  * Class implements Black-Scholes implementation for European Options

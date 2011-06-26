@@ -174,10 +174,10 @@ BlackScholesSimple::setupBlackScholesSimple()
 
     /* Calculate width and height from samples */
     samples = samples / 4;
-    samples = (samples / GROUP_SIZE)? (samples / GROUP_SIZE) * GROUP_SIZE: GROUP_SIZE;
+    samples = (samples / GROUP_SIZE)? (samples / GROUP_SIZE) * GROUP_SIZE: samples;
 
     unsigned int tempVar1 = (unsigned int)sqrt((double)samples);
-    tempVar1 = (tempVar1 / GROUP_SIZE)? (tempVar1 / GROUP_SIZE) * GROUP_SIZE: GROUP_SIZE;
+    tempVar1 = (tempVar1 / GROUP_SIZE)? (tempVar1 / GROUP_SIZE) * GROUP_SIZE: samples;
     samples = tempVar1 * tempVar1;
 
     width = tempVar1;
