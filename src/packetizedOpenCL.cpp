@@ -88,7 +88,7 @@
 	#define PACKETIZED_OPENCL_SIMD_WIDTH 4
 #endif
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef PACKETIZED_OPENCL_USE_OPENMP // TODO: #ifdef _OPENMP
 	#ifndef PACKETIZED_OPENCL_NUM_CORES // can be supplied by build script
 		#define PACKETIZED_OPENCL_NUM_CORES 4 // TODO: determine somehow, omp_get_num_threads() does not work because it is dynamic (=1 if called here)
 	#endif
@@ -102,7 +102,6 @@
 //#define PACKETIZED_OPENCL_NO_PACKETIZATION
 //#define PACKETIZED_OPENCL_USE_OPENMP
 //#define PACKETIZED_OPENCL_SPLIT_EVERYTHING
-//#define PACKETIZED_OPENCL_OPTIMIZE_MEM_ACCESS
 //#define PACKETIZED_OPENCL_ENABLE_JIT_PROFILING
 //#define NDEBUG
 //----------------------------------------------------------------------------//
@@ -1036,8 +1035,8 @@ namespace PacketizedOpenCL {
 			local_ids[i] = local_id;
 			
 			PACKETIZED_OPENCL_DEBUG_RUNTIME(
-				insertPrintf("global_id[i]: ", global_ids[i], true, call);
-				insertPrintf("local_id[i]: ", local_ids[i], true, call);
+				//insertPrintf("global_id[i]: ", global_ids[i], true, call);
+				//insertPrintf("local_id[i]: ", local_ids[i], true, call);
 			);
 #else
 			// compute global id for consecutive access
@@ -1082,10 +1081,10 @@ namespace PacketizedOpenCL {
 				local_ids[i] = local_id;
 
 				PACKETIZED_OPENCL_DEBUG_RUNTIME(
-					insertPrintf("global_id[i]: ", global_ids[i], true, call);
-					insertPrintf("local_id[i]: ", local_ids[i], true, call);
-					insertPrintf("global_id_split_simd: ", *arg_global_id_split_simd, true, call);
-					insertPrintf("local_id_split_simd: ", *arg_local_id_split_simd, true, call);
+					//insertPrintf("global_id[i]: ", global_ids[i], true, call);
+					//insertPrintf("local_id[i]: ", local_ids[i], true, call);
+					//insertPrintf("global_id_split_simd: ", *arg_global_id_split_simd, true, call);
+					//insertPrintf("local_id_split_simd: ", *arg_local_id_split_simd, true, call);
 				);
 			} else {
 				std::stringstream sstr2;
@@ -1100,8 +1099,8 @@ namespace PacketizedOpenCL {
 				local_ids[i] = local_id;
 				
 				PACKETIZED_OPENCL_DEBUG_RUNTIME(
-					insertPrintf("global_id[i]: ", global_ids[i], true, call);
-					insertPrintf("local_id[i]: ", local_ids[i], true, call);
+					//insertPrintf("global_id[i]: ", global_ids[i], true, call);
+					//insertPrintf("local_id[i]: ", local_ids[i], true, call);
 				);
 			}
 #endif
@@ -4620,10 +4619,11 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	assert (num_iterations > 0 && "should give error message before executeRangeKernel!");
 
 	cl_int i;
-	#ifdef PACKETIZED_OPENCL_USE_OPENMP
+
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
-	#pragma omp parallel for default(none) private(i) shared(argument_struct, typedPtr)
-	#endif
+#	pragma omp parallel for private(i)
+#endif
 	for (i=0; i<num_iterations; ++i) {
 		PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << " (= group id)\n"; );
 		PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
@@ -4692,11 +4692,11 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 
 	cl_int i, j;
 	
-	for (i=0; i<num_iterations_0; ++i) {
-		#ifdef PACKETIZED_OPENCL_USE_OPENMP
-		omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
-#pragma omp parallel for default(none) private(i, j) shared(argument_struct, typedPtr, modified_global_work_size, modified_local_work_size)
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
+#	pragma omp parallel for private (i,j) collapse(2) // collapse requires OpenMP 3.0
 #endif
+	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
 			PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << " (= group ids)\n"; );
 			PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
@@ -4753,10 +4753,11 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && num_iterations_2 && "should give error message before executeRangeKernel!");
 
 	cl_int i, j, k;
-	#ifdef PACKETIZED_OPENCL_USE_OPENMP
+
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
-	#pragma omp parallel for default(none) private(i, j, k) shared(argument_struct, typedPtr, modified_global_work_size, modified_local_work_size)
-	#endif
+#	pragma omp parallel for private (i,j,k) collapse(3) // collapse requires OpenMP 3.0
+#endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
 			for (k=0; k<num_iterations_2; ++k) {
