@@ -152,6 +152,8 @@ class Histogram : public SDKSample
     size_t kernelWorkGroupSize;     /**< Max Group size that can be executed on kernel */
     int iterations;                 /**< Number of iterations for kernel execution */
     cl_bool byteRWSupport;
+	
+	bool platformIsPacketizedOpenCL;
 
 public:
     /** 
@@ -173,7 +175,8 @@ public:
         devices(NULL),
         maxWorkItemSizes(NULL),
         byteRWSupport(true),
-        iterations(1)
+        iterations(1),
+		platformIsPacketizedOpenCL(false)
     {
         /* Set default values for width and height */
         width = WIDTH;
@@ -199,7 +202,8 @@ public:
         devices(NULL),
         maxWorkItemSizes(NULL),
         byteRWSupport(true),
-        iterations(1)
+        iterations(1),
+		platformIsPacketizedOpenCL(false)
     {
         /* Set default values for width and height */
         width = WIDTH;

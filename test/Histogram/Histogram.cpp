@@ -786,7 +786,7 @@ Histogram::setupCL(void)
 			sizeof(vName),
 			vName,
 			NULL);
-	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+	platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
 
 	kernelPath.append("Histogram_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
@@ -900,7 +900,10 @@ Histogram::setupCL(void)
     }
 
     /* get a kernel object handle for a kernel with the given name */
-    kernel = clCreateKernel(program, "histogram256", &status);
+	if (platformIsPacketizedOpenCL)
+		kernel = clCreateKernel(program, "histogram256_mod", &status);
+	else
+		kernel = clCreateKernel(program, "histogram256", &status);
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,
@@ -962,8 +965,13 @@ Histogram::runCLKernels(void)
         CL_SUCCESS,
         "clSetKernelArg failed. (dataBuf)"))
         return SDK_FAILURE;
+	
+	// We have to change the first input to work with packetizer :(
+	if (platformIsPacketizedOpenCL)
+		status = clSetKernelArg(kernel, 1, groupSize * binSize * sizeof(cl_uint), NULL); // CHANGED FROM 'cl_uchar' FOR PACKETIZATION!
+	else
+		status = clSetKernelArg(kernel, 1, groupSize * binSize * sizeof(cl_uchar), NULL);
 
-    status = clSetKernelArg(kernel, 1, groupSize * binSize * sizeof(cl_uint), NULL); // CHANGED FROM 'cl_uchar' FOR PACKETIZATION!
     if(!sampleCommon->checkVal(
         status,
         CL_SUCCESS,

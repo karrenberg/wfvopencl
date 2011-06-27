@@ -1,61 +1,64 @@
 #!/bin/bash
 echo ""
 echo "BinomialOption"
-./runPacketizerBinomialOption.sh -q -e -t -x 1000 -i 50
+build/bin/BinomialOption -q -e -t -x 1000 -i 50 "$@"
 echo ""
 echo "BinomialOptionSimple"
-./runPacketizerBinomialOptionSimple.sh -q -e -t -x 1000 -i 50
+build/bin/BinomialOptionSimple -q -e -t -x 1000 -i 50 "$@"
 echo ""
 echo "BlackScholes"
-./runPacketizerBlackScholes.sh -q -e -t -i 50
+build/bin/BlackScholes -q -e -t -x 16384 -i 50 "$@"
 echo ""
 echo "BlackScholesSimple"
-./runPacketizerBlackScholesSimple.sh -q -e -t -i 50
+build/bin/BlackScholesSimple -q -e -t -x 16384 -i 50 "$@"
 echo ""
 echo "BitonicSort"
-./runPacketizerBitonicSort.sh -q -e -x 131072 -t -i 50
+build/bin/BitonicSort -q -e -x 131072 -t -i 50 "$@"
 echo ""
 echo "DCT"
-./runPacketizerDCT.sh -q -e -t -x 8192 -y 8192 -i 5
+build/bin/DCT -q -e -t -x 8192 -y 8192 -i 5 "$@"
 echo ""
 echo "DwtHaar1D"
-./runPacketizerDwtHaar1D.sh -q -e -t -x 1000000 -i 50
+build/bin/DwtHaar1D -q -e -t -x 1000000 -i 50 "$@"
 echo ""
 echo "EigenValue"
-./runPacketizerEigenValue.sh -q -e -t -x 4096 -i 50
+build/bin/EigenValue -q -e -t -x 4096 -i 50 "$@"
 echo ""
 echo "FastWalshTransform"
-./runPacketizerFastWalshTransform.sh -q -e -t -x 1000000 -i 50
+build/bin/FastWalshTransform -q -e -t -x 1000000 -i 50 "$@"
 echo ""
 echo "FloydWarshall"
-./runPacketizerFloydWarshall.sh -q -e -t -x 512 -i 50
+build/bin/FloydWarshall -q -e -t -x 512 -i 50 "$@"
 echo ""
 echo "Histogram"
-./runPacketizerHistogram.sh -q -e -t -x 8192 -y 8192 -i 50
+build/bin/Histogram -q -e -t -x 8192 -y 8192 -i 50 "$@"
 echo ""
 echo "Mandelbrot"
-./runPacketizerMandelbrot.sh -q -e -t -x 8192
+build/bin/Mandelbrot -q -e -t -x 4096 -i 5 "$@"
+echo ""
+echo "MandelbrotSimple"
+build/bin/MandelbrotSimple -q -e -t -x 4096 -i 5 "$@"
 echo ""
 echo "NBody"
-./runPacketizerNBody.sh -q -e -t -x 4096 -i 50
+build/bin/NBody -q -e -t -x 4096 -i 50 "$@"
 echo ""
 echo "NBodySimple"
-./runPacketizerNBodySimple.sh -q -e -t -x 4096 -i 50
+build/bin/NBodySimple -q -e -t -x 4096 -i 50 "$@"
 echo ""
 echo "MatrixTranspose"
-./runPacketizerMatrixTranspose.sh -q -e -t -x 10000 -i 20
+build/bin/MatrixTranspose -q -e -t -x 10000 -i 20 "$@"
 echo ""
 echo "PrefixSum"
-./runPacketizerPrefixSum.sh -q -e -t -x 16384 -i 1000
+build/bin/PrefixSum -q -e -t -x 16384 -i 1000 "$@"
 echo ""
 echo "RadixSort"
-./runPacketizerRadixSort.sh -q -e -t -x 1000000 -i 50
+build/bin/RadixSort -q -e -t -x 1000000 -i 50 "$@"
 echo ""
 echo "Reduction"
-./runPacketizerReduction.sh -q -e -t -x 100000 -i 50
+build/bin/Reduction -q -e -t -x 100000 -i 50 "$@"
 echo ""
 echo "SimpleConvolution"
-./runPacketizerSimpleConvolution.sh -q -e -t -x 1024 -y 1024 -m 1 -i 50
+build/bin/SimpleConvolution -q -e -t -x 1024 -y 1024 -m 1 -i 50 "$@"
 
 # EigenValue fails for size > 4096 (also with ATI's own implementation!)
 # PrefixSum fails for larger sizes when using more than one iteration

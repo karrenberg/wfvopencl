@@ -4225,7 +4225,7 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clFlush(cl_command_queue command_queue)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clFlush!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
+	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clFlush()\n"; );
 	return CL_SUCCESS;
 }
 

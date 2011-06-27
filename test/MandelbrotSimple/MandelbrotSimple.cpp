@@ -98,8 +98,8 @@ MandelbrotSimple::setupMandelbrotSimple()
     cl_uint sizeBytes;
 
     /* allocate and init memory used by host */
-    sizeBytes = width * height * sizeof(cl_int);
-    output = (cl_int *) malloc(sizeBytes);
+    sizeBytes = width * height * sizeof(cl_uint);
+    output = (cl_uint *) malloc(sizeBytes);
     if(output==NULL)    
     { 
         sampleCommon->error("Failed to allocate host memory. (output)");
@@ -108,7 +108,7 @@ MandelbrotSimple::setupMandelbrotSimple()
 
     if(verify)
     {
-        verificationOutput = (cl_int *)malloc(sizeBytes);
+        verificationOutput = (cl_uint *)malloc(sizeBytes);
         if(verificationOutput==NULL)    
         { 
             sampleCommon->error("Failed to allocate host memory. (verificationOutput)");
@@ -442,16 +442,23 @@ MandelbrotSimple::setupCL(void)
     cl_int status = 0;
     size_t deviceListSize;
 
-    cl_device_type dType;
-    
-    //if(deviceType.compare("cpu") == 0)
-    //{
+    if(deviceType.compare("cpu") == 0)
+    {
         dType = CL_DEVICE_TYPE_CPU;
-    //}
-    //else //deviceType = "gpu"
-    //{
-        //dType = CL_DEVICE_TYPE_GPU;
-    //}
+    }
+    else if(deviceType.compare("all") == 0)
+    {
+        dType = CL_DEVICE_TYPE_ALL;
+    }
+    else //deviceType = "gpu" 
+    {
+        dType = CL_DEVICE_TYPE_GPU;
+        if(isThereGPU() == false)
+        {
+            std::cout << "GPU not found. Falling back to CPU device" << std::endl;
+            dType = CL_DEVICE_TYPE_CPU;
+        }
+    }
     
     /*
      * Have a look at the available platforms and pick either
@@ -477,31 +484,50 @@ MandelbrotSimple::setupCL(void)
         {
             return SDK_FAILURE;
         }
-        for (unsigned i = 0; i < numPlatforms; ++i) 
+        if(isPlatformEnabled())
         {
-            char pbuf[100];
-            status = clGetPlatformInfo(platforms[i],
-                                       CL_PLATFORM_VENDOR,
-                                       sizeof(pbuf),
-                                       pbuf,
-                                       NULL);
-
-            if(!sampleCommon->checkVal(status,
-                                       CL_SUCCESS,
-                                       "clGetPlatformInfo failed."))
+            platform = platforms[platformId];
+        }
+        else
+        {
+            for (unsigned i = 0; i < numPlatforms; ++i) 
             {
-                return SDK_FAILURE;
-            }
+                char pbuf[100];
+                status = clGetPlatformInfo(platforms[i],
+                                           CL_PLATFORM_VENDOR,
+                                           sizeof(pbuf),
+                                           pbuf,
+                                           NULL);
 
-            platform = platforms[i];
-            if (!strcmp(pbuf, "Advanced Micro Devices, Inc.")) 
-            {
-                break;
+                if(!sampleCommon->checkVal(status,
+                                           CL_SUCCESS,
+                                           "clGetPlatformInfo failed."))
+                {
+                    return SDK_FAILURE;
+                }
+
+                platform = platforms[i];
+                if (!strcmp(pbuf, "Advanced Micro Devices, Inc.")) 
+                {
+                    break;
+                }
             }
         }
         delete[] platforms;
     }
 
+    if(NULL == platform)
+    {
+        sampleCommon->error("NULL platform found so Exiting Application.");
+        return SDK_FAILURE;
+    }
+
+    // Display available devices.
+    if(!sampleCommon->displayDevices(platform, dType))
+    {
+        sampleCommon->error("sampleCommon::displayDevices() failed");
+        return SDK_FAILURE;
+    }
     /*
      * If we could find our platform, use it. Otherwise pass a NULL and get whatever the
      * implementation thinks we should be using.
@@ -561,15 +587,35 @@ MandelbrotSimple::setupCL(void)
                 "clGetGetContextInfo failed."))
         return SDK_FAILURE;
 
+    numDevices = (cl_uint)(deviceListSize/sizeof(cl_device_id));
+    numDevices = min(MAX_DEVICES, numDevices);
+
+    if(numDevices != 1 && isLoadBinaryEnabled())
+    {
+        sampleCommon->expectedError("--load option is not supported if devices are more one");
+        return SDK_EXPECTED_FAILURE;
+    }
+
+    if(numDevices == 3)
+    {
+        if(!quiet)
+        {
+            std::cout << "Number of devices must be even,"
+                 << "\nChanging number of devices from three to two\n";
+        }
+        numDevices = 2;
+    }
+
+    for (cl_uint i = 0; i < numDevices; i++)
     {
         /* The block is to move the declaration of prop closer to its use */
         cl_command_queue_properties prop = 0;
         if(timing)
             prop |= CL_QUEUE_PROFILING_ENABLE;
 
-        commandQueue = clCreateCommandQueue(
+        commandQueue[i] = clCreateCommandQueue(
                 context, 
-                devices[0], 
+                devices[i], 
                 prop, 
                 &status);
         if(!sampleCommon->checkVal(
@@ -577,71 +623,181 @@ MandelbrotSimple::setupCL(void)
                     0,
                     "clCreateCommandQueue failed."))
             return SDK_FAILURE;
-    }
 
-    outputBuffer = clCreateBuffer(
-            context, 
-            CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR,
-            sizeof(cl_float) * width * height,
-            output, 
-            &status);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateBuffer failed. (outputBuffer)"))
-        return SDK_FAILURE;
+        outputBuffer[i] = clCreateBuffer(
+                context, 
+                CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR,
+                (sizeof(cl_float) * width * height) / numDevices,
+                output + ((width * height) / numDevices) * i, 
+                &status);
+        if(!sampleCommon->checkVal(
+                    status,
+                    CL_SUCCESS,
+                    "clCreateBuffer failed. (outputBuffer)"))
+            return SDK_FAILURE;
+    }
 
     /* create a CL program using the kernel source */
     streamsdk::SDKFile kernelFile;
+
     std::string kernelPath = sampleCommon->getPath();
-	// special case for packetized OpenCL (can not yet compile .cl directly)
-	char vName[100];
-	status = clGetPlatformInfo(platform,
-			CL_PLATFORM_VENDOR,
-			sizeof(vName),
-			vName,
-			NULL);
-	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+    if(isLoadBinaryEnabled())
+    {
+        kernelPath.append(loadBinary.c_str());
 
-	kernelPath.append("MandelbrotSimple_Kernels.cl");
-	if(!kernelFile.open(kernelPath.c_str()))
+        if(!kernelFile.readBinaryFromFile(kernelPath.c_str()))
+        {
+            std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+            return SDK_FAILURE;
+        }
+
+        const char * binary = kernelFile.source().c_str();
+        size_t binarySize = kernelFile.source().size();
+        program = clCreateProgramWithBinary(context,
+                                            1,
+                                            &devices[deviceId], 
+                                            (const size_t *)&binarySize,
+                                            (const unsigned char**)&binary,
+                                            NULL,
+                                            &status);
+    }
+    else
 	{
-		std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
-		return SDK_FAILURE;
+		// special case for packetized OpenCL (can not yet compile .cl directly)
+		char vName[100];
+		status = clGetPlatformInfo(platform,
+				CL_PLATFORM_VENDOR,
+				sizeof(vName),
+				vName,
+				NULL);
+		const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+
+		kernelPath.append("MandelbrotSimple_Kernels.cl");
+		if(!kernelFile.open(kernelPath.c_str()))
+		{
+			std::cout << "Failed to load kernel file : " << kernelPath << std::endl;
+			return SDK_FAILURE;
+		}
+
+		const char * source = platformIsPacketizedOpenCL ?
+			"MandelbrotSimple_Kernels.bc" :
+			kernelFile.source().c_str();
+
+		size_t sourceSize[] = { strlen(source) };
+		program = clCreateProgramWithSource(context,
+				1,
+				&source,
+				sourceSize,
+				&status);
 	}
+    if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clCreateProgramWithSource failed."))
+        return SDK_FAILURE;
+    std::string flagsStr = std::string("");
 
-	const char * source = platformIsPacketizedOpenCL ?
-		"MandelbrotSimple_Kernels.bc" :
-		kernelFile.source().c_str();
+    // Get additional options
+    if(isComplierFlagsSpecified())
+    {
+        streamsdk::SDKFile flagsFile;
+        std::string flagsPath = sampleCommon->getPath();
+        flagsPath.append(flags.c_str());
+        if(!flagsFile.open(flagsPath.c_str()))
+        {
+            std::cout << "Failed to load flags file: " << flagsPath << std::endl;
+            return SDK_FAILURE;
+        }
+        flagsFile.replaceNewlineWithSpaces();
+        const char * flags = flagsFile.source().c_str();
+        flagsStr.append(flags);
+    }
 
-	size_t sourceSize[] = { strlen(source) };
-	program = clCreateProgramWithSource(
-			context,
-			1,
-			&source,
-			sourceSize,
-			&status);
-	if(!sampleCommon->checkVal(
-				status,
-				CL_SUCCESS,
-				"clCreateProgramWithSource failed."))
-		return SDK_FAILURE;
+    if(flagsStr.size() != 0)
+        std::cout << "Build Options are : " << flagsStr.c_str() << std::endl;
+
+    
 
     /* create a cl program executable for all the devices specified */
-    status = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clBuildProgram failed."))
-        return SDK_FAILURE;
+    status = clBuildProgram(program, 
+                            numDevices, 
+                            devices, 
+                            flagsStr.c_str(), 
+                            NULL, 
+                            NULL);
 
-    /* get a kernel object handle for a kernel with the given name */
-    kernel = clCreateKernel(program, "mandelbrot", &status);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clCreateKernel failed."))
-        return SDK_FAILURE;
+    if(status != CL_SUCCESS)
+    {
+        if(status == CL_BUILD_PROGRAM_FAILURE)
+        {
+            for (cl_uint i = 0; i < numDevices; i++)
+            {
+                cl_int logStatus;
+                char * buildLog = NULL;
+                size_t buildLogSize = 0;
+                logStatus = clGetProgramBuildInfo (program, 
+                    devices[deviceId], 
+                    CL_PROGRAM_BUILD_LOG, 
+                    buildLogSize, 
+                    buildLog, 
+                    &buildLogSize);
+                if(!sampleCommon->checkVal(
+                    logStatus,
+                    CL_SUCCESS,
+                    "clGetProgramBuildInfo failed."))
+                    return SDK_FAILURE;
+
+                buildLog = (char*)malloc(buildLogSize);
+                if(buildLog == NULL)
+                {
+                    sampleCommon->error("Failed to allocate host memory."
+                        "(buildLog)");
+                    return SDK_FAILURE;
+                }
+                memset(buildLog, 0, buildLogSize);
+
+                logStatus = clGetProgramBuildInfo (program, 
+                    devices[deviceId], 
+                    CL_PROGRAM_BUILD_LOG, 
+                    buildLogSize, 
+                    buildLog, 
+                    NULL);
+                if(!sampleCommon->checkVal(
+                    logStatus,
+                    CL_SUCCESS,
+                    "clGetProgramBuildInfo failed."))
+                {
+                    free(buildLog);
+                    return SDK_FAILURE;
+                }
+
+                std::cout << " \n\t\t\tBUILD LOG\n";
+                std::cout << " ************************************************\n";
+                std::cout << buildLog << std::endl;
+                std::cout << " ************************************************\n";
+                free(buildLog);
+            }
+        }
+
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clBuildProgram failed."))
+            return SDK_FAILURE;
+    }
+
+    for (cl_uint i = 0; i < numDevices; i++)
+    {
+        
+       
+        /* get a kernel object handle for a kernel with the given name */
+        kernel_vector[i] = clCreateKernel(program, "mandelbrot", &status);
+        if(!sampleCommon->checkVal(
+                    status,
+                    CL_SUCCESS,
+                    "clCreateKernel failed."))
+            return SDK_FAILURE;
+    }
 
     return SDK_SUCCESS;
 }
@@ -651,139 +807,193 @@ int
 MandelbrotSimple::runCLKernels(void)
 {
     cl_int   status;
-    cl_event events[2];
+    cl_event events[MAX_DEVICES];
+	cl_kernel kernel;
 
     size_t globalThreads[1];
     size_t localThreads[1];
 
-    globalThreads[0] = width*height;
+	benched = 0;
+    globalThreads[0] = width*height / numDevices;
     localThreads[0]  = 1;
 
-    /* Check group size against kernelWorkGroupSize */
-    status = clGetKernelWorkGroupInfo(kernel,
-                                      devices[0],
-                                      CL_KERNEL_WORK_GROUP_SIZE,
-                                      sizeof(size_t),
-                                      &kernelWorkGroupSize,
-                                      0);
-    if(!sampleCommon->checkVal(
-                        status,
-                        CL_SUCCESS, 
-                        "clGetKernelWorkGroupInfo failed."))
-    {
-        return SDK_FAILURE;
-    }
+	for (cl_uint i = 0; i < numDevices; i++)
+	{
+		kernel = kernel_vector[i];
 
-    if((cl_uint)(localThreads[0]) > kernelWorkGroupSize)
-    {
-        std::cout<<"Out of Resources!" << std::endl;
-        std::cout<<"Group Size specified : "<<localThreads[0]<<std::endl;
-        std::cout<<"Max Group Size supported on the kernel : " 
-            <<kernelWorkGroupSize<<std::endl;
-        return SDK_FAILURE;
-    }
+		/* Check group size against kernelWorkGroupSize */
+		status = clGetKernelWorkGroupInfo(kernel,
+										  devices[i],
+										  CL_KERNEL_WORK_GROUP_SIZE,
+										  sizeof(size_t),
+										  &kernelWorkGroupSize,
+										  0);
+		if(!sampleCommon->checkVal(
+					status,
+					CL_SUCCESS, 
+					"clGetKernelWorkGroupInfo failed."))
+		{
+			return SDK_FAILURE;
+		}
 
-    /*** Set appropriate arguments to the kernel ***/
-    status = clSetKernelArg(
-                    kernel, 
-                    0, 
-                    sizeof(cl_mem),
-                   (void *)&outputBuffer);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (inputBuffer)"))
-        return SDK_FAILURE;
+		if((cl_uint)(localThreads[0]) > kernelWorkGroupSize)
+			localThreads[0] = kernelWorkGroupSize;
 
-    status = clSetKernelArg(
-                    kernel, 
-                    1, 
-                    sizeof(cl_float), 
-                    (void *)&scale);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (scale)"))
-        return SDK_FAILURE;
+		/*** Set appropriate arguments to the kernel ***/
+		status = clSetKernelArg(
+				kernel, 
+				0, 
+				sizeof(cl_mem),
+				(void *)&outputBuffer[i]);
+		if(!sampleCommon->checkVal(
+					status,
+					CL_SUCCESS,
+					"clSetKernelArg failed. (inputBuffer)"))
+			return SDK_FAILURE;
 
-    status = clSetKernelArg(
-                    kernel, 
-                    2, 
-                    sizeof(cl_uint), 
-                    (void *)&maxIterations);
-    if(!sampleCommon->checkVal(
-                status,
+		status = clSetKernelArg(
+				kernel, 
+				1, 
+				sizeof(cl_float), 
+				(void *)&scale);
+		if(!sampleCommon->checkVal(
+					status,
+					CL_SUCCESS,
+					"clSetKernelArg failed. (scale)"))
+			return SDK_FAILURE;
+
+		status = clSetKernelArg(
+				kernel, 
+				2, 
+				sizeof(cl_uint), 
+				(void *)&maxIterations);
+		if(!sampleCommon->checkVal(
+					status,
                 CL_SUCCESS,
                 "clSetKernelArg failed. (maxIterations)"))
         return SDK_FAILURE;
 
-    /* width - i.e number of elements in the array */
-    status = clSetKernelArg(
-                    kernel, 
-                    3, 
-                    sizeof(cl_int), 
-                    (void *)&width);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clSetKernelArg failed. (width)"))
-        return SDK_FAILURE;
+		/* width - i.e number of elements in the array */
+		status = clSetKernelArg(
+				kernel, 
+				3, 
+				sizeof(cl_int), 
+				(void *)&width);
+		if(!sampleCommon->checkVal(
+					status,
+					CL_SUCCESS,
+					"clSetKernelArg failed. (width)"))
+			return SDK_FAILURE;
 
-    /* 
-     * Enqueue a kernel run call.
-     */
-    status = clEnqueueNDRangeKernel(
-            commandQueue,
-            kernel,
-            1,
-            NULL,
-            globalThreads,
-            localThreads,
-            0,
-            NULL,
-            &events[0]);
+		/* 
+		 * Enqueue a kernel run call.
+		 */
+		status = clEnqueueNDRangeKernel(
+				commandQueue[i],
+				kernel,
+				1,
+				NULL,
+				globalThreads,
+				localThreads,
+				0,
+				NULL,
+				&events[i]);
 
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clEnqueueNDRangeKernel failed."))
-        return SDK_FAILURE;
+		if(!sampleCommon->checkVal(
+					status,
+					CL_SUCCESS,
+					"clEnqueueNDRangeKernel failed."))
+			return SDK_FAILURE;
+	}
+	/* flush the queues to get things started */
+	for (cl_uint i = 0; i < numDevices; i++)
+	{
+        clFlush(commandQueue[i]);
+    }
 
 
     /* wait for the kernel call to finish execution */
-    status = clWaitForEvents(1, &events[0]);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clWaitForEvents failed."))
+    for (cl_uint i = 0; i < numDevices; i++)
+    {
+        // Wait in reverse order
+        status = clWaitForEvents(1, &events[numDevices-i-1]);
+        if(!sampleCommon->checkVal(
+                    status,
+                    CL_SUCCESS,
+                    "clWaitForEvents failed."))
+            return SDK_FAILURE;
+    }
+
+    if (timing && bench)
+    {
+        cl_ulong start;
+        cl_ulong stop;
+        status = clGetEventProfilingInfo(events[0],
+                                         CL_PROFILING_COMMAND_SUBMIT,
+                                         sizeof(cl_ulong),
+                                         &start,
+                                         NULL);
+        if(!sampleCommon->checkVal(
+                    status,
+                    CL_SUCCESS,
+                    "clGetEventProfilingInfo failed."))
+            return SDK_FAILURE;
+
+        status = clGetEventProfilingInfo(events[0],
+                                         CL_PROFILING_COMMAND_END,
+                                         sizeof(cl_ulong),
+                                         &stop,
+                                         NULL);
+        if(!sampleCommon->checkVal(
+                    status,
+                    CL_SUCCESS,
+                    "clGetEventProfilingInfo failed."))
+            return SDK_FAILURE;
+
+        time = (cl_double)(stop - start)*(cl_double)(1e-09);
+    }
+    for (cl_uint i = 0; i < numDevices; i++)
+    {
+        /* Enqueue readBuffer*/
+        status = clEnqueueReadBuffer(
+                    commandQueue[i],
+                    outputBuffer[i],
+                    CL_TRUE,
+                    0,
+                    (width * height * sizeof(cl_float)) / numDevices,
+                    output + (width * height / numDevices) * i,
+                    0,
+                    NULL,
+                    &events[0]);
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clEnqueueReadBuffer failed."))
         return SDK_FAILURE;
-    
-    /* Enqueue readBuffer*/
-    status = clEnqueueReadBuffer(
-                commandQueue,
-                outputBuffer,
-                CL_TRUE,
-                0,
-                width * height * sizeof(cl_float),
-                output,
-                0,
-                NULL,
-                &events[1]);
-    if(!sampleCommon->checkVal(
-    		status,
-    		CL_SUCCESS,
-    		"clEnqueueReadBuffer failed."))
-    	return SDK_FAILURE;
-    
-    /* Wait for the read buffer to finish execution */
-    status = clWaitForEvents(1, &events[1]);
-    if(!sampleCommon->checkVal(
-    		status,
-    		CL_SUCCESS,
-    		"clWaitForEvents failed."))
-    	return SDK_FAILURE;
-    
-    clReleaseEvent(events[1]);
+
+        /* Wait for the read buffer to finish execution */
+        status = clWaitForEvents(1, &events[0]);
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clWaitForEvents failed."))
+        return SDK_FAILURE;
+    }
+
+    if (timing && bench)
+    {
+        cl_ulong totalIterations = 0;
+        for (int i = 0; i < (width * height); i++)
+        {
+            totalIterations += output[i];
+        }
+        cl_double flops = 7.0*totalIterations;
+        printf("%lf MFLOPs\n", flops*(double)(1e-6)/time);
+        printf("%lf MFLOPs according to CPU\n", flops*(double)(1e-6)/totalKernelTime);
+        bench = 0;
+        benched = 1;
+    }
+    clReleaseEvent(events[0]);
     return SDK_SUCCESS;
 }
 
@@ -791,7 +1001,7 @@ MandelbrotSimple::runCLKernels(void)
 * MandelbrotSimple fractal generated with CPU reference implementation
 */
 void 
-MandelbrotSimple::mandelbrotCPUReference(cl_int * verificationOutput,
+MandelbrotSimple::mandelbrotCPUReference(cl_uint * verificationOutput,
                                    cl_float  mscale, 
                                    cl_uint maxIter, 
                                    cl_int w)
@@ -898,8 +1108,9 @@ int MandelbrotSimple::setup()
     sampleCommon->resetTimer(timer);
     sampleCommon->startTimer(timer);
 
-    if(setupCL()!=SDK_SUCCESS)
-        return SDK_FAILURE;
+    int returnVal = setupCL();
+    if(returnVal != SDK_SUCCESS)
+        return (returnVal == SDK_EXPECTED_FAILURE)? SDK_EXPECTED_FAILURE : SDK_FAILURE;
 
     sampleCommon->stopTimer(timer);
 
@@ -915,10 +1126,6 @@ int MandelbrotSimple::run()
     sampleCommon->resetTimer(timer);
     sampleCommon->startTimer(timer);   
 
-    std::cout << "Executing kernel for " << iterations << 
-        " iterations" << std::endl;
-    std::cout << "-------------------------------------------" << std::endl;
-
     for(int i = 0; i < iterations; i++)
     {
         /* Arguments are set and execution call is enqueued on command buffer */
@@ -930,7 +1137,7 @@ int MandelbrotSimple::run()
     totalKernelTime = (double)(sampleCommon->readTimer(timer)) / iterations;
 
     if(!quiet) {
-        sampleCommon->printArray<cl_int>("Output", output, width, 1);
+        sampleCommon->printArray<cl_uint>("Output", output, width, 1);
     }
 
     return SDK_SUCCESS;
@@ -949,11 +1156,14 @@ int MandelbrotSimple::verifyResults()
         mandelbrotCPUReference(verificationOutput, scale, maxIterations, width);
         sampleCommon->stopTimer(refTimer);
         referenceKernelTime = sampleCommon->readTimer(refTimer);
-		std::cout << "Reference Kernel Time: " << referenceKernelTime << "\n";
-		std::cout << "Total Kernel Time    : " << totalKernelTime << "\n";
+		
+		if (!quiet) {
+			std::cout << "Reference Kernel Time: " << referenceKernelTime << "\n";
+			std::cout << "Total Kernel Time    : " << totalKernelTime << "\n";
+		}
 
         // compare the results and see if they match 
-        if(memcmp(output, verificationOutput, width*height*sizeof(cl_int)) == 0)
+        if(memcmp(output, verificationOutput, width*height*sizeof(cl_uint)) == 0)
         {
             std::cout<<"Passed!\n";
             return SDK_SUCCESS;
@@ -988,13 +1198,6 @@ int MandelbrotSimple::cleanup()
     /* Releases OpenCL resources (Context, Memory etc.) */
     cl_int status;
 
-    status = clReleaseKernel(kernel);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS,
-        "clReleaseKernel failed."))
-        return SDK_FAILURE;
-
     status = clReleaseProgram(program);
     if(!sampleCommon->checkVal(
         status,
@@ -1002,19 +1205,29 @@ int MandelbrotSimple::cleanup()
         "clReleaseProgram failed."))
         return SDK_FAILURE;
 
-    status = clReleaseMemObject(outputBuffer);
-    if(!sampleCommon->checkVal(
-                status,
-                CL_SUCCESS,
-                "clReleaseMemObject failed."))
-        return SDK_FAILURE;
+    for (cl_uint i = 0; i < numDevices; i++)
+    {
+        status = clReleaseKernel(kernel_vector[i]);
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clReleaseKernel failed."))
+            return SDK_FAILURE;
 
-    status = clReleaseCommandQueue(commandQueue);
-    if(!sampleCommon->checkVal(
-        status,
-        CL_SUCCESS,
-        "clReleaseCommandQueue failed."))
-        return SDK_FAILURE;
+        status = clReleaseMemObject(outputBuffer[i]);
+        if(!sampleCommon->checkVal(
+                    status,
+                    CL_SUCCESS,
+                    "clReleaseMemObject failed."))
+            return SDK_FAILURE;
+
+        status = clReleaseCommandQueue(commandQueue[i]);
+        if(!sampleCommon->checkVal(
+            status,
+            CL_SUCCESS,
+            "clReleaseCommandQueue failed."))
+            return SDK_FAILURE;
+    }
 
     status = clReleaseContext(context);
     if(!sampleCommon->checkVal(
@@ -1047,7 +1260,7 @@ cl_uint MandelbrotSimple::getHeight(void)
 }
 
 
-cl_int * MandelbrotSimple::getPixels(void)
+cl_uint * MandelbrotSimple::getPixels(void)
 {
     return output;
 }

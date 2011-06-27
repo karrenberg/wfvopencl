@@ -106,7 +106,7 @@ jurisdiction and venue of these courts.
 #include <cstdio>
 
 /* An instance of the MandelbrotSimple Class */
-MandelbrotSimple clMandelbrotSimple("OpenCL Mandelbrot fractal");
+MandelbrotSimple clMandelbrotSimple("OpenCL Mandelbrot fractal", true);
 
 /* Window height, Window Width and the pixels to be displayed */
 int width;
@@ -217,7 +217,7 @@ main(int argc, char * argv[])
     {
         width = clMandelbrotSimple.getWidth();
         height = clMandelbrotSimple.getHeight();
-        int * output = clMandelbrotSimple.getPixels();
+        unsigned * output = clMandelbrotSimple.getPixels();
         pixels = (unsigned char *)malloc(height*width*4*sizeof(unsigned char));
         for(int i=0; i< width*height; ++i)
         {

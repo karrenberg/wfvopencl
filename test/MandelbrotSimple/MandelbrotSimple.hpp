@@ -107,6 +107,10 @@ jurisdiction and venue of these courts.
 #include <SDKCommandArgs.hpp>
 #include <SDKFile.hpp>
 
+#define MAX_ITER 16384
+#define MIN_ITER 32
+#define MAX_DEVICES 4
+
 /**
  * MandelbrotSimple 
  * Class implements OpenCL MandelbrotSimple sample
@@ -120,23 +124,28 @@ class MandelbrotSimple : public SDKSample
     cl_double     totalKernelTime;       /**< Time for kernel execution */
     cl_double    totalProgramTime;       /**< Time for program execution */
     cl_double referenceKernelTime;       /**< Time for reference implementation */
-    cl_int    *verificationOutput;       /**< Output array from reference implementation */
+    cl_uint   *verificationOutput;       /**< Output array from reference implementation */
     cl_int              scale_int;       /**< for command line arguments */
     cl_float                scale;       /**< paramters of mandelbrot */
     cl_uint         maxIterations;       /**< paramters of mandelbrot */
     cl_context            context;       /**< CL context */
     cl_device_id         *devices;       /**< CL device list */
-    cl_mem           outputBuffer;       /**< CL memory buffer */
-    cl_command_queue commandQueue;       /**< CL command queue */
+    cl_uint            numDevices;       /**< Number of devices matching our needs */
+    cl_mem           outputBuffer[MAX_DEVICES];    /**< CL memory buffer */
+    cl_command_queue commandQueue[MAX_DEVICES];    /**< CL command queue */
     cl_program            program;       /**< CL program  */
-    cl_kernel              kernel;       /**< CL kernel */
+    cl_kernel			   kernel_vector[MAX_DEVICES];    /**< CL kernel */
     cl_int                 width;        /**< width of the output image */
     cl_int                height;        /**< height of the output image */
     size_t    kernelWorkGroupSize;       /**< Group Size returned by kernel */
     int                iterations;       /**< Number of iterations for kernel execution */
+    cl_int                  bench;       /**< Get performance */
+    cl_int                benched;       /**< Flag indicating we benchmarked last run */
+    cl_double                time;       /**< Elapsed time */
+    cl_device_type          dType;       /**< OpenCL device type */
 
 public:
-    cl_int *output;                      /**< Output array */
+    cl_uint *output;                      /**< Output array */
 
 public:
     /** 
@@ -144,33 +153,35 @@ public:
      * Initialize member variables
      * @param name name of sample (string)
      */
-    MandelbrotSimple(std::string name)
-        : SDKSample(name)    {
+    MandelbrotSimple(std::string name, bool enableMultiDevice)
+        : SDKSample(name, enableMultiDevice)
+	{
             seed = 123;
             output = NULL;
             verificationOutput = NULL;
             scale = 3.0f;
             scale_int = (int)scale;
-            maxIterations = 20;
+            maxIterations = 20; // looks better than 1024
             width = 256;
             setupTime = 0;
             totalKernelTime = 0;
             iterations = 1;
-        }
+	}
 
     /** 
      * Constructor 
      * Initialize member variables
      * @param name name of sample (const char*)
      */
-    MandelbrotSimple(const char* name)
-        : SDKSample(name)    {
+    MandelbrotSimple(const char* name, bool enableMultiDevice)
+        : SDKSample(name, enableMultiDevice)
+	{
             seed = 123;
             output = NULL;
             verificationOutput = NULL;
             scale = 3.0f;
             scale_int = (int)scale;
-            maxIterations = 20;
+            maxIterations = 20; // looks better than 1024
             width = 256;
             setupTime = 0;
             totalKernelTime = 0;
@@ -216,7 +227,7 @@ public:
      * @param maxIterations      More iterations gives more accurate mandelbrot image 
      * @param width              size of the image 
      */
-    void mandelbrotCPUReference(cl_int * verificationOutput, 
+    void mandelbrotCPUReference(cl_uint * verificationOutput, 
                                 cl_float scale, 
                                 cl_uint maxIterations, 
                                 cl_int width);
@@ -269,7 +280,7 @@ public:
     /*
      * get pixels to be displayed
      */
-    cl_int * getPixels(void);
+    cl_uint * getPixels(void);
     
     /*
      * if showWindow returns true then a window with mandelbrot set is displayed
