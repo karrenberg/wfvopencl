@@ -53,6 +53,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
+#include <fstream>
 #include <math.h>
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -71,13 +73,75 @@
 // Use a static data size for simplicity
 //
 #define DATA_SIZE (1024)
+#define GROUP_NR (8)
+#define GROUP_SIZE (DATA_SIZE/GROUP_NR)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-inline bool verifyResults(float* results, float* data, const unsigned count, const unsigned index) {
-	float correctRes = (data[index] * data[index]) - count;
+/*
+ * Converts the contents of a file into a string
+ */
+std::string
+convertToString(const char *filename)
+{
+	size_t size;
+	char*  str;
+	std::string s;
 
-	const bool correct = results[index] == correctRes;
+	std::fstream f(filename, (std::fstream::in | std::fstream::binary));
+
+	if(f.is_open())
+	{
+		size_t fileSize;
+		f.seekg(0, std::fstream::end);
+		size = fileSize = (size_t)f.tellg();
+		f.seekg(0, std::fstream::beg);
+
+		str = new char[size+1];
+		if(!str)
+		{
+			f.close();
+			return NULL;
+		}
+
+		f.read(str, fileSize);
+		f.close();
+		str[size] = '\0';
+	
+		s = str;
+		delete[] str;
+		return s;
+	}
+	else
+	{
+		printf("\nFile containg the kernel code(\".cl\") not found. Please copy the required file into the working directory.\n");
+		exit(1);
+	}
+	return NULL;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+
+inline unsigned verifyResults(float* input, float* results) {
+	// compute results
+	float verificationOutput[DATA_SIZE];
+
+	for (unsigned i=0; i<DATA_SIZE; ++i) {
+		float correctRes = input[i];
+
+		for (unsigned j=0, e=10; j<e; ++j) {
+			correctRes += 1.f;
+			if (i != 0) correctRes += verificationOutput[i-1];
+		}
+		verificationOutput[i] = correctRes;
+	}
+
+	// count and return number of correct results
+	unsigned correct = 0;
+	for (unsigned i=0; i<DATA_SIZE; ++i) {
+		if (verificationOutput[i] == results[i]) ++correct;
+    }
 	return correct;
 }
 
@@ -101,33 +165,165 @@ int main(int argc, char** argv)
     cl_mem input;                       // device memory used for the input array
     cl_mem output;                      // device memory used for the output array
 
+	bool useAMD = false;
+	bool useIntel = false;
+	bool usePacketizer = true;
+
+	char* requestedPlatformString = NULL;
+
+	// Check command line arguments for desired platform
+	//
+	for (int i=1; i<argc; ++i) {
+		requestedPlatformString = argv[i];
+		if (!strcmp(requestedPlatformString, "AMD") || !strcmp(requestedPlatformString, "amd")) {
+			useAMD = true;
+			useIntel = false;
+			usePacketizer = false;
+		} else if (!strcmp(requestedPlatformString, "Intel") || !strcmp(requestedPlatformString, "intel")) {
+			useAMD = false;
+			useIntel = true;
+			usePacketizer = false;
+		} else if (!strcmp(requestedPlatformString, "packetizer") || !strcmp(requestedPlatformString, "PacketizedOpenCL") || !strcmp(requestedPlatformString, "pkt")) {
+			useAMD = false;
+			useIntel = false;
+			usePacketizer = true;
+		}
+	}
+
     // Fill our data set with random float values
     //
     unsigned i = 0;
-    unsigned int count = DATA_SIZE;
-    for(i = 0; i < count; i++) {
+	const unsigned int dataSize = DATA_SIZE;
+    for(i = 0; i < dataSize; i++) {
         data[i] = rand() / (float)RAND_MAX;
 		//if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
 	}
 
-    // Connect to a compute device
-    //
-    int gpu = 0;
-    err = clGetDeviceIDs(NULL, gpu ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_CPU, 1, &device_id, NULL);
-    if (err != CL_SUCCESS)
+    cl_uint numPlatforms;
+    cl_platform_id platform = NULL;
+    err = clGetPlatformIDs(0, NULL, &numPlatforms);
+    if(err != CL_SUCCESS)
     {
-        printf("Error: Failed to create a device group!\n");
-        return EXIT_FAILURE;
+        printf("Error: Getting Platforms. (clGetPlatformsIDs)\n");
+        return 1;
     }
+    
+	char vendorName[100];
+	char platformName[100];
+    if(numPlatforms > 0)
+    {
+        cl_platform_id* platforms = new cl_platform_id[numPlatforms];
+        err = clGetPlatformIDs(numPlatforms, platforms, NULL);
+        if(err != CL_SUCCESS)
+        {
+            printf("Error: Getting Platform Ids. (clGetPlatformsIDs)\n");
+            return 1;
+        }
+        for(unsigned int i=0; i < numPlatforms; ++i)
+        {
+            err = clGetPlatformInfo(
+                        platforms[i],
+                        CL_PLATFORM_VENDOR,
+                        sizeof(vendorName),
+                        vendorName,
+                        NULL);
+            if(err != CL_SUCCESS)
+            {
+                printf("Error: Getting Platform Info.(clGetPlatformInfo)\n");
+                return 1;
+            }
+            err = clGetPlatformInfo(
+                        platforms[i],
+                        CL_PLATFORM_NAME,
+                        sizeof(platformName),
+                        platformName,
+                        NULL);
+            if(err != CL_SUCCESS)
+            {
+                printf("Error: Getting Platform Info.(clGetPlatformInfo)\n");
+                return 1;
+            }
+			if (useAMD && !strcmp(vendorName, "Advanced Micro Devices, Inc.")) {
+				platform = platforms[i];
+                break;
+            } else if (useIntel && !strcmp(vendorName, "Intel(R) Corporation")) {
+				platform = platforms[i];
+                break;
+            } else if (usePacketizer && !strcmp(vendorName, "Ralf Karrenberg, Saarland University")) {
+				platform = platforms[i];
+                break;
+            }
+        }
+        delete platforms;
+    }
+
+    if(NULL == platform)
+    {
+		printf("Requested platform '%s' not found!\n", requestedPlatformString);
+        return 1;
+    }
+	
+	printf("\nPlatform vendor: %s\n", vendorName);
+	printf("Platform name  : %s\n", platformName);
+
+    // If we could find our platform, use it. Otherwise use just available platform.
+    //
+    cl_context_properties cps[3] = { CL_CONTEXT_PLATFORM, (cl_context_properties)platform, 0 };
 
     // Create a compute context
     //
-    context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
+    context = clCreateContextFromType(cps, 
+                                      CL_DEVICE_TYPE_CPU, 
+                                      NULL, 
+                                      NULL, 
+                                      &err);
     if (!context)
     {
         printf("Error: Failed to create a compute context!\n");
         return EXIT_FAILURE;
     }
+
+    // Get the size of device list data
+	//
+    size_t deviceListSize;
+    cl_device_id* devices = (cl_device_id *)malloc(deviceListSize);
+    err = clGetContextInfo(context, 
+                              CL_CONTEXT_DEVICES, 
+                              0, 
+                              NULL, 
+                              &deviceListSize);
+    if(err != CL_SUCCESS) 
+	{  
+		printf("Error: Getting Context Info \
+		    (device list size, clGetContextInfo)\n");
+		return 1;
+	}
+
+	// Detect OpenCL devices
+	//
+    devices = (cl_device_id *)malloc(deviceListSize);
+	if(devices == 0)
+	{
+		printf("Error: No devices found.\n");
+		return 1;
+	}
+
+    // Now, get the device list data
+	//
+    err = clGetContextInfo(
+			     context, 
+                 CL_CONTEXT_DEVICES, 
+                 deviceListSize, 
+                 devices, 
+                 NULL);
+    if(err != CL_SUCCESS) 
+	{ 
+		printf("Error: Getting Context Info \
+		    (device list, clGetContextInfo)\n");
+		return 1;
+	}
+
+	device_id = devices[0];
 
     // Create a command commands
     //
@@ -140,18 +336,27 @@ int main(int argc, char** argv)
 
     // Create the compute program from the source buffer
     //
-    //program = clCreateProgramWithSource(context, 1, (const char **) & KernelSource, NULL, &err);
-    const char * source = "TestBarrier_Kernels.bc";
-    program = clCreateProgramWithSource(context, 1, &source, NULL, &err);
-    if (!program)
-    {
-        printf("Error: Failed to create compute program!\n");
-        return EXIT_FAILURE;
-    }
+    const char * filename  = "TestLoopBarrier2_Kernels.cl";
+    const char * source    = (useAMD || useIntel) ? convertToString(filename).c_str() : "TestLoopBarrier2_Kernels.bc";
+    size_t sourceSize[]    = { strlen(source) };
+
+    program = clCreateProgramWithSource(
+			      context, 
+                  1, 
+                  &source,
+				  sourceSize,
+                  &err);
+	if(err != CL_SUCCESS) 
+	{ 
+		printf("Error: Loading Binary into cl_program \
+			   (clCreateProgramWithBinary)\n");
+	  return 1;
+	}
 
     // Build the program executable
     //
-    err = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
+    /* create a cl program executable for all the devices specified */
+    err = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
     if (err != CL_SUCCESS)
     {
         size_t len;
@@ -165,7 +370,7 @@ int main(int argc, char** argv)
 
     // Create the compute kernel in the program we wish to run
     //
-    kernel = clCreateKernel(program, "TestBarrier", &err);
+    kernel = clCreateKernel(program, "TestLoopBarrier2", &err);
     if (!kernel || err != CL_SUCCESS)
     {
         printf("Error: Failed to create compute kernel!\n");
@@ -174,8 +379,8 @@ int main(int argc, char** argv)
 
     // Create the input and output arrays in device memory for our calculation
     //
-    input = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(float) * count, NULL, NULL);
-    output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * count, NULL, NULL);
+    input = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(float) * dataSize, NULL, NULL);
+    output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * dataSize, NULL, NULL);
     if (!input || !output)
     {
         printf("Error: Failed to allocate device memory!\n");
@@ -184,7 +389,7 @@ int main(int argc, char** argv)
 
     // Write our data set into the input array in device memory
     //
-    err = clEnqueueWriteBuffer(commands, input, CL_TRUE, 0, sizeof(float) * count, data, 0, NULL, NULL);
+    err = clEnqueueWriteBuffer(commands, input, CL_TRUE, 0, sizeof(float) * dataSize, data, 0, NULL, NULL);
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to write to source array!\n");
@@ -193,10 +398,11 @@ int main(int argc, char** argv)
 
     // Set the arguments to our compute kernel
     //
+	const unsigned int groupSize = GROUP_SIZE;
     err = 0;
     err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &input);
     err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &output);
-    err |= clSetKernelArg(kernel, 2, sizeof(unsigned int), &count);
+	err |= clSetKernelArg(kernel, 2, groupSize * sizeof (cl_float), NULL);
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to set kernel arguments! %d\n", err);
@@ -205,20 +411,18 @@ int main(int argc, char** argv)
 
     // Get the maximum work group size for executing the kernel on the device
     //
-    err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
-    if (err != CL_SUCCESS)
-    {
-        printf("Error: Failed to retrieve kernel work group info! %d\n", err);
-        exit(1);
-    }
-
-	//for(i = 0; i < count; i++) printf("input[%d]: %f\n", i, data[i]);
+//    err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
+//    if (err != CL_SUCCESS)
+//    {
+//        printf("Error: Failed to retrieve kernel work group info! %d\n", err);
+//        exit(1);
+//    }
+	local = groupSize;
 
     // Execute the kernel over the entire range of our 1d input data set
     // using the maximum number of work group items for this device
     //
-    global = count;
-	if (local > global) local = global;
+    global = dataSize;
     err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
     if (err)
     {
@@ -232,7 +436,7 @@ int main(int argc, char** argv)
 
     // Read back the results from the device to verify the output
     //
-    err = clEnqueueReadBuffer( commands, output, CL_TRUE, 0, sizeof(float) * count, results, 0, NULL, NULL );
+    err = clEnqueueReadBuffer( commands, output, CL_TRUE, 0, sizeof(float) * dataSize, results, 0, NULL, NULL );
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to read output array! %d\n", err);
@@ -241,20 +445,11 @@ int main(int argc, char** argv)
 
     // Validate our results
     //
-    correct = 0;
-	for(i = 0; i < count; i++)
-    {
-        if(verifyResults(results, data, count, i)) {
-			//printf("results[%d]: %f (correct)\n", i, results[i]);
-            correct++;
-		} else {
-			//printf("results[%d]: %f (wrong, expected: %f * %f = %f)\n", i, results[i], data[i], data[i], data[i] * data[i] - count);
-		}
-    }
-
+	correct = verifyResults(data, results);
+	
     // Print a brief summary detailing the results
     //
-    printf("Computed '%d/%d' correct values!\n", correct, count);
+    printf("Computed '%d/%d' correct values!\n", correct, dataSize);
 
     // Shutdown and cleanup
     //
@@ -264,6 +459,7 @@ int main(int argc, char** argv)
     clReleaseKernel(kernel);
     clReleaseCommandQueue(commands);
     clReleaseContext(context);
+	free (devices);
 
     return 0;
 }

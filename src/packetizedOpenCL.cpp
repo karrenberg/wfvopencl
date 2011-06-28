@@ -4606,6 +4606,12 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 			local_work_size+(local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH) : (cl_uint)local_work_size;
 	#endif
 
+	// TODO: remove
+	if (global_work_size != modified_global_work_size)
+		errs() << "WARNING: global work size changed from '" << global_work_size << "' to '" << modified_global_work_size << "'!\n";
+	if (local_work_size != modified_local_work_size)
+		errs() << "WARNING: local work size changed from '" << local_work_size << "' to '" << modified_local_work_size << "'!\n";
+
 #endif
 
 	//
@@ -4622,7 +4628,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
-#	pragma omp parallel for private(i)
+#	pragma omp parallel for shared(argument_struct) private(i)
 #endif
 	for (i=0; i<num_iterations; ++i) {
 		PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << " (= group id)\n"; );
@@ -4694,7 +4700,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
-#	pragma omp parallel for private (i,j) collapse(2) // collapse requires OpenMP 3.0
+#	pragma omp parallel for shared(argument_struct) private(i, j) collapse(2)
 #endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
@@ -4756,7 +4762,7 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
-#	pragma omp parallel for private (i,j,k) collapse(3) // collapse requires OpenMP 3.0
+#	pragma omp parallel for shared(argument_struct) private(i, j, k) collapse(3)
 #endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {

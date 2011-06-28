@@ -6,6 +6,9 @@ echo
 echo BinomialOption
 build/bin/BinomialOption -q -e "$@"
 echo
+echo BinomialOptionSimple
+build/bin/BinomialOptionSimple -q -e "$@"
+echo
 echo BitonicSort
 build/bin/BitonicSort -q -e -x 32 "$@"
 echo

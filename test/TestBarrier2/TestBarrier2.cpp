@@ -53,6 +53,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
+#include <fstream>
 #include <math.h>
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -75,6 +77,51 @@
 #define GROUP_SIZE (DATA_SIZE/GROUP_NR)
 
 ////////////////////////////////////////////////////////////////////////////////
+
+/*
+ * Converts the contents of a file into a string
+ */
+std::string
+convertToString(const char *filename)
+{
+	size_t size;
+	char*  str;
+	std::string s;
+
+	std::fstream f(filename, (std::fstream::in | std::fstream::binary));
+
+	if(f.is_open())
+	{
+		size_t fileSize;
+		f.seekg(0, std::fstream::end);
+		size = fileSize = (size_t)f.tellg();
+		f.seekg(0, std::fstream::beg);
+
+		str = new char[size+1];
+		if(!str)
+		{
+			f.close();
+			return NULL;
+		}
+
+		f.read(str, fileSize);
+		f.close();
+		str[size] = '\0';
+	
+		s = str;
+		delete[] str;
+		return s;
+	}
+	else
+	{
+		printf("\nFile containg the kernel code(\".cl\") not found. Please copy the required file into the working directory.\n");
+		exit(1);
+	}
+	return NULL;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 
 inline bool verifyResults(float* results, float* data, const unsigned count, const unsigned index) {
 	//float correctRes = data[index] + (index == DATA_SIZE-1 ? data[0] : data[index+1]);
@@ -103,6 +150,31 @@ int main(int argc, char** argv) {
 	cl_mem input; // device memory used for the input array
 	cl_mem output; // device memory used for the output array
 
+	bool useAMD = false;
+	bool useIntel = false;
+	bool usePacketizer = true;
+
+	char* requestedPlatformString = NULL;
+
+	// Check command line arguments for desired platform
+	//
+	for (int i=1; i<argc; ++i) {
+		requestedPlatformString = argv[i];
+		if (!strcmp(requestedPlatformString, "AMD") || !strcmp(requestedPlatformString, "amd")) {
+			useAMD = true;
+			useIntel = false;
+			usePacketizer = false;
+		} else if (!strcmp(requestedPlatformString, "Intel") || !strcmp(requestedPlatformString, "intel")) {
+			useAMD = false;
+			useIntel = true;
+			usePacketizer = false;
+		} else if (!strcmp(requestedPlatformString, "packetizer") || !strcmp(requestedPlatformString, "PacketizedOpenCL") || !strcmp(requestedPlatformString, "pkt")) {
+			useAMD = false;
+			useIntel = false;
+			usePacketizer = true;
+		}
+	}
+
 	// Fill our data set with random float values
 	//
 	unsigned i = 0;
@@ -112,44 +184,164 @@ int main(int argc, char** argv) {
 		//if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
 	}
 
-	// Connect to a compute device
+	cl_uint numPlatforms;
+    cl_platform_id platform = NULL;
+    err = clGetPlatformIDs(0, NULL, &numPlatforms);
+    if(err != CL_SUCCESS)
+    {
+        printf("Error: Getting Platforms. (clGetPlatformsIDs)\n");
+        return 1;
+    }
+    
+	char vendorName[100];
+	char platformName[100];
+    if(numPlatforms > 0)
+    {
+        cl_platform_id* platforms = new cl_platform_id[numPlatforms];
+        err = clGetPlatformIDs(numPlatforms, platforms, NULL);
+        if(err != CL_SUCCESS)
+        {
+            printf("Error: Getting Platform Ids. (clGetPlatformsIDs)\n");
+            return 1;
+        }
+        for(unsigned int i=0; i < numPlatforms; ++i)
+        {
+            err = clGetPlatformInfo(
+                        platforms[i],
+                        CL_PLATFORM_VENDOR,
+                        sizeof(vendorName),
+                        vendorName,
+                        NULL);
+            if(err != CL_SUCCESS)
+            {
+                printf("Error: Getting Platform Info.(clGetPlatformInfo)\n");
+                return 1;
+            }
+            err = clGetPlatformInfo(
+                        platforms[i],
+                        CL_PLATFORM_NAME,
+                        sizeof(platformName),
+                        platformName,
+                        NULL);
+            if(err != CL_SUCCESS)
+            {
+                printf("Error: Getting Platform Info.(clGetPlatformInfo)\n");
+                return 1;
+            }
+			if (useAMD && !strcmp(vendorName, "Advanced Micro Devices, Inc.")) {
+				platform = platforms[i];
+                break;
+            } else if (useIntel && !strcmp(vendorName, "Intel(R) Corporation")) {
+				platform = platforms[i];
+                break;
+            } else if (usePacketizer && !strcmp(vendorName, "Ralf Karrenberg, Saarland University")) {
+				platform = platforms[i];
+                break;
+            }
+        }
+        delete platforms;
+    }
+
+    if(NULL == platform)
+    {
+		printf("Requested platform '%s' not found!\n", requestedPlatformString);
+        return 1;
+    }
+	
+	printf("\nPlatform vendor: %s\n", vendorName);
+	printf("Platform name  : %s\n", platformName);
+
+    // If we could find our platform, use it. Otherwise use just available platform.
+    //
+    cl_context_properties cps[3] = { CL_CONTEXT_PLATFORM, (cl_context_properties)platform, 0 };
+
+    // Create a compute context
+    //
+    context = clCreateContextFromType(cps, 
+                                      CL_DEVICE_TYPE_CPU, 
+                                      NULL, 
+                                      NULL, 
+                                      &err);
+    if (!context)
+    {
+        printf("Error: Failed to create a compute context!\n");
+        return EXIT_FAILURE;
+    }
+
+    // Get the size of device list data
 	//
-	int gpu = 0;
-	err = clGetDeviceIDs(NULL, gpu ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_CPU, 1, &device_id, NULL);
-	if (err != CL_SUCCESS) {
-		printf("Error: Failed to create a device group!\n");
-		return EXIT_FAILURE;
+    size_t deviceListSize;
+    cl_device_id* devices = (cl_device_id *)malloc(deviceListSize);
+    err = clGetContextInfo(context, 
+                              CL_CONTEXT_DEVICES, 
+                              0, 
+                              NULL, 
+                              &deviceListSize);
+    if(err != CL_SUCCESS) 
+	{  
+		printf("Error: Getting Context Info \
+		    (device list size, clGetContextInfo)\n");
+		return 1;
 	}
 
-	// Create a compute context
+	// Detect OpenCL devices
 	//
-	context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
-	if (!context) {
-		printf("Error: Failed to create a compute context!\n");
-		return EXIT_FAILURE;
+    devices = (cl_device_id *)malloc(deviceListSize);
+	if(devices == 0)
+	{
+		printf("Error: No devices found.\n");
+		return 1;
 	}
 
-	// Create a command commands
+    // Now, get the device list data
 	//
-	commands = clCreateCommandQueue(context, device_id, 0, &err);
-	if (!commands) {
-		printf("Error: Failed to create a command commands!\n");
-		return EXIT_FAILURE;
+    err = clGetContextInfo(
+			     context, 
+                 CL_CONTEXT_DEVICES, 
+                 deviceListSize, 
+                 devices, 
+                 NULL);
+    if(err != CL_SUCCESS) 
+	{ 
+		printf("Error: Getting Context Info \
+		    (device list, clGetContextInfo)\n");
+		return 1;
 	}
 
-	// Create the compute program from the source buffer
-	//
-	//program = clCreateProgramWithSource(context, 1, (const char **) & KernelSource, NULL, &err);
-	const char * source = "TestBarrier2_Kernels.bc";
-	program = clCreateProgramWithSource(context, 1, &source, NULL, &err);
-	if (!program) {
-		printf("Error: Failed to create compute program!\n");
-		return EXIT_FAILURE;
+	device_id = devices[0];
+
+    // Create a command commands
+    //
+    commands = clCreateCommandQueue(context, device_id, 0, &err);
+    if (!commands)
+    {
+        printf("Error: Failed to create a command commands!\n");
+        return EXIT_FAILURE;
+    }
+
+    // Create the compute program from the source buffer
+    //
+    const char * filename  = "TestBarrier2_Kernels.cl";
+    const char * source    = (useAMD || useIntel) ? convertToString(filename).c_str() : "TestBarrier2_Kernels.bc";
+    size_t sourceSize[]    = { strlen(source) };
+
+    program = clCreateProgramWithSource(
+			      context, 
+                  1, 
+                  &source,
+				  sourceSize,
+                  &err);
+	if(err != CL_SUCCESS) 
+	{ 
+		printf("Error: Loading Binary into cl_program \
+			   (clCreateProgramWithBinary)\n");
+	  return 1;
 	}
 
-	// Build the program executable
-	//
-	err = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
+    // Build the program executable
+    //
+    /* create a cl program executable for all the devices specified */
+    err = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
 	if (err != CL_SUCCESS) {
 		size_t len;
 		char buffer[2048];
@@ -262,6 +454,7 @@ int main(int argc, char** argv) {
 	clReleaseKernel(kernel);
 	clReleaseCommandQueue(commands);
 	clReleaseContext(context);
+	free (devices);
 
 	return 0;
 }

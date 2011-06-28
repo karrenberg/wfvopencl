@@ -202,20 +202,26 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ### build test applications
 ###
 
-#testApps = env.Split("""
-#Histogram
-#""")
+testApps = env.Split("""
+TestSimple
+Test2D
+TestBarrier
+TestBarrier2
+TestLinearAccess
+TestLoopBarrier
+TestLoopBarrier2
+""")
 
 # Those work in all configurations, including packetizer:
-testApps = env.Split("""
-BitonicSort
-BlackScholesSimple
-FastWalshTransform
-Histogram
-MandelbrotSimple
-MatrixTranspose
-SimpleConvolution
-""")
+#testApps = env.Split("""
+#BitonicSort
+#BlackScholesSimple
+#FastWalshTransform
+#Histogram
+#MandelbrotSimple
+#MatrixTranspose
+#SimpleConvolution
+#""")
 
 #testApps = env.Split("""
 #BinarySearch
