@@ -286,7 +286,7 @@ int main(int argc, char** argv)
     streamsdk::SDKFile kernelFile;
 	streamsdk::SDKCommon* sampleCommon = new streamsdk::SDKCommon();
     std::string kernelPath = sampleCommon->getPath();
-	kernelPath.append("TestBarrier_Kernels.cl");
+	kernelPath.append("TestLoopBarrier_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
 	{
 		printf("Failed to load kernel file : %s\n", kernelPath.c_str());
@@ -294,7 +294,7 @@ int main(int argc, char** argv)
 	}
 
 	const char * source = usePacketizer ?
-		"TestBarrier_Kernels.bc" :
+		"TestLoopBarrier_Kernels.bc" :
 		kernelFile.source().c_str();
     size_t sourceSize[]    = { strlen(source) };
 
