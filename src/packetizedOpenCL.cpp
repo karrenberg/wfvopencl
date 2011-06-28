@@ -3078,15 +3078,15 @@ clGetPlatformInfo(cl_platform_id   platform,
 		case CL_PLATFORM_NAME:
 #ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
 #	ifdef PACKETIZED_OPENCL_USE_OPENMP
-			res = "Packetized OpenCL (vectorized, multi-threaded)";
-#	else
-			res = "Packetized OpenCL (vectorized, single-threaded)";
-#	endif
-#else
-#	ifdef PACKETIZED_OPENCL_USE_OPENMP
 			res = "Packetized OpenCL (scalar, multi-threaded)";
 #	else
 			res = "Packetized OpenCL (scalar, single-threaded)";
+#	endif
+#else
+#	ifdef PACKETIZED_OPENCL_USE_OPENMP
+			res = "Packetized OpenCL (vectorized, multi-threaded)";
+#	else
+			res = "Packetized OpenCL (vectorized, single-threaded)";
 #	endif
 #endif
 			break;
@@ -4700,7 +4700,11 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
-#	pragma omp parallel for shared(argument_struct) private(i, j) collapse(2)
+#	ifdef _WIN32
+#		pragma omp parallel for shared(argument_struct) private(i, j) // VS2010 only supports OpenMP 2.5
+#	else
+#		pragma omp parallel for shared(argument_struct) private(i, j) collapse(2) // collapse requires OpenMP 3.0
+#	endif
 #endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
@@ -4762,7 +4766,11 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
 	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
-#	pragma omp parallel for shared(argument_struct) private(i, j, k) collapse(3)
+#	ifdef _WIN32
+#		pragma omp parallel for shared(argument_struct) private(i, j, k) // VS2010 only supports OpenMP 2.5
+#	else
+#		pragma omp parallel for shared(argument_struct) private(i, j, k) collapse(3) // collapse requires OpenMP 3.0
+#	endif
 #endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
