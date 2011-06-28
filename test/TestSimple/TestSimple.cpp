@@ -62,6 +62,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include <SDKCommon.hpp>
+#include <SDKApplication.hpp>
+#include <SDKCommandArgs.hpp>
+#include <SDKFile.hpp>
+
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
 #else
@@ -73,50 +78,6 @@
 // Use a static data size for simplicity
 //
 #define DATA_SIZE (1024)
-
-////////////////////////////////////////////////////////////////////////////////
-
-/*
- * Converts the contents of a file into a string
- */
-std::string
-convertToString(const char *filename)
-{
-	size_t size;
-	char*  str;
-	std::string s;
-
-	std::fstream f(filename, (std::fstream::in | std::fstream::binary));
-
-	if(f.is_open())
-	{
-		size_t fileSize;
-		f.seekg(0, std::fstream::end);
-		size = fileSize = (size_t)f.tellg();
-		f.seekg(0, std::fstream::beg);
-
-		str = new char[size+1];
-		if(!str)
-		{
-			f.close();
-			return NULL;
-		}
-
-		f.read(str, fileSize);
-		f.close();
-		str[size] = '\0';
-	
-		s = str;
-		delete[] str;
-		return s;
-	}
-	else
-	{
-		printf("\nFile containg the kernel code(\".cl\") not found. Please copy the required file into the working directory.\n");
-		exit(1);
-	}
-	return NULL;
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -317,8 +278,19 @@ int main(int argc, char** argv)
 
     // Create the compute program from the source buffer
     //
-    const char * filename  = "TestSimple_Kernels.cl";
-    const char * source    = (useAMD || useIntel) ? convertToString(filename).c_str() : "TestSimple_Kernels.bc";
+    streamsdk::SDKFile kernelFile;
+	streamsdk::SDKCommon* sampleCommon = new streamsdk::SDKCommon();
+    std::string kernelPath = sampleCommon->getPath();
+	kernelPath.append("TestSimple_Kernels.cl");
+	if(!kernelFile.open(kernelPath.c_str()))
+	{
+		printf("Failed to load kernel file : %s\n", kernelPath.c_str());
+		return SDK_FAILURE;
+	}
+
+	const char * source = usePacketizer ?
+		"TestSimple_Kernels.bc" :
+		kernelFile.source().c_str();
     size_t sourceSize[]    = { strlen(source) };
 
     program = clCreateProgramWithSource(
