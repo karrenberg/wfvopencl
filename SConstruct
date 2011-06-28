@@ -209,11 +209,15 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 testApps = env.Split("""
 TestSimple
 Test2D
+TestLinearAccess
 TestBarrier
 TestBarrier2
-TestLinearAccess
 TestLoopBarrier
 TestLoopBarrier2
+BlackScholesSimple
+Histogram
+MandelbrotSimple
+MatrixTranspose
 """)
 
 # Those work in all configurations, including packetizer:
@@ -228,6 +232,13 @@ TestLoopBarrier2
 #""")
 
 #testApps = env.Split("""
+#TestSimple
+#Test2D
+#TestLinearAccess
+#TestBarrier
+#TestBarrier2
+#TestLoopBarrier
+#TestLoopBarrier2
 #BinarySearch
 #BinomialOption
 #BinomialOptionSimple
@@ -271,16 +282,9 @@ TestLoopBarrier2
 #URNGNoiseGL #uses opencl1.1 gl stuff
 #""")
 
-# Currently disabled (have to be adjusted to latest SDK)
+# Currently disabled (has to be adjusted to latest SDK)
 #testApps = env.Split("""
 #AmbientOcclusionRenderer
-#TestSimple
-#TestBarrier
-#TestBarrier2
-#TestLoopBarrier
-#TestLoopBarrier2
-#Test2D
-#TestLinearAccess
 #""")
 
 Execute(Mkdir('build/bin'))
