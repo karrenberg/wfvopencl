@@ -405,6 +405,7 @@ int main(int argc, char** argv) {
 	// Print a brief summary detailing the results
 	//
 	printf("Computed '%d/%d' correct values!\n", correct, dataSize);
+	const bool allCorrect = correct == dataSize;
 
 	// Shutdown and cleanup
 	//
@@ -416,5 +417,6 @@ int main(int argc, char** argv) {
 	clReleaseContext(context);
 	free (devices);
 
+	//return allCorrect ? 0 : 1; // 0 = successful // This line makes the app request infinite memory in no time
 	return 0;
 }

@@ -77,8 +77,8 @@
 
 // Use a static data size for simplicity
 //
-#define DATA_SIZE (1024)
-#define GROUP_NR (8)
+#define DATA_SIZE (1024) // 1024
+#define GROUP_NR (8) // 8
 #define GROUP_SIZE (DATA_SIZE/GROUP_NR)
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -140,8 +140,9 @@ int main(int argc, char** argv) {
 	unsigned i = 0;
 	const unsigned int dataSize = DATA_SIZE;
 	for (i = 0; i < dataSize; i++) {
-		data[i] = rand() / (float) RAND_MAX;
-		//if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
+		//data[i] = rand() / (float) RAND_MAX;
+		data[i] = i;
+		if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
 	}
 
 	cl_uint numPlatforms;
@@ -396,11 +397,11 @@ int main(int argc, char** argv) {
 	correct = 0;
 	for (i = 0; i < dataSize; i++) {
 		if (verifyResults(results, data, dataSize, i)) {
-			//printf("results[%d]: %f (correct)\n", i, results[i]);
+			printf("results[%d]: %f (correct)\n", i, results[i]);
 			correct++;
 		} else {
 			const float shiftedElem = ((i+1)%GROUP_SIZE==0) ? 0.f : data[i+1];
-			//printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], shiftedElem);
+			printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], shiftedElem);
 		}
 	}
 //	printf("expected:\n");
@@ -416,6 +417,7 @@ int main(int argc, char** argv) {
 	// Print a brief summary detailing the results
 	//
 	printf("Computed '%d/%d' correct values!\n", correct, dataSize);
+	const bool allCorrect = correct == dataSize;
 
 	// Shutdown and cleanup
 	//
@@ -427,5 +429,5 @@ int main(int argc, char** argv) {
 	clReleaseContext(context);
 	free (devices);
 
-	return 0;
+	return allCorrect ? 0 : 1; // 0 = successful
 }

@@ -414,6 +414,7 @@ int main(int argc, char** argv)
     // Print a brief summary detailing the results
     //
     printf("Computed '%d/%d' correct values!\n", correct, count);
+	const bool allCorrect = correct == count;
 
     // Shutdown and cleanup
     //
@@ -425,5 +426,5 @@ int main(int argc, char** argv)
     clReleaseContext(context);
 	free (devices);
 
-    return 0;
+	return allCorrect ? 0 : 1; // 0 = successful
 }

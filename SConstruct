@@ -23,6 +23,10 @@ compile_static_lib_driver = ARGUMENTS.get('static', 0)    # compile static libra
 if int(debug_runtime):
 	debug = 1
 
+if int(use_openmp) and int(num_threads) < 2:
+	use_openmp = 0
+	print "\nWARNING: openmp with #threads < 2 requested - ignored (scalar mode activated)!\n"
+
 if int(debug) and int(use_openmp):
 	print "\nWARNING: Using OpenMP in debug mode might lead to unknown behaviour!\n"
 

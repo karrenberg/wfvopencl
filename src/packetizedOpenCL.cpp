@@ -4647,13 +4647,15 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 //			verifyModule(*kernel->get_program()->module);
 //		);
 
-		typedPtr(
-			argument_struct,
-			1U, // get_work_dim
-			&modified_global_work_size,
-			&modified_local_work_size,
-			&i
-		);
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+		// Adding a local copy seems to help OpenMP-based implementation?!
+		// Otherwise, TestBarrier2 on Windows crashed (regardless of wrong results).
+		const cl_uint mg = modified_global_work_size;
+		const cl_uint ml = modified_local_work_size;
+		typedPtr(argument_struct, 1U, &mg, &ml, &i);
+#else
+		typedPtr(argument_struct, 1U, &modified_global_work_size, &modified_local_work_size, &i);
+#endif
 
 		PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "iteration " << i << " finished!\n"; );
 		PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
