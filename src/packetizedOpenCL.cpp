@@ -4612,10 +4612,10 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	#endif
 
 	// TODO: remove
-	if (global_work_size != modified_global_work_size)
-		errs() << "WARNING: global work size changed from '" << global_work_size << "' to '" << modified_global_work_size << "'!\n";
-	if (local_work_size != modified_local_work_size)
-		errs() << "WARNING: local work size changed from '" << local_work_size << "' to '" << modified_local_work_size << "'!\n";
+	//if (global_work_size != modified_global_work_size)
+		//errs() << "WARNING: global work size changed from '" << global_work_size << "' to '" << modified_global_work_size << "'!\n";
+	//if (local_work_size != modified_local_work_size)
+		//errs() << "WARNING: local work size changed from '" << local_work_size << "' to '" << modified_local_work_size << "'!\n";
 
 #endif
 

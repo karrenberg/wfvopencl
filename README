@@ -84,7 +84,7 @@ NOTES ON SAMPLES:
 - Samples ending with 'Simple' are usually simplified ones. Modifications usually come down to manually replacing vector code by scalar code
   in order to enable use of automatic vectorization.
 - Histogram has been modified to take a sharedArray of type uint instead of uchar to allow for packetization
-
+- MatrixTranspose might have problems with OpenMP 3.0 collapse -> check!
 
 
 TROUBLESHOOTING:
