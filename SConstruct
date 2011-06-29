@@ -227,6 +227,7 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 #SimpleConvolution
 #""")
 
+
 testApps = env.Split("""
 TestSimple
 Test2D
@@ -236,38 +237,42 @@ TestBarrier2
 TestLoopBarrier
 TestLoopBarrier2
 BinarySearch
-BinomialOption
 BinomialOptionSimple
 BitonicSort
-BlackScholes
 BlackScholesSimple
 DCT
 DwtHaar1D
 EigenValue
-FFT
 FastWalshTransform
 FloydWarshall
 Histogram
-Mandelbrot
 MandelbrotSimple
-MatrixMulImage
-MatrixMultiplication
 MatrixTranspose
-MersenneTwister
 MersenneTwisterSimple
-MonteCarloAsian
-NBody
 NBodySimple
 PrefixSum
-QuasiRandomSequence
 RadixSort
-RecursiveGaussian
 Reduction
 ScanLargeArrays
 SimpleConvolution
-SobelFilter
-URNG
 """)
+
+# These use vectors or other bad stuff and don't work with any configuration atm
+#testApps = env.Split("""
+#BinomialOption
+#BlackScholes
+#FFT
+#Mandelbrot
+#MatrixMulImage
+#MatrixMultiplication
+#MersenneTwister
+#MonteCarloAsian
+#NBody
+#QuasiRandomSequence
+#RecursiveGaussian
+#SobelFilter
+#URNG
+#""")
 
 # These use AMD specific extensions not available in our clc (TODO: do we use clc from 2.3 already?)
 #testApps = env.Split("""

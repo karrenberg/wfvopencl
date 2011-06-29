@@ -1,5 +1,8 @@
 #!/bin/bash
 echo ""
+echo "TestSimple"
+build/bin/TestSimple "$@"
+echo ""
 echo "BinomialOption"
 build/bin/BinomialOption -q -e -t -x 1000 -i 50 "$@"
 echo ""

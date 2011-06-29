@@ -1,5 +1,26 @@
 #!/bin/bash
 echo
+echo TestSimple
+build/bin/TestSimple "$@"
+echo
+echo Test2D
+build/bin/Test2D "$@"
+echo
+echo TestLinearAccess
+build/bin/TestLinearAccess "$@"
+echo
+echo TestBarrier
+build/bin/TestBarrier "$@"
+echo
+echo TestBarrier2
+build/bin/TestBarrier2 "$@"
+echo
+echo TestLoopBarrier
+build/bin/TestLoopBarrier "$@"
+echo
+echo TestLoopBarrier2
+build/bin/TestLoopBarrier2 "$@"
+echo
 echo BinarySearch
 build/bin/BinarySearch -q -e "$@"
 echo

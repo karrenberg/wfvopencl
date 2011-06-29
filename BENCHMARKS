@@ -1,0 +1,20 @@
+Application				# Intel	# AMD	# S1	# P1	# S4	# P4	#
+BinarySearch			# x		# x		# x		# 		# x		# 		#
+BinomialOptionSimple	# x		# x		# x		# 		# x(lnx)# 		#
+BitonicSort				# x		# x		# x		# x		# x		# x		#
+BlackScholesSimple		# x		# x		# x		# x		# x		# x		#
+DCT						# x		# x		# x		# 		# 		# 		#
+DwtHaar1D				# x		# x		# x		# 		# x		# 		#
+EigenValue				# x		# x		# x		# 		# x		# 		#
+FastWalshTransform		# x		# x		# x		# x		# x		# x		#
+FloydWarshall			# x		# x		# x		# 		# x		# 		#
+Histogram				# x		# x		# x		# x		# x		# x		#
+MandelbrotSimple		# x		# x		# x		# x		# x		# x		#
+MatrixTranspose			# x		# x		# x		# x		# 		# 		#
+MersenneTwisterSimple	# x		# x		# x		# 		# x		# 		#
+NBodySimple				# x		# x		# x		# 		# x(lnx)#		#
+PrefixSum				# x		# x		# x		# 		# x		# 		#
+RadixSort				# x		# x		# x		# 		# x		# 		#
+Reduction				# x		# x		# x		# 		# x		# 		#
+ScanLargeArrays			# x		# x		# 		# 		# 		# 		#
+SimpleConvolution		# x		# x		# x		# x		# x		# x		#

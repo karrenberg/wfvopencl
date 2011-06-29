@@ -1,5 +1,8 @@
 #!/bin/bash
 echo ""
+echo "TestSimple"
+build/bin/TestSimple "$@"
+echo ""
 echo "BitonicSort"
 build/bin/BitonicSort -q -e -x 131072 -t -i 50 "$@"
 echo ""
