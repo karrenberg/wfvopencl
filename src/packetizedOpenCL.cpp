@@ -4747,6 +4747,32 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && "should give error message before executeRangeKernel!");
 
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+	// allocate local memory for each thread to prevent data races
+	// TODO: move somewhere else? should all be "static" information!
+	const cl_uint numArgs = kernel->get_num_args();
+	void* argstructs[PACKETIZED_OPENCL_MAX_NUM_THREADS];
+	void** localdata[PACKETIZED_OPENCL_MAX_NUM_THREADS]; // too much, but easier to access
+
+	const cl_uint argStrSize = kernel->get_argument_struct_size();
+	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+		localdata[j] = (void**)malloc(numArgs*sizeof(void*));
+		for (cl_uint i=0; i<numArgs; ++i) {
+			if (kernel->arg_is_local(i)) {
+				const size_t argSize = kernel->arg_get_size(i);
+				// allocate memory for this local pointer (store pointer to be able free later)
+				localdata[j][i] = malloc(argSize);
+				// store in kernel (overwrite in each thread-iteration)
+				void* ldata = kernel->arg_get_data(i);
+				*((void**)ldata) = localdata[j][i];
+			}
+		}
+		// now copy entire argument struct with updated local pointers
+		argstructs[j] = malloc(argStrSize);
+		memcpy(argstructs[j], argument_struct, argStrSize);
+	}
+#endif
+
 	cl_int i, j;
 	
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
@@ -4776,6 +4802,20 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 			PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 		}
 	}
+
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+	// clean up memory allocated for local data and each thread's argument struct
+	for (cl_uint i=0; i<numArgs; ++i) {
+		if (kernel->arg_is_local(i)) {
+			for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+				free(localdata[j][i]);
+			}
+		}
+	}
+	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+		free(argstructs[j]);
+	}
+#endif
 
 	PACKETIZED_OPENCL_DEBUG( outs() << "execution of kernel finished!\n"; );
 
@@ -4813,6 +4853,32 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && num_iterations_2 && "should give error message before executeRangeKernel!");
 
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+	// allocate local memory for each thread to prevent data races
+	// TODO: move somewhere else? should all be "static" information!
+	const cl_uint numArgs = kernel->get_num_args();
+	void* argstructs[PACKETIZED_OPENCL_MAX_NUM_THREADS];
+	void** localdata[PACKETIZED_OPENCL_MAX_NUM_THREADS]; // too much, but easier to access
+
+	const cl_uint argStrSize = kernel->get_argument_struct_size();
+	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+		localdata[j] = (void**)malloc(numArgs*sizeof(void*));
+		for (cl_uint i=0; i<numArgs; ++i) {
+			if (kernel->arg_is_local(i)) {
+				const size_t argSize = kernel->arg_get_size(i);
+				// allocate memory for this local pointer (store pointer to be able free later)
+				localdata[j][i] = malloc(argSize);
+				// store in kernel (overwrite in each thread-iteration)
+				void* ldata = kernel->arg_get_data(i);
+				*((void**)ldata) = localdata[j][i];
+			}
+		}
+		// now copy entire argument struct with updated local pointers
+		argstructs[j] = malloc(argStrSize);
+		memcpy(argstructs[j], argument_struct, argStrSize);
+	}
+#endif
+
 	cl_int i, j, k;
 
 #ifdef PACKETIZED_OPENCL_USE_OPENMP
@@ -4844,6 +4910,20 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 			}
 		}
 	}
+
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+	// clean up memory allocated for local data and each thread's argument struct
+	for (cl_uint i=0; i<numArgs; ++i) {
+		if (kernel->arg_is_local(i)) {
+			for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+				free(localdata[j][i]);
+			}
+		}
+	}
+	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+		free(argstructs[j]);
+	}
+#endif
 
 	PACKETIZED_OPENCL_DEBUG( outs() << "execution of kernel finished!\n"; );
 
