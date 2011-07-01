@@ -1,6 +1,7 @@
 #!/bin/bash
 build/bin/TestSimple "$@" && \
 build/bin/Test2D "$@" && \
+build/bin/Test2D2 "$@" && \
 build/bin/TestLinearAccess "$@" && \
 build/bin/TestBarrier "$@" && \
 build/bin/TestBarrier2 "$@" && \

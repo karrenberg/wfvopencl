@@ -204,15 +204,19 @@ namespace PacketizedOpenCL {
 		packetizer.addFunction(kernelName, targetKernelName);
 
 		// replace using this scheme:
-		// get_global_id       -> non-simd-dim, considered uniform, leave untouched
+		// get_global_id       -> non-simd-dim, considered uniform, ALWAYS broadcast! (directly using as index for load from packetized input = bad)
 		// get_global_id_split -> non-linear access, considered varying, replace by specially named packet function for later fixing
 		// get_global_id_SIMD  -> linear access, considered varying, replace by itself to load vector from single index
 		// see generateOpenCLFunctions() for more details
+
+		// TODO: tell the packetizer that get_global_id(non-simd-dim) is actually uniform!
+
 		packetizer.addNativeFunction( "get_global_id_split",
 									 -1,
 									 PacketizedOpenCL::getFunction("get_global_id_split_SIMD", mod),
 									 true); // packetization is mandatory
 
+		// TODO: why is this commented out????
 		//packetizer.addNativeFunction( "get_global_id_SIMD",
 									 //-1,
 									 //PacketizedOpenCL::getFunction("get_global_id_SIMD", mod),
@@ -223,18 +227,13 @@ namespace PacketizedOpenCL {
 									 PacketizedOpenCL::getFunction("get_local_id_split_SIMD", mod),
 									 true); // packetization is mandatory
 
+		// TODO: why is this commented out????
 		//packetizer.addNativeFunction("get_local_id_SIMD",
 									 //-1,
 									 //PacketizedOpenCL::getFunction("get_local_id_SIMD", mod),
 									 //true); // packetization is mandatory
 
 		packetizer.run();
-
-		// will never fire (prototype declared)
-		//if (!PacketizedOpenCL::getFunction(targetKernelName, mod)) {
-			//errs() << "ERROR: packetized target function not found in module!\n";
-			//return false;
-		//}
 
 		return true;
 	}
@@ -302,18 +301,18 @@ namespace PacketizedOpenCL {
 		// Constant Definitions
 		std::string str = "";
 		switch (value->getType()->getTypeID()) {
-			default                : str = "%x"; break;
 			case Type::IntegerTyID : str = "%d"; break;
 			case Type::FloatTyID   : str = "%f"; break;
 			case Type::PointerTyID : str = "%x"; break;
 			case Type::VectorTyID  : {
 				switch (value->getType()->getContainedType(0)->getTypeID()) {
-					default                : str = "%x %x %x %x"; break;
 					case Type::IntegerTyID : str = "%d %d %d %d"; break;
 					case Type::FloatTyID   : str = "%f %f %f %f"; break;
+					default                : str = "%x %x %x %x"; break;
 				}
 				break;
 			}
+			default                : str = "%x"; break;
 		}
 		std::stringstream sstr;
 		sstr << "DEBUG: " << message << str << (endLine ? "\x0A" : "");
@@ -641,6 +640,7 @@ namespace PacketizedOpenCL {
 		}
 		return local_id_flat;
 	}
+
 	void adjustLiveValueLoadGEPs(CallInst* newCall, const unsigned continuation_id, const unsigned num_dimensions, Instruction** local_ids, Instruction** local_sizes) {
 		
 		// generate computation of "flattened" local id
@@ -703,6 +703,7 @@ namespace PacketizedOpenCL {
 			);
 		}
 	}
+
 	void adjustLiveValueStoreGEPs(Function* continuation, const unsigned num_dimensions, LLVMContext& context) {
 		assert (continuation);
 		PACKETIZED_OPENCL_DEBUG( outs() << "\nadjustLiveValueStoreGEPs(" << continuation->getNameStr() << ")\n"; );
@@ -808,6 +809,7 @@ namespace PacketizedOpenCL {
 		delete [] local_ids;
 		delete [] local_sizes;
 	}
+
 	void mapCallbacksToContinuationArguments(const unsigned num_dimensions, LLVMContext& context, Module* module, ContinuationGenerator::ContinuationVecType& continuations) {
 		typedef ContinuationGenerator::ContinuationVecType ContVecType;
 
@@ -827,7 +829,6 @@ namespace PacketizedOpenCL {
 			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(arg++), continuation);
 			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(arg++), continuation);
 #else
-			// NOTE: _split functions can remain instead of being replaced by _SIMD function if only used on uniform path!
 			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(arg), continuation);
 			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_id_SIMD"), cast<Value>(arg++), continuation);
 			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(arg), continuation);
@@ -913,6 +914,7 @@ namespace PacketizedOpenCL {
 			);
 		}
 	}
+
 	inline void generateLoopsAroundCall(
 			CallInst* call,
 			const unsigned num_dimensions,
@@ -1080,12 +1082,12 @@ namespace PacketizedOpenCL {
 				global_ids[i] = global_id;
 				local_ids[i] = local_id;
 
-				PACKETIZED_OPENCL_DEBUG_RUNTIME(
+				//PACKETIZED_OPENCL_DEBUG_RUNTIME(
 					//insertPrintf("global_id[i]: ", global_ids[i], true, call);
 					//insertPrintf("local_id[i]: ", local_ids[i], true, call);
 					//insertPrintf("global_id_split_simd: ", *arg_global_id_split_simd, true, call);
 					//insertPrintf("local_id_split_simd: ", *arg_local_id_split_simd, true, call);
-				);
+				//);
 			} else {
 				std::stringstream sstr2;
 				sstr2 << "global_id_" << i;
@@ -1098,10 +1100,10 @@ namespace PacketizedOpenCL {
 				global_ids[i] = global_id; // not required for anything else but being supplied as parameter
 				local_ids[i] = local_id;
 				
-				PACKETIZED_OPENCL_DEBUG_RUNTIME(
+				//PACKETIZED_OPENCL_DEBUG_RUNTIME(
 					//insertPrintf("global_id[i]: ", global_ids[i], true, call);
 					//insertPrintf("local_id[i]: ", local_ids[i], true, call);
-				);
+				//);
 			}
 #endif
 
@@ -1225,7 +1227,6 @@ namespace PacketizedOpenCL {
 		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f);
 
 		// remap calls to parameters that are generated inside loop(s)
-		// NOTE: _split functions can remain instead of being replaced by _SIMD function if only used on uniform path!
 		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     arg_num_groups_array, f);
 		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      arg_global_id_array, f);
 		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       arg_local_id_array, f);
@@ -1602,13 +1603,13 @@ namespace PacketizedOpenCL {
 		std::stringstream strs;
 		strs << kernel_name << "_SIMD";
 		const std::string kernel_simd_name = strs.str();
-		llvm::Function* f_SIMD = PacketizedOpenCL::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module, PACKETIZED_OPENCL_SIMD_WIDTH);
+		llvm::Function* f_SIMD = PacketizedOpenCL::generatePacketPrototypeFromOpenCLKernel(f, kernel_simd_name, module);
 		if (!f_SIMD) {
 			errs() << "ERROR: could not create packet prototype for kernel '" << kernel_simd_name << "'!\n";
 			return NULL;
 		}
 
-		PacketizedOpenCL::generateOpenCLFunctions(module, PACKETIZED_OPENCL_SIMD_WIDTH);
+		PacketizedOpenCL::generateOpenCLFunctions(module);
 
 		llvm::Function* gid = PacketizedOpenCL::getFunction("get_global_id", module);
 		llvm::Function* gid_split = PacketizedOpenCL::getFunction("get_global_id_split", module);
@@ -1627,7 +1628,7 @@ namespace PacketizedOpenCL {
 		// Optimize cases where index is used directly or only with linear
 		// combinations applied (replace callee with get_global_id_SIMD).
 		// Everywhere this is not possible, force splitting of the packets
-		// (scattered-gather/scattered-store, replace calls with get_global_id_split).
+		// (gather/scatter, replace calls with get_global_id_split).
 		// Calls to get_global_id with other dimensions remain unchanged (uses
 		// on packetized paths will be replicated);
 		//PACKETIZED_OPENCL_DEBUG( outs() << *f << "\n"; );
@@ -1662,37 +1663,75 @@ namespace PacketizedOpenCL {
 			errs() << "ERROR: packetization of kernel failed!\n";
 			return NULL;
 		}
-		f_SIMD = PacketizedOpenCL::getFunction(kernel_simd_name, module); //pointer not valid anymore!
+		f_SIMD = PacketizedOpenCL::getFunction(kernel_simd_name, module); // old pointer not valid anymore!
+
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
+		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd.mod.ll"); );
 		PACKETIZED_OPENCL_DEBUG( outs() << *f_SIMD << "\n"; );
 
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd.mod.ll"); );
+		// fix accesses to varying indices that enforce splitting
 		std::set<GetElementPtrInst*> fixedGEPs;
-		PacketizedOpenCL::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCL::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_SIMD_WIDTH, fixedGEPs);
-		PacketizedOpenCL::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCL::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_SIMD_WIDTH, fixedGEPs);
+		PacketizedOpenCL::fixSplitArrayAccesses(f_SIMD, PacketizedOpenCL::getFunction("get_global_id_split_SIMD", module), fixedGEPs);
+		PacketizedOpenCL::fixSplitArrayAccesses(f_SIMD, PacketizedOpenCL::getFunction("get_local_id_split_SIMD", module), fixedGEPs);
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd2.mod.ll"); );
 
+		// fix accesses to uniform indices coming from uniform functions
+		fixedGEPs.clear(); // TODO: should we really clear?
+		PacketizedOpenCL::fixVectorAccessFromScalarIndices(f_SIMD, PacketizedOpenCL::getFunction("get_global_id", module), fixedGEPs);
+		PacketizedOpenCL::fixVectorAccessFromScalarIndices(f_SIMD, PacketizedOpenCL::getFunction("get_local_id", module), fixedGEPs);
+		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
+		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd3.mod.ll"); );
+
+		// fix accesses to uniform indices coming from uniform functions
+		// TODO: this has not really been tested so far due to the lack of a test case ;)
+		// TODO: This is also not really enough - we have to test ALL loads/stores for uniform indices
+		fixedGEPs.clear(); // TODO: should we really clear?
+		for (Function::arg_iterator A=f_SIMD->arg_begin(), AE=f_SIMD->arg_end(); A!=AE; ++A) {
+			if (!A->getType()->isPointerTy()) continue;
+			const PointerType* pType = cast<PointerType>(A->getType());
+			const cl_uint clAddrSpace = PacketizedOpenCL::convertLLVMAddressSpace(pType->getAddressSpace());
+			if (clAddrSpace != CL_PRIVATE) continue;
+
+			PACKETIZED_OPENCL_DEBUG( outs() << "  testing memory accesses via uses of uniform input argument: " << *A << "\n"; );
+			PacketizedOpenCL::fixVectorAccessFromScalarIndices(f_SIMD, A, fixedGEPs);
+		}
+		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
+		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd4.mod.ll"); );
+
+		// fix accesses to constant indices
+		fixedGEPs.clear(); // TODO: should we really clear?
+		PacketizedOpenCL::fixVectorAccessFromConstantIndices(f_SIMD, fixedGEPs);
+		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
+		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd5.mod.ll"); );
+		PACKETIZED_OPENCL_DEBUG( outs() << *f_SIMD; );
 
 		PACKETIZED_OPENCL_DEBUG_RUNTIME(
 			BasicBlock* block = &f_SIMD->getEntryBlock();
-			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-				if (CallInst* call = dyn_cast<CallInst>(I)) {
-					if (call->getCalledFunction()->getNameStr() == "get_global_size")
-						insertPrintf("global size: ", call, true, block->getTerminator());
-					if (call->getCalledFunction()->getNameStr() == "get_local_size")
-						insertPrintf("local size: ", call, true, block->getTerminator());
-					if (call->getCalledFunction()->getNameStr() == "get_group_id")
-						insertPrintf("group id: ", call, true, block->getTerminator());
-					if (call->getCalledFunction()->getNameStr() == "get_global_id")
-						insertPrintf("global id: ", call, true, block->getTerminator());
-					if (call->getCalledFunction()->getNameStr() == "get_local_id")
-						insertPrintf("local id: ", call, true, block->getTerminator());
-					if (call->getCalledFunction()->getNameStr() == "get_global_id_SIMD")
-						insertPrintf("global id SIMD: ", call, true, block->getTerminator());
-					if (call->getCalledFunction()->getNameStr() == "get_local_id_SIMD")
-						insertPrintf("local id SIMD: ", call, true, block->getTerminator());
+			insertPrintf("\nf_SIMD called!", Constant::getNullValue(Type::getInt32Ty(getGlobalContext())), true, block->getFirstNonPHI());
+			for (Function::iterator BB=f_SIMD->begin(), BBE=f_SIMD->end(); BB!=BBE; ++BB) {
+				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+					if (CallInst* call = dyn_cast<CallInst>(I)) {
+						std::string name = call->getCalledFunction()->getNameStr();
+						if (name != "get_global_size" &&
+							name != "get_local_size" &&
+							name != "get_group_id" &&
+							name != "get_global_id" &&
+							name != "get_local_id" &&
+							name != "get_global_id_SIMD" &&
+							name != "get_local_id_SIMD" &&
+							name != "get_global_id_split_SIMD" &&
+							name != "get_local_id_split_SIMD") continue;
+
+						assert (isa<ConstantInt>(call->getOperand(0)));
+						ConstantInt* dimIdx = cast<ConstantInt>(call->getOperand(0));
+						uint64_t intValue = *dimIdx->getValue().getRawData();
+						std::stringstream sstr;
+						sstr << name << "(" << intValue << "): ";
+
+						insertPrintf(sstr.str(), call, true, BB->getTerminator());
+					}
 				}
 			}
 		);
@@ -1791,13 +1830,6 @@ namespace PacketizedOpenCL {
 			PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper.ll"); );
 			PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 
-			//PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_wrapper->getParent(), "debug_f_simd.mod.ll"); );
-			//std::set<GetElementPtrInst*> fixedGEPs;
-			//PacketizedOpenCL::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCL::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_SIMD_WIDTH, fixedGEPs);
-			//PacketizedOpenCL::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCL::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_SIMD_WIDTH, fixedGEPs);
-			//PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
-			//PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_wrapper->getParent(), "debug_f_simd2.mod.ll"); );
-
 			// - callbacks inside continuations have to be replaced by argument accesses
 			PacketizedOpenCL::mapCallbacksToContinuationArguments(num_dimensions, context, module, continuations);
 
@@ -1806,20 +1838,6 @@ namespace PacketizedOpenCL {
 			// - map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
 			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
 			PacketizedOpenCL::generateBlockSizeLoopsForContinuations(num_dimensions, simd_dim, context, f_wrapper, continuations);
-
-//			PACKETIZED_OPENCL_DEBUG_RUNTIME(
-//				Function* cont = continuations[1];
-//				for (Function::iterator BB=cont->begin(), BBE=cont->end(); BB!=BBE; ++BB) {
-//					if (!isa<ReturnInst>(BB->getTerminator())) continue;
-//					for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
-//						if (isa<StoreInst>(I)) {
-//							insertPrintf("!! stored return value: ", I->getOperand(0), true, I);
-//							insertPrintf("!!   address: ", I->getOperand(1), true, I);
-//						}
-//					}
-//					break;
-//				}
-//			);
 
 		} else {
 
@@ -1844,14 +1862,10 @@ namespace PacketizedOpenCL {
 			PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_arg_wrapper.ll"); );
 			PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 
-			//std::set<GetElementPtrInst*> fixedGEPs;
-			//PacketizedOpenCL::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCL::getFunction("get_global_id_split_SIMD", module), PACKETIZED_OPENCL_SIMD_WIDTH, fixedGEPs);
-			//PacketizedOpenCL::fixUniformPacketizedArrayAccesses(f_SIMD, PacketizedOpenCL::getFunction("get_local_id_split_SIMD", module), PACKETIZED_OPENCL_SIMD_WIDTH, fixedGEPs);
-			//PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
-
 			// generate loop(s) over blocksize(s) (BEFORE inlining!)
 			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f_SIMD);
 			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simd_dim, context, module);
+
 		}
 
 		assert (f_wrapper);
@@ -1860,15 +1874,28 @@ namespace PacketizedOpenCL {
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
 		PacketizedOpenCL::optimizeFunction(f_wrapper); // enable all optimizations
+		
+		PACKETIZED_OPENCL_DEBUG_RUNTIME(
+			for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
+				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+					if (!isa<StoreInst>(I)) continue;
+					insertPrintf("  stored return value: ", I->getOperand(0), true, BB->getTerminator());
+					//insertPrintf("    address: ", I->getOperand(1), true, I);
+				}
+			}
+		);
+
 		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
 		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_wrapped_final.mod.ll"); );
 
+
 		*f_SIMD_ret = f_SIMD;
 		return f_wrapper;
 	}
 #endif
+
 
 	inline cl_uint convertLLVMAddressSpace(cl_uint llvm_address_space) {
 		switch (llvm_address_space) {
@@ -1887,6 +1914,7 @@ namespace PacketizedOpenCL {
 			default: return "";
 		}
 	}
+
 
 
 	//------------------------------------------------------------------------//
@@ -4789,6 +4817,21 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 			PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
 			const cl_int group_id[2] = { i, j };
+
+//			PACKETIZED_OPENCL_DEBUG_RUNTIME(
+//				//hardcoded debug output
+//				struct t { cl_float* input; cl_float* output; } __attribute__((packed))* tt = (t*)kernel->get_argument_struct();
+//				outs() << "  input: "  << tt->output  << "\n";
+//				for (cl_uint f=0; f<16; ++f) {
+//					outs() << " " << tt->input[f];
+//				}
+//				outs() << "\n  output: "  << tt->output  << "\n";
+//				for (cl_uint f=0; f<256; ++f) {
+//					outs() << " " << tt->output[f];
+//				}
+//				outs() << "\n\n";
+//				verifyModule(*kernel->get_program()->module);
+//			);
 
 			typedPtr(
 				argument_struct,

@@ -1,6 +1,4 @@
-// This kernel tests whether continuations for barriers are constructed properly
-// and live values are correctly stored and transferred. The test fails if the
-// barrier is removed.
+// This kernel produces an output that is of size input_size * input_size.
 __kernel void Test2D(
    __global float* input,
    __global float* output)

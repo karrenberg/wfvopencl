@@ -75,7 +75,6 @@ blackScholes(const __global float *randArray,
              __global float *call,
              __global float *put)
 {
-#if 1
     float d1, d2;
     float phiD1, phiD2;
     float sigmaSqrtT;
@@ -105,9 +104,5 @@ blackScholes(const __global float *randArray,
     phi(-d1, &phiD1), phi(-d2, &phiD2);
     //put[xPos]  = KexpMinusRT * phiD2 - S * phiD1;
     put[yPos * width + xPos]  = KexpMinusRT * phiD2 - S * phiD1;
-#else
-    size_t xPos = get_global_id(0);
-	put[xPos] = randArray[xPos];
-#endif
 }
 

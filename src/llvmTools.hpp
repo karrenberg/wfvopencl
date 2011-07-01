@@ -308,7 +308,7 @@ namespace PacketizedOpenCL {
 		return wrapper;
 	}
 
-	void generateOpenCLFunctions(Module* mod, const unsigned simdWidth) {
+	void generateOpenCLFunctions(Module* mod) {
 		assert (mod);
 		LLVMContext& context = mod->getContext();
 
@@ -317,6 +317,7 @@ namespace PacketizedOpenCL {
 
 		// generate 'unsigned get_global_id(unsigned)' if not already there
 		// represents uniform accesses to global id (e.g. of other dimensions than simd_dim)
+		// is required to be broadcasted (loading from this as index otherwise would be equivalent to get_global_id_SIMD)
 		if (!mod->getFunction("get_global_id")) {
 			const FunctionType* fTypeG0 = FunctionType::get(Type::getInt32Ty(context), params, false);
 			Function::Create(fTypeG0, Function::ExternalLinkage, "get_global_id", mod);
@@ -327,7 +328,7 @@ namespace PacketizedOpenCL {
 		Function::Create(fTypeG1, Function::ExternalLinkage, "get_global_id_split", mod);
 		// generate '__m128i get_global_id_split_SIMD(unsigned)'
 		// returns a vector to force splitting during packetization
-		const FunctionType* fTypeG2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
+		const FunctionType* fTypeG2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), PACKETIZED_OPENCL_SIMD_WIDTH), params, false);
 		Function::Create(fTypeG2, Function::ExternalLinkage, "get_global_id_split_SIMD", mod);
 		// generate 'unsigned get_global_id_SIMD(unsigned)'
 		// does not return a vector because the simd value is loaded from the
@@ -338,6 +339,7 @@ namespace PacketizedOpenCL {
 
 		// generate 'unsigned get_local_id(unsigned)' if not already there
 		// represents uniform accesses to local id (e.g. of other dimensions than simd_dim)
+		// is required to be broadcasted (loading from this as index otherwise would be equivalent to get_global_id_SIMD)
 		if (!mod->getFunction("get_local_id")) {
 			const FunctionType* fTypeL0 = FunctionType::get(Type::getInt32Ty(context), params, false);
 			Function::Create(fTypeL0, Function::ExternalLinkage, "get_local_id", mod);
@@ -348,7 +350,7 @@ namespace PacketizedOpenCL {
 		Function::Create(fTypeL1, Function::ExternalLinkage, "get_local_id_split", mod);
 		// generate '__m128i get_local_id_split_SIMD(unsigned)'
 		// returns a vector to force splitting during packetization
-		const FunctionType* fTypeL2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), simdWidth), params, false);
+		const FunctionType* fTypeL2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), PACKETIZED_OPENCL_SIMD_WIDTH), params, false);
 		Function::Create(fTypeL2, Function::ExternalLinkage, "get_local_id_split_SIMD", mod);
 		// generate 'unsigned get_local_id_SIMD(unsigned)'
 		// does not return a vector because the simd value is loaded from the
@@ -422,7 +424,7 @@ namespace PacketizedOpenCL {
 		return Function::Create(fType, Function::ExternalLinkage, name, mod);
 	}
 
-	Function* generatePacketPrototypeFromOpenCLKernel(const Function* kernel, const std::string& packetKernelName, Module* mod, const unsigned simdWidth) {
+	Function* generatePacketPrototypeFromOpenCLKernel(const Function* kernel, const std::string& packetKernelName, Module* mod) {
 		assert (kernel && mod);
 		assert (kernel->getParent() == mod);
 		LLVMContext& context = mod->getContext();
@@ -466,9 +468,9 @@ namespace PacketizedOpenCL {
 						return NULL;
 					}
 					//const VectorType* vType = contType->isIntegerTy()
-						//? VectorType::get(Type::getInt32Ty(context), simdWidth) // make i32 out of any integer type
-						//: VectorType::get(contType, simdWidth);
-					const VectorType* vType = VectorType::get(contType, simdWidth);
+						//? VectorType::get(Type::getInt32Ty(context), PACKETIZED_OPENCL_SIMD_WIDTH) // make i32 out of any integer type
+						//: VectorType::get(contType, PACKETIZED_OPENCL_SIMD_WIDTH);
+					const VectorType* vType = VectorType::get(contType, PACKETIZED_OPENCL_SIMD_WIDTH);
 					params.push_back(PointerType::get(vType, pType->getAddressSpace()));
 
 					delete td;
@@ -931,6 +933,7 @@ namespace PacketizedOpenCL {
 		}
 		return false;
 	}
+
 	void fixLocalSizeSIMDUsageInIndexCalculation(GetElementPtrInst* gep, const unsigned simdDim) {
 		assert (gep);
 		PACKETIZED_OPENCL_DEBUG( outs() << "\nfixLocalSizeSIMDUsageInIndexCalculation(" << *gep << ")\n"; );
@@ -1006,6 +1009,7 @@ namespace PacketizedOpenCL {
 					// because kernels might rely on the actual unmodified number of threads
 					// in a group.
 					for (std::set<GetElementPtrInst*>::iterator it=dependentGEPs.begin(), E=dependentGEPs.end(); it!=E; ++it) {
+						// TODO: this function does not have any effect?!
 						fixLocalSizeSIMDUsageInIndexCalculation(*it, simdDim);
 					}
 
@@ -1033,10 +1037,10 @@ namespace PacketizedOpenCL {
 		}
 	}
 
-	// helper for fixUniformPacketizedArrayAccesses()
+	// helper for fixSplitArrayAccesses() and fixVectorAccessFromScalarIndices()
 	// Recursively searches all dependency paths top-down from I and collects all
 	// GEP instructions.
-	void findDependentGEPs(Instruction* I, std::vector<GetElementPtrInst*>& gepVec, std::set<Instruction*>& visited) {
+	void findDependentGEPs(Instruction* I, std::vector<GetElementPtrInst*>& gepVec, std::set<Instruction*>& visited, const bool stopAtBroadcasts=false) {
 		if (visited.find(I) != visited.end()) return;
 		visited.insert(I);
 
@@ -1045,55 +1049,58 @@ namespace PacketizedOpenCL {
 			return;
 		}
 
+		if (stopAtBroadcasts && I->getType()->isVectorTy()) return;
+
 		for (Instruction::use_iterator U=I->use_begin(), UE=I->use_end(); U!=UE; ++U) {
-			if (Instruction* useI = dyn_cast<Instruction>(*U))
-				findDependentGEPs(useI, gepVec, visited);
+			if (Instruction* useI = dyn_cast<Instruction>(*U)) {
+				findDependentGEPs(useI, gepVec, visited, stopAtBroadcasts);
+			}
 		}
 	}
-
 
 	// Modify all GEPs in f that use indices returned by splitF (that have to be split).
 	// This fixes access to "uniform packetized" arrays, which have packetized
 	// type but hold the exact same data as the scalar array (e.g. float[128] ->  __m128[32]).
-	// Instead of accessing <i0+0, i1+1, i2+2, i3+3> as in the fully packetized case,
+	// Instead of accessing <i0+0, i1+1, i2+2, i3+3> as in the generated scatter/gather code,
 	// these have to access <i0/4 + i0%4, i1/4 + i1%4, i2/4 + i2%4, i3/4 + i3%4>.
 	//
 	// Example:
 	//
 	// BEFORE:
-	// %array = load ...                                ; <<4 x float>*>
+	// %array = ...                                     ; <[ <4 x float>* ]>
 	// %indices = splitF()                              ; <<4 x i32>>
 	// %idx0 = extractelement <4 x i32> %indices, i32 0 ; <i32>    // 0
 	// %idx1 = extractelement <4 x i32> %indices, i32 1 ; <i32>    // 2
 	// %idx2 = extractelement <4 x i32> %indices, i32 2 ; <i32>    // 4
 	// %idx3 = extractelement <4 x i32> %indices, i32 3 ; <i32>    // 6
-	// %gep0 = GEP %array, %idx0, 0                     ; <float>  // scalar element 0
-	// %gep1 = GEP %array, %idx1, 1                     ; <float>  // scalar element 2*4+1=9  instead of 2
-	// %gep2 = GEP %array, %idx2, 2                     ; <float>  // scalar element 4*4+2=18 instead of 4
-	// %gep3 = GEP %array, %idx3, 3                     ; <float>  // scalar element 6*4+3=27 instead of 6
+	// %gep0 = GEP %array, %idx0, 0                     ; <float*>  // pointer to scalar element 0
+	// %gep1 = GEP %array, %idx1, 1                     ; <float*>  // pointer to scalar element 2*4+1=9  instead of 2
+	// %gep2 = GEP %array, %idx2, 2                     ; <float*>  // pointer to scalar element 4*4+2=18 instead of 4
+	// %gep3 = GEP %array, %idx3, 3                     ; <float*>  // pointer to scalar element 6*4+3=27 instead of 6
 	//
 	// AFTER:
-	// %array = load ...                                ; <<4 x float>*>
+	// %array = ...                                     ; <[ <4 x float>* ]>
 	// %indices = splitF()                              ; <<4 x i32>>
 	// %idx0 = extractelement <4 x i32> %indices, i32 0 ; <i32>    // 0
 	// %idx1 = extractelement <4 x i32> %indices, i32 1 ; <i32>    // 2
 	// %idx2 = extractelement <4 x i32> %indices, i32 2 ; <i32>    // 4
 	// %idx3 = extractelement <4 x i32> %indices, i32 3 ; <i32>    // 6
 	// %simdWidth = i32 4                               ; <i32>
-	// %idx0.d = udiv <i32> %idx0, %simdWidth            ; <i32>   // 0/4=0
-	// %idx1.d = udiv <i32> %idx1, %simdWidth            ; <i32>   // 2/4=0
-	// %idx2.d = udiv <i32> %idx2, %simdWidth            ; <i32>   // 4/4=1
-	// %idx3.d = udiv <i32> %idx3, %simdWidth            ; <i32>   // 6/4=1
-	// %idx0.r = urem <i32> %idx0, %simdWidth            ; <i32>   // 0%4=0
-	// %idx1.r = urem <i32> %idx1, %simdWidth            ; <i32>   // 2%4=2
-	// %idx2.r = urem <i32> %idx2, %simdWidth            ; <i32>   // 4%4=0
-	// %idx3.r = urem <i32> %idx3, %simdWidth            ; <i32>   // 6%4=2
-	// %gep0 = GEP %array, %idx0.d, %idx0.r              ; <float> // scalar element 0+0=0
-	// %gep1 = GEP %array, %idx1.d, %idx1.r              ; <float> // scalar element 0+2=2
-	// %gep2 = GEP %array, %idx2.d, %idx2.r              ; <float> // scalar element 1+0=4
-	// %gep3 = GEP %array, %idx3.d, %idx3.r              ; <float> // scalar element 1+2=6
-	void fixUniformPacketizedArrayAccesses(Function* f, Function* splitF, const unsigned simdWidth, std::set<GetElementPtrInst*>& fixedGEPs) {
+	// %idx0.d = udiv <i32> %idx0, %simdWidth           ; <i32>   // 0/4=0
+	// %idx1.d = udiv <i32> %idx1, %simdWidth           ; <i32>   // 2/4=0
+	// %idx2.d = udiv <i32> %idx2, %simdWidth           ; <i32>   // 4/4=1
+	// %idx3.d = udiv <i32> %idx3, %simdWidth           ; <i32>   // 6/4=1
+	// %idx0.r = urem <i32> %idx0, %simdWidth           ; <i32>   // 0%4=0
+	// %idx1.r = urem <i32> %idx1, %simdWidth           ; <i32>   // 2%4=2
+	// %idx2.r = urem <i32> %idx2, %simdWidth           ; <i32>   // 4%4=0
+	// %idx3.r = urem <i32> %idx3, %simdWidth           ; <i32>   // 6%4=2
+	// %gep0 = GEP %array, %idx0.d, %idx0.r             ; <float*> // pointer to scalar element 0+0=0
+	// %gep1 = GEP %array, %idx1.d, %idx1.r             ; <float*> // pointer to scalar element 0+2=2
+	// %gep2 = GEP %array, %idx2.d, %idx2.r             ; <float*> // pointer to scalar element 1+0=4
+	// %gep3 = GEP %array, %idx3.d, %idx3.r             ; <float*> // pointer to scalar element 1+2=6
+	void fixSplitArrayAccesses(Function* f, Function* splitF, std::set<GetElementPtrInst*>& fixedGEPs) {
 		assert (f && splitF);
+		PACKETIZED_OPENCL_DEBUG( outs() << "fixSplitArrayAccesses(" << splitF->getName() << ")\n"; );
 
 		// first walk the dependency-graph top-down to find GEPs that use (modified) indices
 		std::vector<GetElementPtrInst*> gepVec;
@@ -1128,7 +1135,7 @@ namespace PacketizedOpenCL {
 			assert (idx->getType()->isIntegerTy());
 			assert ((*(gep->idx_begin()+1))->getType()->isIntegerTy());
 
-			Constant* simdWidthC = ConstantInt::get(idx->getType(), simdWidth, false);
+			Constant* simdWidthC = ConstantInt::get(idx->getType(), PACKETIZED_OPENCL_SIMD_WIDTH, false);
 
 			// generate div/rem instructions
 			Instruction* insertBefore = isa<Instruction>(idx) ? cast<Instruction>(idx) : gep;
@@ -1153,6 +1160,272 @@ namespace PacketizedOpenCL {
 		}
 		// delete dead GEPs
 		for (std::vector<GetElementPtrInst*>::iterator it=deleteVec.begin(), E=deleteVec.end(); it!=E; ++it) {
+			(*it)->eraseFromParent();
+		}
+	}
+
+	void makeMemAccessScalar(Instruction* memAccess, GetElementPtrInst* newGEP, std::set<Instruction*>& fixedUses, std::vector<Instruction*>& deleteVec) {
+		assert (newGEP && memAccess);
+		assert (fixedUses.find(memAccess) == fixedUses.end());
+		fixedUses.insert(memAccess);
+		PACKETIZED_OPENCL_DEBUG( outs() << "  replacing memory access: " << *memAccess << "\n"; );
+
+		if (LoadInst* load = dyn_cast<LoadInst>(memAccess)) {
+			Instruction* newLoad = new LoadInst(newGEP, "", false, load);
+			PACKETIZED_OPENCL_DEBUG( outs() << "  newLoad: " << *newLoad << "\n"; );
+			Value* result = UndefValue::get(VectorType::get(newLoad->getType(), PACKETIZED_OPENCL_SIMD_WIDTH));
+			for (unsigned i=0; i<PACKETIZED_OPENCL_SIMD_WIDTH; ++i) {
+				result = InsertElementInst::Create(result, newLoad, ConstantInt::get(getGlobalContext(), APInt(32, i)), "", load);
+			}
+			PACKETIZED_OPENCL_DEBUG( outs() << "  result: " << *result << "\n"; );
+			cast<Instruction>(result)->takeName(load);
+			load->replaceAllUsesWith(result);
+		} else if (StoreInst* store = dyn_cast<StoreInst>(memAccess)) {
+			// This is somewhat ugly... we are replacing a vector store by a scalar store
+			errs() << "WARNING: store operation into varying value uses uniform index (get_local/global_id of non-simd dimension) - storing only value of last instance!\n";
+			Value* newStoreVal = ExtractElementInst::Create(store->getOperand(0), ConstantInt::get(getGlobalContext(), APInt(32, PACKETIZED_OPENCL_SIMD_WIDTH-1)), "", store);
+			StoreInst* newStore = new StoreInst(newStoreVal, newGEP, false, store);
+			PACKETIZED_OPENCL_DEBUG( outs() << "  new store val: " << *newStoreVal << "\n"; );
+			PACKETIZED_OPENCL_DEBUG( outs() << "  new store: " << *newStore << "\n"; );
+		} else {
+			assert (false && "unexpected use of GEP (neither load nor store) found!");
+		}
+		assert (memAccess->use_empty());
+		deleteVec.push_back(memAccess);
+	}
+
+	// helper for fixVectorAccessFromScalarIndices and fixVectorAccessFromConstantIndices
+	void makeDependentMemAccessesScalar(std::vector<std::pair<Instruction*, GetElementPtrInst*> >& gepVec) {
+		if (gepVec.empty()) return;
+
+		std::vector<Instruction*> deleteVec;
+		std::set<Instruction*> fixedUses;
+		for (std::vector<std::pair<Instruction*, GetElementPtrInst*> >::iterator it=gepVec.begin(), E=gepVec.end(); it!=E; ++it) {
+			Instruction* oldUse = it->first;
+			GetElementPtrInst* newGEP = it->second;
+			
+			// special case if there was no GEP before (index = 0) -> oldUse is the only use itself
+			if (!isa<GetElementPtrInst>(oldUse)) {
+				makeMemAccessScalar(oldUse, newGEP, fixedUses, deleteVec);
+				continue;
+			}
+			
+			// otherwise, oldUse is the old gep, so we have to modify all its uses
+			GetElementPtrInst* oldGEP = cast<GetElementPtrInst>(oldUse);
+
+			PACKETIZED_OPENCL_DEBUG( outs() << "replacing uses of GEP by scalar loads/stores: " << *oldGEP << "\n"; );
+
+			// Replace each dependent load by a scalar load + broadcast
+			// Replace each dependent store by a scalar store
+			// TODO: sth else than load/store possible?? -> e.g. PHI
+			for (GetElementPtrInst::use_iterator U=oldGEP->use_begin(), UE=oldGEP->use_end(); U!=UE; ++U) {
+				assert (isa<Instruction>(*U));
+				makeMemAccessScalar(cast<Instruction>(*U), newGEP, fixedUses, deleteVec);
+			}
+		}
+
+		// delete dead loads/stores
+		for (std::vector<Instruction*>::iterator it=deleteVec.begin(), E=deleteVec.end(); it!=E; ++it) {
+			(*it)->eraseFromParent();
+		}
+	}
+
+
+	// Modify all GEPs in f that use uniform indices returned by uniformVal.
+	// This fixes another kind of access to "uniform packetized" arrays, which have packetized
+	// type but hold the exact same data as the scalar array (e.g. float[128] ->  __m128[32]).
+	// Instead of accessing <i+0, i+1, i+2, i+3> as in the aligned-consecutive case,
+	// these have to access <i, i, i, i> (broadcast).
+	// At the same time, we want to prevent broadcasting the index itself before vectorization,
+	// because this would create scatter/gather operations due to the vector of indices where
+	// we actually only need the scalar load/store to be broadcasted afterwards - something the
+	// packetizer cannot do (this requires changing a vector load from a vector input to a 
+	// scalar load + broadcast, which is very specific knowledge in this domain).
+	//
+	// Example:
+	//
+	// BEFORE:
+	// %array = ...                                     ; <[ <4 x float> ]>
+	// %index = uniformVal                              ; <i32>           // e.g. 3 ("scalar", uniform global id)
+	// %gep = GEP %array, %index                        ; <<4 x float>*>  // pointer to scalar indices <13, 14, 15, 16> (= vectorized global id 3) instead of <3, 3, 3, 3>
+	// %vec = load %gep                                 ; <<4 x float>>   // vector of consecutive values
+	//
+	// AFTER:
+	// %array = ...                                     ; <[ <4 x float> ]>
+	// %index = uniformVal                              ; <i32> // 3 ("scalar", uniform global id)
+	// %idx.d = udiv <i32> %index, %simdWidth           ; <i32> // 3/4 = 0
+	// %idx.r = urem <i32> %index, %simdWidth           ; <i32> // 3%4 = 1
+	// %gep = GEP %array, %idx.d, %idx.r                ; <float*> 
+	// %tmp = load %gep                                 ; <float>
+	// %vec = broadcast %tmp                            ; <<4 x float>> // vector of 4x the value from the scalar id
+	//
+	// TODO: Could it happen that such an index is used without GEP? We do not cover this.
+	void fixVectorAccessFromScalarIndices(Function* f, Value* uniformVal, std::set<GetElementPtrInst*>& fixedGEPs) {
+		assert (f && uniformVal);
+		PACKETIZED_OPENCL_DEBUG( outs() << "fixVectorAccessFromScalarIndices()\n"; );
+
+		// first walk the dependency-graph top-down to find GEPs that use (modified) indices
+		std::vector<GetElementPtrInst*> gepVec;
+		std::set<Instruction*> visited; // set is kept for all uses (must never walk the same path more than once)
+		for (Value::use_iterator U=uniformVal->use_begin(), UE=uniformVal->use_end(); U!=UE; ++U) {
+			assert (isa<Instruction>(*U));
+			Instruction* useI = cast<Instruction>(*U);
+			if (useI->getParent()->getParent() != f) continue; // ignore uses in other functions
+
+			findDependentGEPs(useI, gepVec, visited, true); // true = stop at broadcast operations to prevent replacing of "good" GEPs
+		}
+
+		// replace each GEP by a new GEP that returns a pointer to a scalar
+		std::vector<GetElementPtrInst*> deleteVec;
+		std::vector<std::pair<Instruction*, GetElementPtrInst*> > newGepVec;
+		for (std::vector<GetElementPtrInst*>::iterator it=gepVec.begin(), E=gepVec.end(); it!=E; ++it) {
+			GetElementPtrInst* gep = *it;
+			assert (fixedGEPs.find(gep) == fixedGEPs.end()); // TODO: remove if this never fires ("empirical proof") ;)
+
+			PACKETIZED_OPENCL_DEBUG( outs() << "  replacing GEP: " << *gep << "\n"; );
+
+			assert (gep->getType()->getContainedType(0)->isVectorTy());
+
+			// get last index
+			Value* idx = *(gep->idx_end()-1);
+			assert (idx->getType()->isIntegerTy());
+
+			Constant* simdWidthC = ConstantInt::get(idx->getType(), PACKETIZED_OPENCL_SIMD_WIDTH, false);
+
+			// generate div/rem instructions
+			Instruction* insertBefore = isa<Instruction>(idx) ? cast<Instruction>(idx) : gep;
+			Instruction* udiv = BinaryOperator::Create(Instruction::UDiv, idx, simdWidthC, "", insertBefore);
+			Instruction* urem = BinaryOperator::Create(Instruction::URem, idx, simdWidthC, "", insertBefore);
+			if (insertBefore == idx) cast<Instruction>(idx)->moveBefore(udiv);
+
+			// generate new GEP with all old indices but the last one, which is replaced by div+rem
+			std::vector<Value*> indices;
+			for (GetElementPtrInst::op_iterator IDX=gep->idx_begin(), IDXE=gep->idx_end(); IDX!=IDXE; ++IDX) {
+				if (IDX != gep->idx_end()-1) indices.push_back(*IDX); // ignore the last index (to be replaced)
+			}
+			indices.push_back(udiv);
+			indices.push_back(urem);
+			GetElementPtrInst* newGEP = GetElementPtrInst::Create(gep->getPointerOperand(), indices.begin(), indices.end(), "", gep);
+			newGEP->takeName(gep);
+
+			// mark old GEP to be deleted
+			deleteVec.push_back(gep);
+			fixedGEPs.insert(newGEP);
+			newGepVec.push_back(std::make_pair(gep, newGEP));
+		}
+
+		// newGepVec now holds all fixed GEP instructions that access result of uniformVal (=uniform scalar index)
+		makeDependentMemAccessesScalar(newGepVec);
+		
+		// delete dead GEPs
+		for (std::vector<GetElementPtrInst*>::iterator it=deleteVec.begin(), E=deleteVec.end(); it!=E; ++it) {
+			assert ((*it)->use_empty());
+			(*it)->eraseFromParent();
+		}
+	}
+
+	// necessary forward declaration
+	extern "C" inline cl_uint convertLLVMAddressSpace(cl_uint llvm_address_space);
+
+	// see README, TestConstantIndex
+	void fixVectorAccessFromConstantIndices(Function* f, std::set<GetElementPtrInst*>& fixedGEPs) {
+		assert (f);
+		PACKETIZED_OPENCL_DEBUG( outs() << "fixVectorAccessFromConstantIndices()\n"; );
+
+		// find loads and stores of varying inputs/outputs that use constant indices (or no index which is equal to index 0)
+		std::vector<GetElementPtrInst*> deleteVec;
+		std::vector<std::pair<Instruction*, GetElementPtrInst*> > newGepVec;
+		for (Function::arg_iterator A=f->arg_begin(), AE=f->arg_end(); A!=AE; ++A) {
+			PACKETIZED_OPENCL_DEBUG( outs() << "  argument: " << *A << "\n"; );
+			if (!A->getType()->isPointerTy()) continue;
+			const PointerType* pType = cast<PointerType>(A->getType());
+			const cl_uint clAddrSpace = PacketizedOpenCL::convertLLVMAddressSpace(pType->getAddressSpace());
+			if (clAddrSpace != CL_GLOBAL && clAddrSpace != CL_LOCAL) continue;
+
+			PACKETIZED_OPENCL_DEBUG( outs() << "    is VARYING!\n"; );
+
+			for (Argument::use_iterator U=A->use_begin(), UE=A->use_end(); U!=UE; ++U) {
+				assert (isa<LoadInst>(*U) || isa<StoreInst>(*U) || isa<GetElementPtrInst>(*U));
+				Instruction* useI = cast<Instruction>(*U);
+				PACKETIZED_OPENCL_DEBUG( outs() << "    testing use for access via constant index: " << *useI << "\n"; );
+				
+				Value* ptrOperand;
+				if (LoadInst* load = dyn_cast<LoadInst>(useI)) {
+					ptrOperand = load->getPointerOperand();
+				} else if (StoreInst* store = dyn_cast<StoreInst>(useI)) {
+					ptrOperand = store->getPointerOperand();
+				} else {
+					assert (isa<GetElementPtrInst>(useI));
+					ptrOperand = useI;
+				}
+				
+
+				// If the pointer operand is the argument itself, this is equal to a constant index 0.
+				// In this case, we create a new GEP.
+				// Otherwise, we modify the existing one if it has only constant indices.
+				GetElementPtrInst* newGEP;
+				if (ptrOperand == A) {
+					PACKETIZED_OPENCL_DEBUG( outs() << "      argument is used directly (= access at constant index 0)\n"; );
+					std::vector<Value*> indices;
+					Constant* nullIndex = ConstantInt::getNullValue(Type::getInt32Ty(getGlobalContext()));
+					indices.push_back(nullIndex); // first element of vectorized input array -> pointer to vector (e.g. <4 x float>)
+					indices.push_back(nullIndex); // first element of vector -> pointer to scalar (e.g. float)
+					newGEP = GetElementPtrInst::Create(A, indices.begin(), indices.end(), "", useI);
+					newGepVec.push_back(std::make_pair(useI, newGEP));
+				} else {
+					assert (isa<GetElementPtrInst>(ptrOperand));
+					GetElementPtrInst* gep = cast<GetElementPtrInst>(ptrOperand);
+					PACKETIZED_OPENCL_DEBUG( outs() << "      argument is used via GEP: " << *gep << "\n"; );
+					assert (fixedGEPs.find(gep) == fixedGEPs.end()); // just make sure we did not see this one already
+
+					// check if the GEP has only constant indices
+					bool constantIndexGEP = true;
+					std::vector<Value*> indices;
+					for (GetElementPtrInst::op_iterator IDX=gep->idx_begin(), IDXE=gep->idx_end(); IDX!=IDXE; ++IDX) {
+						if (!isa<Constant>(IDX)) {
+							constantIndexGEP = false;
+							break;
+						}
+						if (IDX != gep->idx_end()-1) indices.push_back(*IDX); // ignore the last index (to be replaced)
+					}
+
+					if (!constantIndexGEP) continue;
+					
+					PACKETIZED_OPENCL_DEBUG( outs() << "      GEP only has constant indices!\n"; );
+
+					assert (gep->getType()->getContainedType(0)->isVectorTy());
+
+					// get last index
+					Value* idx = *(gep->idx_end()-1);
+					assert (idx->getType()->isIntegerTy());
+
+					Constant* simdWidthC = ConstantInt::get(idx->getType(), PACKETIZED_OPENCL_SIMD_WIDTH, false);
+
+					// generate div/rem instructions
+					Instruction* insertBefore = isa<Instruction>(idx) ? cast<Instruction>(idx) : gep;
+					Instruction* udiv = BinaryOperator::Create(Instruction::UDiv, idx, simdWidthC, "", insertBefore);
+					Instruction* urem = BinaryOperator::Create(Instruction::URem, idx, simdWidthC, "", insertBefore);
+					if (insertBefore == idx) cast<Instruction>(idx)->moveBefore(udiv);
+
+					// generate new GEP with all old indices but the last one, which is replaced by div+rem
+					indices.push_back(udiv);
+					indices.push_back(urem);
+					newGEP = GetElementPtrInst::Create(gep->getPointerOperand(), indices.begin(), indices.end(), "", gep);
+					newGEP->takeName(gep);
+
+					fixedGEPs.insert(gep);
+					newGepVec.push_back(std::make_pair(gep, newGEP));
+				}
+				
+				PACKETIZED_OPENCL_DEBUG( outs() << "      new GEP: " << *newGEP << "\n"; );
+			}
+		}
+
+		makeDependentMemAccessesScalar(newGepVec);
+		
+		// delete dead GEPs
+		for (std::vector<GetElementPtrInst*>::iterator it=deleteVec.begin(), E=deleteVec.end(); it!=E; ++it) {
+			assert ((*it)->use_empty());
 			(*it)->eraseFromParent();
 		}
 	}

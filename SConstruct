@@ -203,17 +203,7 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ###
 
 #testApps = env.Split("""
-#TestSimple
-#Test2D
-#TestLinearAccess
-#TestBarrier
-#TestBarrier2
-#TestLoopBarrier
-#TestLoopBarrier2
 #BlackScholesSimple
-#Histogram
-#MandelbrotSimple
-#MatrixTranspose
 #""")
 
 # Those work in all configurations, including packetizer:
@@ -227,11 +217,13 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 #SimpleConvolution
 #""")
 
-
+# These are our primary targets
 testApps = env.Split("""
 TestSimple
-Test2D
 TestLinearAccess
+TestConstantIndex
+Test2D
+Test2D2
 TestBarrier
 TestBarrier2
 TestLoopBarrier
@@ -348,6 +340,7 @@ if GetOption("clean"):
 	Execute(Delete('lib/PacketizedOpenCL.exp'))
 	Execute(Delete('lib/libPacketizedOpenCL.so'))
 	for a in testApps:
+		Execute(Delete(a+'_Output.bmp'))
 		if isDarwin:
 			Execute(Delete(a+'_Kernels.cl'))
 			Execute(Delete(a+'_Input.bmp'))

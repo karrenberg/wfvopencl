@@ -6,6 +6,9 @@ echo
 echo Test2D
 build/bin/Test2D "$@"
 echo
+echo Test2D2
+build/bin/Test2D2 "$@"
+echo
 echo TestLinearAccess
 build/bin/TestLinearAccess "$@"
 echo

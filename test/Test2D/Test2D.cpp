@@ -139,7 +139,8 @@ int main(int argc, char** argv) {
 	unsigned i = 0;
 	const unsigned int dataSize = DATA_SIZE;
 	for (i = 0; i < dataSize; i++) {
-		data[i] = rand() / (float) RAND_MAX;
+		//data[i] = rand() / (float) RAND_MAX;
+		data[i] = i;
 		//if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
 	}
 
@@ -389,10 +390,10 @@ int main(int argc, char** argv) {
 	for (i = 0; i < dataSize; i++) {
 		for (unsigned j = 0; j < dataSize; j++) {
 			if (verifyResults(results, data, i, j)) {
-				//printf("results[%d/%d]: %f (correct)\n", i, j, results[j+i*dataSize]);
+				//printf("results[%d/%d][%d]: %f (correct)\n", i, j, j+i*dataSize, results[j+i*dataSize]);
 				correct++;
 			} else {
-				//printf("results[%d/%d]: %f (wrong, expected: %f)\n", i, j, results[j+i*dataSize], data[i]+data[j]);
+				//printf("results[%d/%d][%d]: %f (wrong, expected: %f)\n", i, j, j+i*dataSize, results[j+i*dataSize], data[i]+data[j]);
 			}
 		}
 	}
