@@ -12,7 +12,7 @@ Histogram				# x		# x		# x		# x		# x		# x		#
 MandelbrotSimple		# x		# x		# x		# x		# x		# x		#
 MatrixTranspose			# x		# x		# x		# x		# 		# 		#
 MersenneTwisterSimple	# x		# x		# x		# 		# x		# 		#
-NBodySimple				# x		# x		# x		# 		# x(lnx)#		#
+NBodySimple				# x		# x		# x?	# 		# x(lnx)#		#
 PrefixSum				# x		# x		# x		# 		# x		# 		#
 RadixSort				# x		# x		# x		# 		# x		# 		#
 Reduction				# x		# x		# x		# 		# x		# 		#

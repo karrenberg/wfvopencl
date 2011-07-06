@@ -228,7 +228,6 @@ int main(int argc, char** argv)
     // Get the size of device list data
 	//
     size_t deviceListSize;
-    cl_device_id* devices = (cl_device_id *)malloc(deviceListSize);
     err = clGetContextInfo(context, 
                               CL_CONTEXT_DEVICES, 
                               0, 
@@ -240,6 +239,8 @@ int main(int argc, char** argv)
 		    (device list size, clGetContextInfo)\n");
 		return 1;
 	}
+
+    cl_device_id* devices = (cl_device_id *)malloc(deviceListSize);
 
 	// Detect OpenCL devices
 	//
