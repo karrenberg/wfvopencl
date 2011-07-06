@@ -47,7 +47,7 @@
 #endif
 
 #ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
-#include "packetizerAPI.h" // packetizer
+#include "packetizerAPI.hpp" // packetizer
 #endif
 
 #ifdef PACKETIZED_OPENCL_ENABLE_JIT_PROFILING

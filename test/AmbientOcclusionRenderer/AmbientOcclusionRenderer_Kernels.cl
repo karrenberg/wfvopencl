@@ -37,7 +37,7 @@ struct Intersection
 //__constant struct Sphere sphere[3];
 //__constant struct Plane plane;
 
-static void sphere_intersect(const struct Sphere* s, const struct Ray* ray, struct Intersection* isect)
+void sphere_intersect(const struct Sphere* s, const struct Ray* ray, struct Intersection* isect)
 {
     const float rsX = ray->orgX - s->centerX;
     const float rsY = ray->orgY - s->centerY;
@@ -46,10 +46,10 @@ static void sphere_intersect(const struct Sphere* s, const struct Ray* ray, stru
     const float C = (rsX*rsX + rsY*rsY + rsZ*rsZ) - (s->radius * s->radius); //dot(rs, rs) - (s->radius * s->radius);
     const float D = B * B - C;
 
-    if (D > 0.0)
+    if (D > 0.0f)
     {
 		const float t = -B - sqrt(D);
-		if ( (t > 0.0) && (t < isect->t) )
+		if ( (t > 0.0f) && (t < isect->t) )
 		{
 			isect->t = t;
 			isect->hit = 1;
@@ -77,7 +77,7 @@ static void sphere_intersect(const struct Sphere* s, const struct Ray* ray, stru
 	}
 }
 
-static void plane_intersect(const struct Plane* pl, const struct Ray* ray, struct Intersection* isect)
+void plane_intersect(const struct Plane* pl, const struct Ray* ray, struct Intersection* isect)
 {
   	const float d = 1.0f - (pl->pX*pl->nX + pl->pY*pl->nY + pl->pZ*pl->nZ); //-dot(pl->p, pl->n);
 	const float v = ray->dirX*pl->nX + ray->dirY*pl->nY + ray->dirZ*pl->nZ; //dot(ray->dir, pl->n);
@@ -88,7 +88,7 @@ static void plane_intersect(const struct Plane* pl, const struct Ray* ray, struc
     //const float t = -(dot(ray->org, pl->n) + d) / v;
     const float t = (1.0f - (ray->orgX*pl->nX + ray->orgY*pl->nY + ray->orgZ*pl->nZ + d)) / v; //-(dot(ray->org, pl->n) + d) / v;
 
-    if ( (t > 0.0) && (t < isect->t) )
+    if ( (t > 0.0f) && (t < isect->t) )
     {
 		isect->hit = 1;
 		isect->t   = t;
@@ -150,7 +150,7 @@ void orthoBasis(float basisX[3], float basisY[3], float basisZ[3], const float n
 
 	if ((nX < 0.6f) && (nX > -0.6f))
 		basisX[1] = 1.0f;
-	else if ((nY < 0.6) && (nY > -0.6f))
+	else if ((nY < 0.6f) && (nY > -0.6f))
 		basisY[1] = 1.0f;
 	else if ((nZ < 0.6f) && (nZ > -0.6f))
 		basisZ[1] = 1.0f;
@@ -204,7 +204,7 @@ float computeAO(struct Intersection* isect, float* sd)
     float basisX[3], basisY[3], basisZ[3];
     orthoBasis(basisX, basisY, basisZ, isect->nX, isect->nY, isect->nZ);
 	
-    float occlusion = 0.0;
+    float occlusion = 0.0f;
 
     for (j = 0; j < ntheta; j++)
     {
@@ -258,7 +258,7 @@ __kernel void AmbientOcclusionRenderer(__global uint * out) {
 
 	struct Intersection i;
 	i.hit = 0;
-	i.t = 1.0e+30;
+	i.t = 1.0e+30f;
 	i.nX = i.pX = 0;
 	i.nY = i.pY = 0;
 	i.nZ = i.pZ = 0;

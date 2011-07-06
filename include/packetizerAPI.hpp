@@ -1,5 +1,5 @@
 /**
- * @file   packetizerAPI.h
+ * @file   packetizerAPI.hpp
  * @date   10.12.2008
  * @author Ralf Karrenberg
  *
@@ -22,8 +22,10 @@
  * along with Packetizer.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-#ifndef _PACKETIZERAPI_H
-#define	_PACKETIZERAPI_H
+#ifndef _PACKETIZERAPI_HPP
+#define	_PACKETIZERAPI_HPP
+
+#include <string>
 
 //----------------------------------------------------------------------------//
 // necessary definitions for library compilation
@@ -84,4 +86,4 @@ private:
 } //namespace Packetizer
 
 
-#endif	/* _PACKETIZERAPI_H */
+#endif	/* _PACKETIZERAPI_HPP */

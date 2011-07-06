@@ -203,7 +203,7 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ###
 
 #testApps = env.Split("""
-#BlackScholesSimple
+#AmbientOcclusionRenderer
 #""")
 
 # Those work in all configurations, including packetizer:
@@ -273,11 +273,6 @@ SimpleConvolution
 #HistogramAtomics
 #LUDecomposition
 #URNGNoiseGL #uses opencl1.1 gl stuff
-#""")
-
-# Currently disabled (has to be adjusted to latest SDK)
-#testApps = env.Split("""
-#AmbientOcclusionRenderer
 #""")
 
 Execute(Mkdir('build/bin'))

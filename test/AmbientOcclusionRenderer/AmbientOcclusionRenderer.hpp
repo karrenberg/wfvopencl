@@ -104,10 +104,10 @@ jurisdiction and venue of these courts.
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-#include <SDKUtil/SDKCommon.hpp>
-#include <SDKUtil/SDKApplication.hpp>
-#include <SDKUtil/SDKCommandArgs.hpp>
-#include <SDKUtil/SDKFile.hpp>
+#include <SDKCommon.hpp>
+#include <SDKApplication.hpp>
+#include <SDKCommandArgs.hpp>
+#include <SDKFile.hpp>
 
 
 //#define USE_TEXTURE
@@ -132,7 +132,7 @@ jurisdiction and venue of these courts.
 class AmbientOcclusionRenderer : public SDKSample
 {
     cl_double setupTime;                /**< time taken to setup OpenCL resources and building kernel */
-    cl_double kernelTime;               /**< time taken to run kernel and read result back */
+    size_t *maxWorkItemSizes;       /**< Max work-items sizes in each dimensions */
 	int iterations;
 
 	cl_uint tex;
@@ -146,10 +146,11 @@ class AmbientOcclusionRenderer : public SDKSample
 	cl_kernel kernel;
     cl_command_queue commandQueue;      /**< CL command queue */
     
+    size_t maxWorkGroupSize;        /**< Max allowed work-items in a group */
+    cl_double kernelTime;               /**< time taken to run kernel and read result back */
+    cl_uint maxDimensions;          /**< Max group dimensions allowed */
 	//required?
 	/*
-    size_t maxWorkGroupSize;
-    cl_uint maxDimensions;
     size_t* maxWorkItemSizes;
     cl_ulong totalLocalMemory;
     cl_ulong usedLocalMemory;
@@ -210,6 +211,12 @@ public:
     * @return 1 on success and 0 on failure
     */
     int setupAmbientOcclusionRenderer();
+
+    /**
+     * Override from SDKSample, Generate binary image of given kernel 
+     * and exit application
+     */
+    int genBinaryImage();
 
     /**
     * OpenCL related initialisations. 
