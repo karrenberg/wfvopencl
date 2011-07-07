@@ -2139,10 +2139,11 @@ NBodySimple::verifyResults()
         memcpy(refVelY, initVelY, numBodies * sizeof(cl_float));
         memcpy(refVelZ, initVelZ, numBodies * sizeof(cl_float));
 
-        for(int i = 0; i < iterations; ++i)
-        {
+		// WTF ?!?!? why do we want to compute the reference so often??
+        //for(int i = 0; i < iterations; ++i)
+        //{
             nBodyCPUReference();
-        }
+        //}
 
         /* compare the results and see if they match */
         if(sampleCommon->compare(posX, refPosX, numBodies, 0.00001) &&

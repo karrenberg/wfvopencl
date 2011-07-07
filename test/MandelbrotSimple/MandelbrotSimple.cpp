@@ -1106,8 +1106,6 @@ int MandelbrotSimple::setup()
 
     scale  = scale_int * 1.0f;
 
-    iterations = 1;
-
     if(setupMandelbrotSimple()!=SDK_SUCCESS)
         return SDK_FAILURE;
 
@@ -1132,6 +1130,11 @@ int MandelbrotSimple::run()
     int timer = sampleCommon->createTimer();
     sampleCommon->resetTimer(timer);
     sampleCommon->startTimer(timer);   
+
+    std::cout << "Executing kernel for " << iterations 
+        << " iterations" << std::endl;
+    std::cout <<"-------------------------------------------" << std::endl;
+
 
     for(int i = 0; i < iterations; i++)
     {

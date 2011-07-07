@@ -102,10 +102,10 @@ MersenneTwisterSimple::setupMersenneTwisterSimple()
 {
     /* Calculate width and height from numRands */
     numRands = numRands / 4;
-    numRands = (numRands / GROUP_SIZE)? (numRands / GROUP_SIZE) * GROUP_SIZE: GROUP_SIZE;
+    numRands = (numRands / GROUP_SIZE)? (numRands / GROUP_SIZE) * GROUP_SIZE: numRands;
 
     unsigned int tempVar1 = (unsigned int)sqrt((double)numRands);
-    tempVar1 = (tempVar1 / GROUP_SIZE)? (tempVar1 / GROUP_SIZE) * GROUP_SIZE: GROUP_SIZE;
+    tempVar1 = (tempVar1 / GROUP_SIZE)? (tempVar1 / GROUP_SIZE) * GROUP_SIZE: numRands;
     numRands = tempVar1 * tempVar1;
 
     width = tempVar1;
