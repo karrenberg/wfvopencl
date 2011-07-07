@@ -284,12 +284,12 @@ __kernel void AmbientOcclusionRenderer(__global uint * out) {
 	r.dirZ = dirZ;
 	int seed = (int)(fmod((dirX+512.0f) * (dirY+512.0f) * 4525434.0f, 65536.0f));
 	
-	uchar rcol = 0;
+	int rcol = 0;
 	Intersect(&r, &i);
 	if (i.hit != 0)
 	{
 		float s = seed;
-		rcol = (uchar)(computeAO(&i, &s) * 255);
+		rcol = (int)(computeAO(&i, &s) * 255);
 		seed = s;
 	}
 	
