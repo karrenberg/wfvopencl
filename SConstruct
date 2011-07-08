@@ -203,7 +203,7 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ###
 
 testApps = env.Split("""
-AmbientOcclusionRenderer
+NBodySimple
 """)
 
 # Those work in all configurations, including packetizer:
@@ -228,6 +228,7 @@ AmbientOcclusionRenderer
 #TestBarrier2
 #TestLoopBarrier
 #TestLoopBarrier2
+#AmbientOcclusionRenderer
 #BinarySearch
 #BinomialOptionSimple
 #BitonicSort

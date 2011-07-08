@@ -537,9 +537,9 @@ namespace PacketizedOpenCL {
 
 			PacketizedOpenCL::replaceAllUsesWith(fmodFun, PacketizedOpenCL::getFunction("fmodf", mod));
 #else
-			for (Function::use_iterator U=fmodFun->use_begin(), UE=fmodFun->use_end(); U!=UE; ++U) {
+			for (Function::use_iterator U=fmodFun->use_begin(), UE=fmodFun->use_end(); U!=UE; ) {
 				assert (isa<CallInst>(*U));
-				CallInst* call = cast<CallInst>(*U);
+				CallInst* call = cast<CallInst>(*U++);
 				Value* val0 = call->getArgOperand(0);
 				Value* val1 = call->getArgOperand(1);
 				BinaryOperator* subInst = BinaryOperator::Create(Instruction::FRem, val0, val1, "", call);
@@ -1650,7 +1650,7 @@ namespace PacketizedOpenCL {
 		const bool use_sse41 = true;
 		const bool use_avx = false;
 #endif
-		const bool verbose = false;
+		const bool verbose = true;
 		const bool success = PacketizedOpenCL::packetizeKernelFunction(f->getNameStr(),
 																			 kernel_simd_name,
 																			 module,
@@ -2592,12 +2592,14 @@ static _cl_icd_dispatch static_dispatch =
 	clGetExtensionFunctionAddress
 };
 
-struct _cl_platform_id { _cl_icd_dispatch* dispatch; };
+struct _cl_platform_id { struct _cl_icd_dispatch* dispatch; };
 
 static struct _cl_platform_id static_platform = { &static_dispatch };
 
 
 struct _cl_device_id { struct _cl_icd_dispatch* dispatch; };
+
+static struct _cl_device_id static_device = { &static_dispatch };
 
 /*
 An OpenCL context is created with one or more devices. Contexts
@@ -2920,7 +2922,10 @@ public:
 		PACKETIZED_OPENCL_DEBUG( outs() << "  kernel object created successfully!\n\n"; );
 	}
 
-	~_cl_kernel() { args.clear(); }
+	~_cl_kernel() {
+		args.clear();
+		free(argument_struct);
+	}
 
 	const llvm::Function* function;
 	const llvm::Function* function_wrapper;
@@ -3165,9 +3170,10 @@ clGetDeviceIDs(cl_platform_id   platform,
 	if (devices && num_entries < 1) return CL_INVALID_VALUE;
 	if (!devices && !num_devices) return CL_INVALID_VALUE;
 	if (devices) {
-		_cl_device_id* d = new _cl_device_id();
-		d->dispatch = &static_dispatch;
-		*(_cl_device_id**)devices = d;
+		//_cl_device_id* d = new _cl_device_id();
+		//d->dispatch = &static_dispatch;
+		//*(_cl_device_id**)devices = d;
+		*(_cl_device_id**)devices = &static_device;
 	}
 	if (num_devices) *num_devices = 1; //new cl_uint(1);
 	return CL_SUCCESS;
@@ -3517,7 +3523,8 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseContext(cl_context context)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseContext!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseContext()\n"; );
+	_cl_context* ptr = (_cl_context*)context;
+	delete ptr;
 	return CL_SUCCESS;
 }
 
@@ -3541,9 +3548,10 @@ clGetContextInfo(cl_context         context,
 		case CL_CONTEXT_DEVICES: {
 			if (param_value) {
 				if (param_value_size < sizeof(_cl_device_id*)) return CL_INVALID_VALUE;
-				_cl_device_id* d = new _cl_device_id();
-				d->dispatch = &static_dispatch;
-				*(_cl_device_id**)param_value = d;
+				//_cl_device_id* d = new _cl_device_id();
+				//d->dispatch = &static_dispatch;
+				//*(_cl_device_id**)param_value = d;
+				*(_cl_device_id**)param_value = &static_device;
 			} else {
 				if (param_value_size_ret) *param_value_size_ret = sizeof(_cl_device_id*);
 			}
@@ -3595,7 +3603,8 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseCommandQueue(cl_command_queue command_queue)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseCommandQueue!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseCommandQueue()\n"; );
+	_cl_command_queue* ptr = (_cl_command_queue*)command_queue;
+	delete ptr;
 	return CL_SUCCESS;
 }
 
@@ -3762,7 +3771,8 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseMemObject!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseMemObject()\n"; );
+	_cl_mem* ptr = (_cl_mem*)memobj;
+	delete ptr;
 	return CL_SUCCESS;
 }
 
@@ -3905,13 +3915,16 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseProgram!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseProgram()\n"; );
 #ifdef PACKETIZED_OPENCL_ENABLE_JIT_PROFILING
 	int success = iJIT_NotifyEvent(iJVM_EVENT_TYPE_SHUTDOWN, NULL);
 	if (success != 1) {
 		errs() << "ERROR: termination of profiling failed!\n";
 	}
 #endif
+	_cl_program* ptr = (_cl_program*)program;
+	delete ptr->targetData;
+	delete ptr->module;
+	delete ptr;
 	return CL_SUCCESS;
 }
 
@@ -4112,7 +4125,8 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseKernel(cl_kernel   kernel)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseKernel!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseKernel()\n"; );
+	_cl_kernel* ptr = (_cl_kernel*)kernel;
+	delete ptr;
 	return CL_SUCCESS;
 }
 
@@ -4215,7 +4229,8 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseEvent(cl_event event)
 {
 	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseEvent!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clReleaseEvent()\n"; );
+	_cl_event* ptr = (_cl_event*)event;
+	delete ptr;
 	return CL_SUCCESS;
 }
 

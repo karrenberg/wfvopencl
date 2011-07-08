@@ -114,11 +114,11 @@ namespace {
 			AU.setPreservesAll();
         }
 		void releaseMemory() {
-//			delete loopInfo;
-//			for (LiveValueMapType::iterator it=liveValueMap.begin(), E=liveValueMap.end(); it!=E; ++it) {
-//				delete it->second.first;
-//				delete it->second.second;
-//			}
+			// valgrind reports invalid reads if this is activated...
+			//for (LiveValueMapType::iterator it=liveValueMap.begin(), E=liveValueMap.end(); it!=E; ++it) {
+				//delete it->second.first;
+				//delete it->second.second;
+			//}
 		}
 
 		typedef std::set<Value*> LiveSetType;
