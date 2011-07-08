@@ -24,6 +24,9 @@ echo
 echo TestLoopBarrier2
 build/bin/TestLoopBarrier2 "$@"
 echo
+echo AmbientOcclusionRenderer
+build/bin/AmbientOcclusionRenderer -q -e -x 256 -y 256 "$@"
+echo
 echo BinarySearch
 build/bin/BinarySearch -q -e "$@"
 echo

@@ -802,6 +802,22 @@ int AmbientOcclusionRenderer::initialize()
     sampleArgs->AddOption(num_pixels_x);
     delete num_pixels_x;
 
+    streamsdk::Option *num_pixels_y = new streamsdk::Option;
+    if(!num_pixels_y)
+    {
+        std::cout << "error. Failed to allocate memory (num_pixels_y)\n";
+        return SDK_FAILURE;
+    }
+
+    num_pixels_y->_sVersion = "y";
+    num_pixels_y->_lVersion = "height";
+    num_pixels_y->_description = "Height of window";
+    num_pixels_y->_type = streamsdk::CA_ARG_INT;
+    num_pixels_y->_value = &height;
+
+    sampleArgs->AddOption(num_pixels_y);
+    delete num_pixels_y;
+
 
     streamsdk::Option *num_iterations = new streamsdk::Option;
     if(!num_iterations)
