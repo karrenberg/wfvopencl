@@ -115,6 +115,28 @@ void SDKSample::printStats(std::string *statsStr, std::string * stats, int n)
     }
 }
 
+void SDKSample::logStats(std::string *statsStr, std::string * stats, int n, const std::string& fileName)
+{
+    if(timing)
+    {
+		std::ofstream statsFile(fileName.c_str(), std::ios::app);
+		if (!statsFile.is_open()) {
+			// The file could not be opened
+			printf("ERROR: Could not open stats output file '%s'!\n", fileName.c_str());
+			return;
+		}
+
+		// Safely use the file stream
+		int i=0;
+		for(; i < n; ++i)
+		{
+			if (strcmp(statsStr[i].c_str(), "kernelTime(sec)") == 0) break;
+		}
+		statsFile << stats[i] << std::endl;
+		statsFile.close();
+    }
+}
+
 int SDKSample::parseCommandLine(int argc, char**argv)
 {
     if(sampleArgs==NULL)
