@@ -1201,6 +1201,7 @@ void MandelbrotSimple::printStats()
     stats[2] = sampleCommon->toString(totalTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 3);
+    this->SDKSample::logStats(strArray, stats, 4, "MandelbrotSimple.txt");
 }
 
 int MandelbrotSimple::cleanup()

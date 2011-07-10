@@ -1222,6 +1222,7 @@ MersenneTwisterSimple::printStats()
     stats[3] = sampleCommon->toString(height * width * mulFactor / totalTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 4);
+    this->SDKSample::logStats(strArray, stats, 4, "MersenneTwisterSimple.txt");
 }
 
 int

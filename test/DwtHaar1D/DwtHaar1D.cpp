@@ -1400,6 +1400,7 @@ void DwtHaar1D::printStats()
     stats[2] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 3);
+    this->SDKSample::logStats(strArray, stats, 4, "DwtHaar1D.txt");
 }
 
 

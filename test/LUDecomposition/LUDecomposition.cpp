@@ -1376,6 +1376,7 @@ void LUD::printStats()
     stats[2]  = sampleCommon->toString(totalKernelTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 3);
+    this->SDKSample::logStats(strArray, stats, 4, "LUDecomposition.txt");
 }
 
 

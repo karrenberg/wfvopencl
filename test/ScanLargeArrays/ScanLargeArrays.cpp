@@ -1594,6 +1594,7 @@ void ScanLargeArrays::printStats()
     stats[2]  = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 3);
+    this->SDKSample::logStats(strArray, stats, 3, "ScanLargeArrays.txt");
 }
 
 int 

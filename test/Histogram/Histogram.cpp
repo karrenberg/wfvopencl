@@ -1250,6 +1250,7 @@ void Histogram::printStats()
     stats[3] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
+    this->SDKSample::logStats(strArray, stats, 4, "Histogram.txt");
 }
 
 

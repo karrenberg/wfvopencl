@@ -886,6 +886,7 @@ void AmbientOcclusionRenderer::printStats()
 	stats[1]  = sampleCommon->toString(setupTime, std::dec);
 
 	this->SDKSample::printStats(strArray, stats, 3);
+	this->SDKSample::logStats(strArray, stats, 3, "AmbientOcclusionRenderer.txt");
 }
 
 

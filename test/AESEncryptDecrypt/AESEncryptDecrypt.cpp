@@ -1807,6 +1807,7 @@ void AESEncryptDecrypt::printStats()
     stats[3] = sampleCommon->toString(totalKernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
+    this->SDKSample::logStats(strArray, stats, 4, "AESEncryptDecrypt.txt");
 }
 
 int AESEncryptDecrypt::cleanup()

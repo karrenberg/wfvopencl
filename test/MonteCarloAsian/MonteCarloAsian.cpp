@@ -1356,6 +1356,7 @@ MonteCarloAsian::printStats()
                                       totalTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 4);
+    this->SDKSample::logStats(strArray, stats, 4, "MonteCarloAsian.txt");
 }
 
 void
