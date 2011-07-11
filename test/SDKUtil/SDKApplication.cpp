@@ -115,14 +115,17 @@ void SDKSample::printStats(std::string *statsStr, std::string * stats, int n)
     }
 }
 
-void SDKSample::logStats(std::string *statsStr, std::string * stats, int n, const std::string& fileName)
+void SDKSample::logStats(std::string *statsStr, std::string * stats, int n, const std::string& appName, const std::string& platformName)
 {
     if(timing)
     {
-		std::ofstream statsFile(fileName.c_str(), std::ios::app);
+		std::stringstream sstr;
+		sstr << appName << "." << platformName << ".txt";
+		const char* fileName = sstr.str().c_str();
+		std::ofstream statsFile(fileName, std::ios::app);
 		if (!statsFile.is_open()) {
 			// The file could not be opened
-			printf("ERROR: Could not open stats output file '%s'!\n", fileName.c_str());
+			printf("ERROR: Could not open stats output file '%s'!\n", fileName);
 			return;
 		}
 

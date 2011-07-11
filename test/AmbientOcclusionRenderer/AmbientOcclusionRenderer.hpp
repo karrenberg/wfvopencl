@@ -159,6 +159,8 @@ class AmbientOcclusionRenderer : public SDKSample
     size_t groupSize;
 	*/
 
+	std::string vendorName;
+
 public:
     /** 
     * Constructor 

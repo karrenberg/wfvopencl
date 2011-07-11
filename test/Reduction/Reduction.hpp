@@ -136,6 +136,8 @@ class Reduction : public SDKSample
     size_t groupSize;               /**< Work-group size */
     int iterations;                 /**< Number of iterations for kernel execution*/
 
+	std::string vendorName;
+
 public:
     /** 
      * Constructor 

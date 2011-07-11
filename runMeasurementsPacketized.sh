@@ -4,28 +4,28 @@ echo "TestSimple"
 build/bin/TestSimple "$@"
 echo ""
 echo "BlackScholesSimple"
-build/bin/BlackScholesSimple -q -e -t -x 16384 -i 50 "$@"
+build/bin/BlackScholesSimple -q -t -x 16384 "$@"
 echo ""
 echo "BitonicSort"
-build/bin/BitonicSort -q -e -x 1048576 -t -i 50 "$@"
+build/bin/BitonicSort -q -x 1048576 -t "$@"
 echo ""
 echo "DCT"
-build/bin/DCT -q -e -t -x 8192 -y 8192 -i 5 "$@"
+build/bin/DCT -q -t -x 8192 -y 8192 "$@"
 echo ""
 echo "FastWalshTransform"
-build/bin/FastWalshTransform -q -e -t -x 134217728 -i 5 "$@"
+build/bin/FastWalshTransform -q -t -x 134217728 "$@"
 echo ""
 echo "Histogram"
-build/bin/Histogram -q -e -t -x 15872 -y 15872 -i 10 "$@" # max is 16384x15872
+build/bin/Histogram -q -t -x 15872 -y 15872 "$@" # max is 16384x15872
 echo ""
 echo "MandelbrotSimple"
-build/bin/MandelbrotSimple -q -e -t -x 8192 -i 5 "$@" # max size
+build/bin/MandelbrotSimple -q -t -x 8192 "$@" # max size
 echo ""
 echo "MatrixTranspose"
-build/bin/MatrixTranspose -q -e -t -x 12000 -i 10 "$@" # verification takes forever at 14000+
+build/bin/MatrixTranspose -q -t -x 12000 "$@" # verification takes forever at 14000+
 echo ""
 echo "SimpleConvolution"
-build/bin/SimpleConvolution -q -e -t -x 8192 -y 8192 -m 1 -i 50 "$@" # intel cannot do more
+build/bin/SimpleConvolution -q -t -x 8192 -y 8192 -m 1 "$@" # intel cannot do more
 
 # EigenValue fails for size > 4096 (also with ATI's own implementation!)
 # PrefixSum fails for larger sizes when using more than one iteration

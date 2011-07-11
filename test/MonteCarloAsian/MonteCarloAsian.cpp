@@ -830,6 +830,15 @@ MonteCarloAsian::setupCL(void)
 			vName,
 			NULL);
 	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+	if (!strcmp(vName, "Intel(R) Corporation")) {
+		vendorName = "intel";
+	} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
+		vendorName = "amd";
+	} else if (platformIsPacketizedOpenCL) {
+		vendorName = "pkt";
+	} else {
+		printf("ERROR: vendor not recognized: %s\n", vName);
+	}
 
 	kernelPath.append("MonteCarloAsian_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
@@ -1356,7 +1365,7 @@ MonteCarloAsian::printStats()
                                       totalTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "MonteCarloAsian.txt");
+    this->SDKSample::logStats(strArray, stats, 4, "MonteCarloAsian", vendorName);
 }
 
 void

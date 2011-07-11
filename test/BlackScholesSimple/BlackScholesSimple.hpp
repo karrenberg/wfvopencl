@@ -139,6 +139,8 @@ class BlackScholesSimple : public SDKSample
     size_t blockSizeY;              /**< block size in y-direction*/
     int iterations;
 
+	std::string vendorName;
+
 public:
     /** 
      * Constructor 

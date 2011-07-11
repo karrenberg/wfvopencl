@@ -770,6 +770,15 @@ SobelFilter::setupCL()
 			vName,
 			NULL);
 	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+	if (!strcmp(vName, "Intel(R) Corporation")) {
+		vendorName = "intel";
+	} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
+		vendorName = "amd";
+	} else if (platformIsPacketizedOpenCL) {
+		vendorName = "pkt";
+	} else {
+		printf("ERROR: vendor not recognized: %s\n", vName);
+	}
 
 	kernelPath.append("SobelFilter_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
@@ -1344,7 +1353,7 @@ SobelFilter::printStats()
     stats[3] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "SobelFilter.txt");
+    this->SDKSample::logStats(strArray, stats, 4, "SobelFilter", vendorName);
 }
 
 

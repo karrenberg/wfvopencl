@@ -172,6 +172,8 @@ class FluidSimulation2D : public SDKSample
 
     
 
+	std::string vendorName;
+
 public:
 
     void reset();

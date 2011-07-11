@@ -148,6 +148,8 @@ class DwtHaar1D : public SDKSample
     int iterations;                 /**< Number of iterations to be executed on kernel */
 
 
+	std::string vendorName;
+
 public:
     /** 
      * Constructor 

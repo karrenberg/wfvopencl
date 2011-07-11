@@ -132,6 +132,8 @@ class SimpleConvolution : public SDKSample
     size_t    kernelWorkGroupSize;    /**< Group Size returned by kernel */
     int          iterations;         /**< Number of iterations to execute kernel */
 
+	std::string vendorName;
+
     public:
     /** 
      * Constructor 

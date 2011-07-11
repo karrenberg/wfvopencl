@@ -140,6 +140,8 @@ class QuasiRandomSequence : public SDKSample
     int                iterations;
 
 
+	std::string vendorName;
+
 public:
     /** 
     * Constructor 

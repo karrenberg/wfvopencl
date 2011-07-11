@@ -141,6 +141,8 @@ class MersenneTwisterSimple : public SDKSample
     size_t blockSizeY;              /**< block size in y-direction*/
     int iterations;                 /**< Number of iterations for kernel execution */
 
+	std::string vendorName;
+
 public:
 	/** 
 	 * Constructor 

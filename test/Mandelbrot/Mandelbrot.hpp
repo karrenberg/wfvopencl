@@ -155,6 +155,8 @@ class Mandelbrot : public SDKSample
     cl_double                time;       /**< Elapsed time */
     cl_device_type          dType;       /**< OpenCL device type */
 
+	std::string vendorName;
+
 public:
     cl_uint *output;                      /**< Output array */
 

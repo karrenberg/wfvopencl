@@ -164,9 +164,13 @@ class NBodySimple : public SDKSample
     cl_int numParticles;
     int iterations;
 
+	std::string vendorName;
+
 private:
 
     float random(float randMax, float randMin);
+
+	std::string vendorName;
 
 public:
     /** 

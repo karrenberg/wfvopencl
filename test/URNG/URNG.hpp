@@ -142,6 +142,8 @@ class URNG : public SDKSample
 
 
 
+	std::string vendorName;
+
 public:
 
     /**

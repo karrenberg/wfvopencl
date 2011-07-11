@@ -155,6 +155,8 @@ class Histogram : public SDKSample
 	
 	bool platformIsPacketizedOpenCL;
 
+	std::string vendorName;
+
 public:
     /** 
     * Constructor 

@@ -150,6 +150,8 @@ class MatrixMulImage : public SDKSample
     int                iterations;      /**< Number of iterations for kernel execution */
     bool imageSupport;
  
+	std::string vendorName;
+
 public:
     /** 
      * Constructor 

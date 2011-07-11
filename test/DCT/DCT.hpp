@@ -172,6 +172,8 @@ namespace dct
         cl_ulong       neededLocalMemory;
         int                   iterations;    /**< Number of iteration for kernel execution */
 
+	std::string vendorName;
+
         public:
         /** 
          * Constructor 

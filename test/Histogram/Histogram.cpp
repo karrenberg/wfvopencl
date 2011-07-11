@@ -787,6 +787,15 @@ Histogram::setupCL(void)
 			vName,
 			NULL);
 	platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+	if (!strcmp(vName, "Intel(R) Corporation")) {
+		vendorName = "intel";
+	} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
+		vendorName = "amd";
+	} else if (platformIsPacketizedOpenCL) {
+		vendorName = "pkt";
+	} else {
+		printf("ERROR: vendor not recognized: %s\n", vName);
+	}
 
 	kernelPath.append("Histogram_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
@@ -1250,7 +1259,7 @@ void Histogram::printStats()
     stats[3] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "Histogram.txt");
+    this->SDKSample::logStats(strArray, stats, 4, "Histogram", vendorName);
 }
 
 

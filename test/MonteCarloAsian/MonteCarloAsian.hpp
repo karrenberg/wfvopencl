@@ -159,6 +159,8 @@ class MonteCarloAsian : public SDKSample
 
     int iterations;                     /**< Number of iterations for kernel execution */
 
+	std::string vendorName;
+
 public:
 	/** 
 	 * Constructor 

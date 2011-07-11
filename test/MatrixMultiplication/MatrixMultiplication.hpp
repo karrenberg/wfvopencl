@@ -151,6 +151,8 @@ class MatrixMultiplication : public SDKSample
     cl_ulong    neededLocalMemory;
     int                iterations;      /**< Number of iterations for kernel execution */
  
+	std::string vendorName;
+
 public:
     /** 
      * Constructor 

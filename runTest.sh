@@ -1,4 +1,5 @@
 #!/bin/bash
+# TODO: add TestLoopBarrier2
 build/bin/TestSimple "$@" && \
 build/bin/Test2D "$@" && \
 build/bin/Test2D2 "$@" && \
@@ -21,6 +22,6 @@ build/bin/NBodySimple -q -e -x 128 "$@" && \
 build/bin/PrefixSum -q -e "$@" && \
 build/bin/RadixSort -q -e "$@" && \
 build/bin/Reduction -q -e "$@" && \
-build/bin/SimpleConvolution -q -e -x 8 "$@"
+build/bin/SimpleConvolution -q -e -x 8 "$@" && \
+build/bin/AmbientOcclusionRenderer -q -e -x 128 -y 128 "$@"
 
-# TODO: add TestLoopBarrier2

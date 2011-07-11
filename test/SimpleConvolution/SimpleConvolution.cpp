@@ -722,6 +722,15 @@ SimpleConvolution::setupCL(void)
 			vName,
 			NULL);
 	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+	if (!strcmp(vName, "Intel(R) Corporation")) {
+		vendorName = "intel";
+	} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
+		vendorName = "amd";
+	} else if (platformIsPacketizedOpenCL) {
+		vendorName = "pkt";
+	} else {
+		printf("ERROR: vendor not recognized: %s\n", vName);
+	}
 
 	kernelPath.append("SimpleConvolution_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
@@ -1194,7 +1203,7 @@ void SimpleConvolution::printStats()
     stats[4]  = sampleCommon->toString(totalKernelTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 5);
-    this->SDKSample::logStats(strArray, stats, 5, "SimpleConvolution.txt");
+    this->SDKSample::logStats(strArray, stats, 5, "SimpleConvolution", vendorName);
 }
 
 int SimpleConvolution::cleanup()

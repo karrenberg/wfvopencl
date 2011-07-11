@@ -597,6 +597,15 @@ int AmbientOcclusionRenderer::setupCL()
 				vName,
 				NULL);
 		const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+		if (!strcmp(vName, "Intel(R) Corporation")) {
+			vendorName = "intel";
+		} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
+			vendorName = "amd";
+		} else if (platformIsPacketizedOpenCL) {
+			vendorName = "pkt";
+		} else {
+			printf("ERROR: vendor not recognized: %s\n", vName);
+		}
 
 		kernelPath.append("AmbientOcclusionRenderer_Kernels.cl");
 		if(!kernelFile.open(kernelPath.c_str()))
@@ -886,7 +895,7 @@ void AmbientOcclusionRenderer::printStats()
 	stats[1]  = sampleCommon->toString(setupTime, std::dec);
 
 	this->SDKSample::printStats(strArray, stats, 3);
-	this->SDKSample::logStats(strArray, stats, 3, "AmbientOcclusionRenderer.txt");
+	this->SDKSample::logStats(strArray, stats, 3, "AmbientOcclusionRenderer", vendorName);
 }
 
 

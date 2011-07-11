@@ -160,6 +160,8 @@ class Histogram : public SDKSample
     cl_bool reqdExtSupport;
     size_t KernelCompileWorkGroupSize[3];
 
+	std::string vendorName;
+
 public:
     /** 
     * Constructor 

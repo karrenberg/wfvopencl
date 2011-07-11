@@ -167,6 +167,8 @@ class RadixSort : public SDKSample
     cl_kernel permuteKernel;        /**< CL kernel for permute */
 
 
+	std::string vendorName;
+
 public:
     /** 
     * Constructor 

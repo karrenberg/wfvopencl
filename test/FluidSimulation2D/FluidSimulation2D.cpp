@@ -1117,6 +1117,15 @@ FluidSimulation2D::setupCL()
 			vName,
 			NULL);
 	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+	if (!strcmp(vName, "Intel(R) Corporation")) {
+		vendorName = "intel";
+	} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
+		vendorName = "amd";
+	} else if (platformIsPacketizedOpenCL) {
+		vendorName = "pkt";
+	} else {
+		printf("ERROR: vendor not recognized: %s\n", vName);
+	}
 
 	kernelPath.append("FluidSimulation2D_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
@@ -2176,7 +2185,7 @@ FluidSimulation2D::printStats()
     stats[4] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 5);
-    this->SDKSample::logStats(strArray, stats, 4, "FluidSimulation2D.txt");
+    this->SDKSample::logStats(strArray, stats, 4, "FluidSimulation2D", vendorName);
 }
 
 int

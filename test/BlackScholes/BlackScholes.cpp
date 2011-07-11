@@ -842,6 +842,15 @@ BlackScholes::setupCL(void)
 				vName,
 				NULL);
 		const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+		if (!strcmp(vName, "Intel(R) Corporation")) {
+			vendorName = "intel";
+		} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
+			vendorName = "amd";
+		} else if (platformIsPacketizedOpenCL) {
+			vendorName = "pkt";
+		} else {
+			printf("ERROR: vendor not recognized: %s\n", vName);
+		}
 
 		kernelPath.append("BlackScholes_Kernels.cl");
 		if(!kernelFile.open(kernelPath.c_str()))
@@ -1298,7 +1307,7 @@ BlackScholes::printStats()
     stats[3] = sampleCommon->toString(actualSamples / totalTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "BlackScholes.txt");
+    this->SDKSample::logStats(strArray, stats, 4, "BlackScholes", vendorName);
 
 }
 

@@ -150,6 +150,8 @@ private:
 
     float random(float randMax, float randMin);
 
+	std::string vendorName;
+
 public:
     /** 
      * Constructor 

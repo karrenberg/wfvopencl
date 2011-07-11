@@ -134,6 +134,8 @@ class FastWalshTransform : public SDKSample
     size_t    kernelWorkGroupSize;       /**< Group Size returned by kernel */
     int                iterations;       /**< Number of iterations for kernel execution */
 
+	std::string vendorName;
+
 public:
     /** 
      * Constructor 

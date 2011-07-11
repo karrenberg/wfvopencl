@@ -875,6 +875,15 @@ QuasiRandomSequence::setupCL(void)
 			vName,
 			NULL);
 	const bool platformIsPacketizedOpenCL = !strcmp(vName, "Ralf Karrenberg, Saarland University");
+	if (!strcmp(vName, "Intel(R) Corporation")) {
+		vendorName = "intel";
+	} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
+		vendorName = "amd";
+	} else if (platformIsPacketizedOpenCL) {
+		vendorName = "pkt";
+	} else {
+		printf("ERROR: vendor not recognized: %s\n", vName);
+	}
 
 	kernelPath.append("QuasiRandomSequence_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
@@ -1364,7 +1373,7 @@ QuasiRandomSequence::printStats()
     stats[2]  = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 3);
-    this->SDKSample::logStats(strArray, stats, 3, "QuasiRandomSequence.txt");
+    this->SDKSample::logStats(strArray, stats, 3, "QuasiRandomSequence", vendorName);
 
 }
 

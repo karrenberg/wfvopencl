@@ -120,6 +120,8 @@ jurisdiction and venue of these courts.
 
 class URNGNoiseGL : public SDKSample
 {
+	std::string vendorName;
+
 public:
 
     static URNGNoiseGL *urngNoiseGL;
