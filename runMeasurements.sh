@@ -4,7 +4,35 @@
 # EigenValue fails for size > 4096 (also with ATI's own implementation!)
 # PrefixSum fails for larger sizes when using more than one iteration
 # PrefixSum uses a maximum of  size 2048 in ATI's implementation
-for i (( i=0; i<=5; i++ ))
+build/bin/AmbientOcclusionRenderer -q -e -t -x 1024 -y 1024 "$@" && \
+build/bin/BinomialOptionSimple -q -e -t -x 16384 "$@" && \
+build/bin/BitonicSort -q -x 1048576 -e -t "$@" && \
+build/bin/BlackScholesSimple -q -e -t -x 16384 "$@" && \
+build/bin/DCT -q -e -t -x 8192 -y 8192 "$@" && \
+build/bin/DwtHaar1D -q -e -t -x 8388608 "$@" && \
+build/bin/EigenValue -q -e -t -x 4096 "$@" && \
+build/bin/FastWalshTransform -q -e -t -x 134217728 "$@" && \
+build/bin/FloydWarshall -q -e -t -x 512 "$@" && \
+build/bin/Histogram -q -e -t -x 15872 -y 15872 "$@" && \
+build/bin/Mandelbrot -q -e -t -x 8192 "$@" && \
+build/bin/MandelbrotSimple -q -e -t -x 8192 "$@" && \
+build/bin/MatrixTranspose -q -e -t -x 12000 "$@" && \
+build/bin/MersenneTwisterSimple -q -e -t -x 45000 "$@" && \
+build/bin/NBodySimple -q -e -t -x 23808 "$@" && \
+build/bin/PrefixSum -q -e -t -x 256 "$@" && \
+build/bin/RadixSort -q -e -t -x 33554432 "$@" && \
+build/bin/Reduction -q -e -t -x 9999974 "$@" && \
+build/bin/SimpleConvolution -q -e -t -x 8192 -y 8192 -m 1 "$@"
+
+SUCCESS=$? # read output
+
+if [ $SUCCESS -ne 0 ]
+then
+	echo "ERROR: at least one benchmark failed, not starting measurement!\n"
+	exit 1
+fi
+
+for (( i = 0; i <= 35; i++ ))
 do
 	echo ""
 	echo "TestSimple ($i)"
@@ -76,4 +104,4 @@ mkdir -p benchmark
 mv *.pkt.txt benchmark/
 mv *.amd.txt benchmark/
 mv *.intel.txt benchmark/
-mv benchmark.cfg.* benchmark
+mv benchmark.cfg.* benchmark/
