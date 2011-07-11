@@ -1,6 +1,8 @@
 #!/bin/sh
 #Copyright UVSQ, 2009, under GPL
 #Authors : Sebastien Briais and Sid-Ahmed-Ali Touati
+set -e -u
+
 usage() {
     echo "`basename $0` config.csv [--conf-level #value] [--weight custom|equal|fraction] [--precision #value] [-o outputprefix]"
 }
@@ -81,20 +83,20 @@ do
 	--conf-level)
 	    shift
 	    check_arg "$#"
-	    ARGS="$ARGS"' config.level='"$1"
+	    ARGS="$ARGS config.level=$1"
 	    ;;
 	--weight)
 	    shift
 	    check_arg "$#"
 	    case "$1" in
 		equal)
-		    ARGS="$ARGS"' config.weight="equal"'
+		    ARGS="$ARGS config.weight='equal'"
 		    ;;
 		fraction)
-		    ARGS="$ARGS"' config.weight="fraction"'
+		    ARGS="$ARGS config.weight='fraction'"
 		    ;;
 		custom)
-		    ARGS="$ARGS"' config.weight="custom"'
+		    ARGS="$ARGS config.weight='custom'"
 		    ;;
 		*)
 		    echo "unknown weight parameter"
@@ -105,7 +107,7 @@ do
 	--precision)
 	    shift
 	    check_arg "$#"
-	    ARGS="$ARGS"' config.precision='"$1"
+	    ARGS="$ARGS config.precision=$1"
 	    ;;
 	-o)
 	    shift
@@ -131,16 +133,16 @@ then
     erase_file "$wRfile"
 fi
 
-ARGS="$ARGS"' config.ifile="'"$ifile"'"'
-ARGS="$ARGS"' config.ofile="'"$ofile"'"'
-ARGS="$ARGS"' config.rfile="'"$oRfile"'"'
-ARGS="$ARGS"' config.wfile="'"$wRfile"'"'
+ARGS="$ARGS config.ifile='$ifile'"
+ARGS="$ARGS config.ofile='$ofile'"
+ARGS="$ARGS config.rfile='$oRfile'"
+ARGS="$ARGS config.wfile='$wRfile'"
 
 #echo $ARGS
 
 dir=`get_location "$0"`
 
-if test `expr "$dir" : "^/"` -eq 0
+if test `expr "$dir" : "/"` -eq 0
 then
     dir=`pwd`"/$dir"
 fi
@@ -167,7 +169,7 @@ fi
 
 #cpath=`pwd`
 #cd "$idir"
-"$Rcmd" CMD BATCH --no-save --no-restore --slave '--args '"$ARGS" "$scriptR" "$eRfile"
+"$Rcmd" CMD BATCH --no-save --no-restore --slave "--args $ARGS" "$scriptR" "$eRfile"
 if test "$?" -ne 0
 then
     echo "An error occurred while processing."
