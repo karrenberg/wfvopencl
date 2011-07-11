@@ -1139,15 +1139,6 @@ NBodySimple::setupCL()
 	} else {
 		printf("ERROR: vendor not recognized: %s\n", vName);
 	}
-	if (!strcmp(vName, "Intel(R) Corporation")) {
-		vendorName = "intel";
-	} else if (!strcmp(vName, "Advanced Micro Devices, Inc.")) {
-		vendorName = "amd";
-	} else if (platformIsPacketizedOpenCL) {
-		vendorName = "pkt";
-	} else {
-		printf("ERROR: vendor not recognized: %s\n", vName);
-	}
 
 	kernelPath.append("NBodySimple_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
@@ -2185,7 +2176,25 @@ NBodySimple::verifyResults()
 void 
 NBodySimple::printStats()
 {
-    this->SDKSample::logStats(strArray, stats, 4, "NBodySimple", vendorName);
+    std::string strArray[4] =
+	{
+		"Particles",
+		"Iterations",
+		"Time(sec)",
+		"kernelTime(sec)",
+	};
+
+    std::string stats[4];
+
+    totalTime = setupTime + kernelTime;
+
+    stats[0] = sampleCommon->toString(numParticles, std::dec);
+    stats[1] = sampleCommon->toString(iterations, std::dec);
+    stats[2] = sampleCommon->toString(totalTime, std::dec);
+    stats[3] = sampleCommon->toString(kernelTime, std::dec);
+
+    this->SDKSample::printStats(strArray, stats, 4);
+    this->SDKSample::logStats(kernelTime, "NBodySimple", vendorName);
 }
 
 int

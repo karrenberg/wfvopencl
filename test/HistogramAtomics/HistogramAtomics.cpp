@@ -1297,7 +1297,7 @@ void Histogram::printStats()
     stats[2] = sampleCommon->toString(kernelTimeGlobal, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 3);
-    this->SDKSample::logStats(strArray, stats, 4, "HistogramAtomics", vendorName);
+    this->SDKSample::logStats(kernelTimeGlobal, "HistogramAtomics", vendorName);
 
     totalTime = setupTime + kernelTimeLocal;
 

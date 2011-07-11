@@ -1231,7 +1231,7 @@ MersenneTwister::printStats()
     stats[3] = sampleCommon->toString(height * width * mulFactor * 4 / totalTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "MersenneTwister", vendorName);
+    this->SDKSample::logStats(kernelTime, "MersenneTwister", vendorName);
 }
 
 int

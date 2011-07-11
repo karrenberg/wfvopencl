@@ -1307,7 +1307,7 @@ BlackScholes::printStats()
     stats[3] = sampleCommon->toString(actualSamples / totalTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "BlackScholes", vendorName);
+    this->SDKSample::logStats(kernelTime, "BlackScholes", vendorName);
 
 }
 

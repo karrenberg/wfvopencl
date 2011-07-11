@@ -44,7 +44,7 @@ protected:
     virtual int genBinaryImage()= 0;
     virtual int initialize();
     virtual void printStats(std::string *stdStr, std::string * stats, int n);
-    virtual void logStats(std::string *stdStr, std::string * stats, int n, const std::string& appName, const std::string& platformName);
+    virtual void logStats(const double time, const std::string& appName, const std::string& platformName);
     virtual ~SDKSample();
 
 public:

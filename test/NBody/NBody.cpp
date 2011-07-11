@@ -1627,7 +1627,7 @@ NBody::printStats()
     stats[3] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "NBody", vendorName);
+    this->SDKSample::logStats(kernelTime, "NBody", vendorName);
 }
 
 int

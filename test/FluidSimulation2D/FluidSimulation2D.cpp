@@ -2185,7 +2185,7 @@ FluidSimulation2D::printStats()
     stats[4] = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 5);
-    this->SDKSample::logStats(strArray, stats, 4, "FluidSimulation2D", vendorName);
+    this->SDKSample::logStats(kernelTime, "FluidSimulation2D", vendorName);
 }
 
 int

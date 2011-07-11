@@ -1160,7 +1160,7 @@ void PrefixSum::printStats()
 	stats[2]  = sampleCommon->toString(totalKernelTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 3);
-    this->SDKSample::logStats(strArray, stats, 3, "PrefixSum", vendorName);
+    this->SDKSample::logStats(totalKernelTime, "PrefixSum", vendorName);
 }
 
 int PrefixSum::cleanup()

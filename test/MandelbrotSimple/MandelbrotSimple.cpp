@@ -1200,17 +1200,18 @@ int MandelbrotSimple::verifyResults()
 
 void MandelbrotSimple::printStats()
 {
-    std::string strArray[3] = {"Width", "Height", "Time(sec)"};
-    std::string stats[3];
+    std::string strArray[4] = {"Width", "Height", "Time(sec)", "kernelTime(sec)"};
+    std::string stats[4];
 
     totalTime = setupTime + totalKernelTime;
 
     stats[0] = sampleCommon->toString(width, std::dec);
     stats[1] = sampleCommon->toString(height, std::dec);
     stats[2] = sampleCommon->toString(totalTime, std::dec);
+    stats[3] = sampleCommon->toString(totalKernelTime, std::dec);
 
-    this->SDKSample::printStats(strArray, stats, 3);
-    this->SDKSample::logStats(strArray, stats, 4, "MandelbrotSimple", vendorName);
+    this->SDKSample::printStats(strArray, stats, 4);
+    this->SDKSample::logStats(totalKernelTime, "MandelbrotSimple", vendorName);
 }
 
 int MandelbrotSimple::cleanup()

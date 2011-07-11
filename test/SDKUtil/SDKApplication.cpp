@@ -115,7 +115,7 @@ void SDKSample::printStats(std::string *statsStr, std::string * stats, int n)
     }
 }
 
-void SDKSample::logStats(std::string *statsStr, std::string * stats, int n, const std::string& appName, const std::string& platformName)
+void SDKSample::logStats(const double time, const std::string& appName, const std::string& platformName)
 {
     if(timing)
     {
@@ -130,12 +130,7 @@ void SDKSample::logStats(std::string *statsStr, std::string * stats, int n, cons
 		}
 
 		// Safely use the file stream
-		int i=0;
-		for(; i < n; ++i)
-		{
-			if (strcmp(statsStr[i].c_str(), "kernelTime(sec)") == 0) break;
-		}
-		statsFile << stats[i] << std::endl;
+		statsFile << time << std::endl;
 		statsFile.close();
     }
 }

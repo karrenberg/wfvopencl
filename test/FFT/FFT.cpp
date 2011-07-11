@@ -1356,7 +1356,7 @@ void FFT::printStats()
 	stats[2] = sampleCommon->toString(kernelTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 3);
-    this->SDKSample::logStats(strArray, stats, 4, "FFT", vendorName);
+    this->SDKSample::logStats(kernelTime, "FFT", vendorName);
 }
 
 int FFT::cleanup()

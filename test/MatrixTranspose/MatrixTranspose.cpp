@@ -1263,7 +1263,7 @@ MatrixTranspose::printStats()
 	stats[2]  = sampleCommon->toString(totalKernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 3);
-    this->SDKSample::logStats(strArray, stats, 4, "MatrixTranspose", vendorName);
+    this->SDKSample::logStats(totalKernelTime, "MatrixTranspose", vendorName);
 }
 
 int 

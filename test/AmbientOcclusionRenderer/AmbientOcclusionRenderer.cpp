@@ -788,6 +788,25 @@ int AmbientOcclusionRenderer::runCLKernels()
     return SDK_SUCCESS;
 }
 
+int AmbientOcclusionRenderer::run()
+{
+	/*
+	int argc = 1;
+	char* argv[] = {"."};
+	glutInit(&argc, argv);
+	glutInitWindowSize(width, height);
+	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE);
+	glutCreateWindow("OpenCL AO");
+	initGL();
+		
+	glutIdleFunc(idle);
+	glutDisplayFunc(displayGLWindow);
+	glutKeyboardFunc(keyboard);
+	glutMainLoop();
+	*/
+    return SDK_SUCCESS;
+}
+
 
 int AmbientOcclusionRenderer::initialize()
 {
@@ -866,36 +885,18 @@ int AmbientOcclusionRenderer::setup()
     return SDK_SUCCESS;
 }
 
-int AmbientOcclusionRenderer::run()
-{
-	/*
-	int argc = 1;
-	char* argv[] = {"."};
-	glutInit(&argc, argv);
-	glutInitWindowSize(width, height);
-	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE);
-	glutCreateWindow("OpenCL AO");
-	initGL();
-		
-	glutIdleFunc(idle);
-	glutDisplayFunc(displayGLWindow);
-	glutKeyboardFunc(keyboard);
-	glutMainLoop();
-	*/
-    return SDK_SUCCESS;
-}
-
 void AmbientOcclusionRenderer::printStats()
 {
-	std::string strArray[2] = {"WxH" , "SetupTime(sec)"};
-	std::string stats[2];
+	std::string strArray[3] = {"WxH" , "SetupTime(sec)", "kernelTime(sec)"};
+	std::string stats[3];
 
 	stats[0]  = sampleCommon->toString(width, std::dec)
 		+"x"+sampleCommon->toString(height, std::dec);
 	stats[1]  = sampleCommon->toString(setupTime, std::dec);
+	stats[2]  = sampleCommon->toString(kernelTime, std::dec);
 
 	this->SDKSample::printStats(strArray, stats, 3);
-	this->SDKSample::logStats(strArray, stats, 3, "AmbientOcclusionRenderer", vendorName);
+	this->SDKSample::logStats(kernelTime, "AmbientOcclusionRenderer", vendorName);
 }
 
 
@@ -1039,12 +1040,22 @@ void displayGLWindow()
 	// calc fps
 	double etm = gettimeofday_sec();
 	printf("fps = %3.5f\n", (double)1.0/(etm - stm));
+
+	// store first run for statistics
+	clAmbientOcclusionRenderer->setKernelTime(etm - stm);
 }
 
 void keyboard(unsigned char key, int x, int y)
 {
 	if (key == 27)// ESC
+	{
+		clAmbientOcclusionRenderer->printStats();
+
+		if(clAmbientOcclusionRenderer->cleanup()!=SDK_SUCCESS)
+			exit(1);
+
 		exit(0);
+	}
 }
 
 void idle()
@@ -1080,10 +1091,6 @@ int main (int argc, char* argv[])
 	glutKeyboardFunc(keyboard);
 	glutMainLoop();
 
-	clAmbientOcclusionRenderer->printStats();
-
-    if(clAmbientOcclusionRenderer->cleanup()!=SDK_SUCCESS)
-        return SDK_FAILURE;
-
-    return SDK_SUCCESS;
+	// we cannot return from glutMainLoop() easily.
+	// Thus, all has been moved to keyboard()
 }

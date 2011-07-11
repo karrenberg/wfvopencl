@@ -1355,7 +1355,7 @@ void DCT::printStats()
 	stats[3]  = sampleCommon->toString(totalKernelTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "DCT", vendorName);
+    this->SDKSample::logStats(totalKernelTime, "DCT", vendorName);
 }
 
 int DCT::cleanup()

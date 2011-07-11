@@ -1292,7 +1292,7 @@ void BinomialOptionSimple::printStats()
     stats[3] = sampleCommon->toString(numSamples/totalTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 4);
-    this->SDKSample::logStats(strArray, stats, 4, "BinomialOptionSimple", vendorName);
+    this->SDKSample::logStats(kernelTime, "BinomialOptionSimple", vendorName);
 }
 
 int

@@ -1373,7 +1373,7 @@ QuasiRandomSequence::printStats()
     stats[2]  = sampleCommon->toString(kernelTime, std::dec);
 
     this->SDKSample::printStats(strArray, stats, 3);
-    this->SDKSample::logStats(strArray, stats, 3, "QuasiRandomSequence", vendorName);
+    this->SDKSample::logStats(kernelTime, "QuasiRandomSequence", vendorName);
 
 }
 

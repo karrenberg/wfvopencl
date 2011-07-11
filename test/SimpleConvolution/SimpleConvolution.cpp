@@ -1203,7 +1203,7 @@ void SimpleConvolution::printStats()
     stats[4]  = sampleCommon->toString(totalKernelTime, std::dec);
     
     this->SDKSample::printStats(strArray, stats, 5);
-    this->SDKSample::logStats(strArray, stats, 5, "SimpleConvolution", vendorName);
+    this->SDKSample::logStats(totalKernelTime, "SimpleConvolution", vendorName);
 }
 
 int SimpleConvolution::cleanup()

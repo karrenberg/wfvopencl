@@ -275,6 +275,8 @@ public:
 
 	cl_int getWidth() const { return width; }
 	cl_int getHeight() const { return height; }
+
+	void setKernelTime(const double time) { if (kernelTime == 0.0) kernelTime = time; }
 };
 
 #endif // AMBIENTOCCLUSION_H_
