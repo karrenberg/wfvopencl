@@ -20,7 +20,7 @@
 # SimpleConvolution has a maximum size of 8192x8192 on Intel
 
 
-NUM_SAMPLES=1
+NUM_SAMPLES=50
 NUM_PLATFORMS=3
 
 echo ""
