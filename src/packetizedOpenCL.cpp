@@ -1923,7 +1923,8 @@ namespace PacketizedOpenCL {
 
 	// TODO: get real info :p
 	inline unsigned long long getDeviceMaxMemAllocSize() {
-		return 0x3B9ACA00; // 1 GB
+		//return 0x3B9ACA00; // 1 GB
+		return 0xEE6B2800; // 4 GB
 	}
 
 }
@@ -4612,7 +4613,7 @@ inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_si
 	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
 
-	typedef void (*kernelFnPtr)(
+typedef void (*kernelFnPtr)(
 			const void*,
 			const cl_uint,
 			const cl_uint*,
