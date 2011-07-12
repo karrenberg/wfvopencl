@@ -121,11 +121,11 @@ void SDKSample::logStats(const double time, const std::string& appName, const st
     {
 		std::stringstream sstr;
 		sstr << appName << "." << platformName << ".txt";
-		const char* fileName = sstr.str().c_str();
-		std::ofstream statsFile(fileName, std::ios::app);
+		const std::string& fileName = sstr.str();
+		std::ofstream statsFile(fileName.c_str(), std::ios::app);
 		if (!statsFile.is_open()) {
 			// The file could not be opened
-			printf("ERROR: Could not open stats output file '%s'!\n", fileName);
+			printf("ERROR: Could not open stats output file '%s'!\n", fileName.c_str());
 			return;
 		}
 
