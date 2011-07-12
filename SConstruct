@@ -328,13 +328,17 @@ if not isWin and not isDarwin:
 ### clean up
 ###
 
-# For some reason, those are not removed automatically by scons -c :(
+# For some reason related to what scons sees as "targets",
+# these are not removed automatically by scons -c for some configurations :(
 if GetOption("clean"):
 	Execute(Delete('build'))
 	Execute(Delete('lib/PacketizedOpenCL.dll'))
 	Execute(Delete('lib/PacketizedOpenCL.dll.manifest'))
 	Execute(Delete('lib/PacketizedOpenCL.exp'))
+	Execute(Delete('lib/PacketizedOpenCL.ilk'))
+	Execute(Delete('lib/PacketizedOpenCL.pdb'))
 	Execute(Delete('lib/libPacketizedOpenCL.so'))
+	Execute(Delete('lib/libPacketizedOpenCL.a'))
 	for a in testApps:
 		Execute(Delete(a+'_Output.bmp'))
 		if isDarwin:
