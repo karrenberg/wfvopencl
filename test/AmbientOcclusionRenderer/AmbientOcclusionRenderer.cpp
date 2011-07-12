@@ -788,6 +788,7 @@ int AmbientOcclusionRenderer::runCLKernels()
     return SDK_SUCCESS;
 }
 
+// not used
 int AmbientOcclusionRenderer::run()
 {
 	/*
@@ -1009,12 +1010,25 @@ double gettimeofday_sec()
 #endif
 }
 
+void keyboard(unsigned char key, int x, int y)
+{
+	if (key == 27)// ESC
+	{
+		clAmbientOcclusionRenderer->printStats();
+
+		if(clAmbientOcclusionRenderer->cleanup()!=SDK_SUCCESS)
+			exit(1);
+
+		exit(0);
+	}
+}
+
 void displayGLWindow()
 {
 	double stm = gettimeofday_sec();
 	
 	clAmbientOcclusionRenderer->runCLKernels();
-		
+	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 #ifdef USE_TEXTURE
 	glEnable(GL_TEXTURE_2D);
@@ -1039,23 +1053,10 @@ void displayGLWindow()
 	
 	// calc fps
 	double etm = gettimeofday_sec();
-	printf("fps = %3.5f\n", (double)1.0/(etm - stm));
+	printf("fps = %3.5f (%3.5f sec)\n", (double)1.0/(etm - stm), (etm-stm));
 
 	// store first run for statistics
 	clAmbientOcclusionRenderer->setKernelTime(etm - stm);
-}
-
-void keyboard(unsigned char key, int x, int y)
-{
-	if (key == 27)// ESC
-	{
-		clAmbientOcclusionRenderer->printStats();
-
-		if(clAmbientOcclusionRenderer->cleanup()!=SDK_SUCCESS)
-			exit(1);
-
-		exit(0);
-	}
 }
 
 void idle()
@@ -1068,9 +1069,6 @@ int main (int argc, char* argv[])
 	clAmbientOcclusionRenderer = new AmbientOcclusionRenderer("OpenCL AmbientOcclusionRenderer");
 	teximage = new unsigned char[clAmbientOcclusionRenderer->getWidth() * clAmbientOcclusionRenderer->getHeight() * 4];
 
-	//AmbientOcclusionRenderer clAmbientOcclusionRenderer("OpenCL AmbientOcclusionRenderer");
-	//me = &clAmbientOcclusionRenderer;
-
 	if(clAmbientOcclusionRenderer->initialize() != SDK_SUCCESS)
         return SDK_FAILURE;
     if(!clAmbientOcclusionRenderer->parseCommandLine(argc, argv))
@@ -1080,17 +1078,32 @@ int main (int argc, char* argv[])
     //if(clAmbientOcclusionRenderer.run() != SDK_SUCCESS)
         //return SDK_FAILURE;
 	
-	glutInit(&argc, argv);
-	glutInitWindowSize(clAmbientOcclusionRenderer->getWidth(), clAmbientOcclusionRenderer->getHeight());
-	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE);
-	glutCreateWindow("OpenCL AO");
-	initGL();
-		
-	glutIdleFunc(idle);
-	glutDisplayFunc(displayGLWindow);
-	glutKeyboardFunc(keyboard);
-	glutMainLoop();
+	if (clAmbientOcclusionRenderer->isQuiet()) {
+		// do not create OpenGL window
+		double stm = gettimeofday_sec();
+		clAmbientOcclusionRenderer->runCLKernels();
+		double etm = gettimeofday_sec();
+		clAmbientOcclusionRenderer->setKernelTime(etm - stm);
+		clAmbientOcclusionRenderer->printStats();
 
-	// we cannot return from glutMainLoop() easily.
-	// Thus, all has been moved to keyboard()
+		if(clAmbientOcclusionRenderer->cleanup()!=SDK_SUCCESS)
+			return SDK_FAILURE;
+
+	} else {
+		glutInit(&argc, argv);
+		glutInitWindowSize(clAmbientOcclusionRenderer->getWidth(), clAmbientOcclusionRenderer->getHeight());
+		glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE);
+		glutCreateWindow("OpenCL AO");
+		initGL();
+
+		glutIdleFunc(idle);
+		glutDisplayFunc(displayGLWindow);
+		glutKeyboardFunc(keyboard);
+		glutMainLoop();
+
+		// we cannot return from glutMainLoop() easily.
+		// Thus, all has been moved to keyboard()
+	}
+
+	return SDK_SUCCESS;
 }

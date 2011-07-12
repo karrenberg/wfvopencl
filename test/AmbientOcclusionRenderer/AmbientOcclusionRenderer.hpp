@@ -277,6 +277,8 @@ public:
 	cl_int getHeight() const { return height; }
 
 	void setKernelTime(const double time) { if (kernelTime == 0.0) kernelTime = time; }
+	bool isTiming() const { return timing; }
+	bool isQuiet() const { return quiet; }
 };
 
 #endif // AMBIENTOCCLUSION_H_

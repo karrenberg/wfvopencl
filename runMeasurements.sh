@@ -14,7 +14,6 @@ build/bin/EigenValue -q -e -t -x 4096 "$@" && \
 build/bin/FastWalshTransform -q -e -t -x 134217728 "$@" && \
 build/bin/FloydWarshall -q -e -t -x 512 "$@" && \
 build/bin/Histogram -q -e -t -x 15872 -y 15872 "$@" && \
-build/bin/Mandelbrot -q -e -t -x 8192 "$@" && \
 build/bin/MandelbrotSimple -q -e -t -x 8192 "$@" && \
 build/bin/MatrixTranspose -q -e -t -x 12000 "$@" && \
 build/bin/MersenneTwisterSimple -q -e -t -x 45000 "$@" && \
@@ -28,7 +27,7 @@ SUCCESS=$? # read output
 
 if [ $SUCCESS -ne 0 ]
 then
-	echo "ERROR: at least one benchmark failed, not starting measurement!\n"
+	echo "ERROR: at least one benchmark failed, not starting measurement!"
 	exit 1
 fi
 
@@ -67,9 +66,6 @@ do
 	echo ""
 	echo "Histogram ($i)"
 	build/bin/Histogram -q -t -x 15872 -y 15872 "$@" # max is 16384x15872
-	echo ""
-	echo "Mandelbrot ($i)"
-	build/bin/Mandelbrot -q -t -x 8192 "$@"
 	echo ""
 	echo "MandelbrotSimple ($i)"
 	build/bin/MandelbrotSimple -q -t -x 8192 "$@" # max size, takes forever on AMD (~35sec)
