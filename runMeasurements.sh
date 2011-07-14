@@ -6,6 +6,7 @@
 # EigenValue fails for size > 4096 on all platforms
 # FloydWarshall has a maximum size of 512 (not enough memory on Intel/AMD)
 # Histogram has a maximum size of 16384 x 15872
+# Histogram was modified for packetization to take uint argument instead of uchar
 # MandelbrotSimple has a maximum size of 8192x8192 on Intel/AMD
 # MandelbrotSimple is incredibly slow on AMD (slower than reference CPU implementation!)
 # MatrixTranspose verification takes forever for size > 14000

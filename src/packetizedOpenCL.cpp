@@ -1650,7 +1650,7 @@ namespace PacketizedOpenCL {
 		const bool use_sse41 = true;
 		const bool use_avx = false;
 #endif
-		const bool verbose = true;
+		const bool verbose = false;
 		const bool success = PacketizedOpenCL::packetizeKernelFunction(f->getNameStr(),
 																			 kernel_simd_name,
 																			 module,
@@ -3171,9 +3171,6 @@ clGetDeviceIDs(cl_platform_id   platform,
 	if (devices && num_entries < 1) return CL_INVALID_VALUE;
 	if (!devices && !num_devices) return CL_INVALID_VALUE;
 	if (devices) {
-		//_cl_device_id* d = new _cl_device_id();
-		//d->dispatch = &static_dispatch;
-		//*(_cl_device_id**)devices = d;
 		*(_cl_device_id**)devices = &static_device;
 	}
 	if (num_devices) *num_devices = 1; //new cl_uint(1);
@@ -3549,9 +3546,6 @@ clGetContextInfo(cl_context         context,
 		case CL_CONTEXT_DEVICES: {
 			if (param_value) {
 				if (param_value_size < sizeof(_cl_device_id*)) return CL_INVALID_VALUE;
-				//_cl_device_id* d = new _cl_device_id();
-				//d->dispatch = &static_dispatch;
-				//*(_cl_device_id**)param_value = d;
 				*(_cl_device_id**)param_value = &static_device;
 			} else {
 				if (param_value_size_ret) *param_value_size_ret = sizeof(_cl_device_id*);

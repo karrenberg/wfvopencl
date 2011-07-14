@@ -2088,10 +2088,10 @@ NBodySimple::run()
 
     if(!quiet)
     {
-        sampleCommon->printArray<cl_float>("Output", posX, numBodies, 1);
-        sampleCommon->printArray<cl_float>("Output", posY, numBodies, 1);
-        sampleCommon->printArray<cl_float>("Output", posZ, numBodies, 1);
-        sampleCommon->printArray<cl_float>("Output", posW, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output (x)", posX, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output (y)", posY, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output (z)", posZ, numBodies, 1);
+        sampleCommon->printArray<cl_float>("Output (w)", posW, numBodies, 1);
     }
 
     return SDK_SUCCESS;
