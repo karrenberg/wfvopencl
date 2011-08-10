@@ -1419,7 +1419,7 @@ namespace PacketizedOpenCL {
 		const bool use_sse41 = true;
 		const bool use_avx = false;
 #endif
-		const bool verbose = true;
+		const bool verbose = false;
 		const bool success = 
 			PacketizedOpenCL::packetizeKernelFunction(f->getNameStr(),
 													 kernel_simd_name,
