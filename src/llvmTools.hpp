@@ -28,37 +28,40 @@
 #include <cassert>
 #include <set>
 
-#include <llvm/Support/raw_ostream.h>
-#include <llvm/Support/system_error.h> // error_code
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/system_error.h" // error_code
 
-#include <llvm/Module.h>
-#include <llvm/Target/TargetData.h>
+#include "llvm/Module.h"
+#include "llvm/Target/TargetData.h"
 
-#include <llvm/Bitcode/ReaderWriter.h> // createModuleFromFile
-#include <llvm/Support/MemoryBuffer.h> // createModuleFromFile
+#include "llvm/Bitcode/ReaderWriter.h" // createModuleFromFile
+#include "llvm/Support/MemoryBuffer.h" // createModuleFromFile
 
-#include <llvm/ExecutionEngine/JITMemoryManager.h>
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
-#include <llvm/ExecutionEngine/JIT.h> //required to prevent "JIT has not been linked in" errors
+#include "llvm/ExecutionEngine/JITMemoryManager.h"
+#include "llvm/ExecutionEngine/ExecutionEngine.h"
+#include "llvm/ExecutionEngine/JIT.h" //required to prevent "JIT has not been linked in" errors
 
-#include <llvm/Target/TargetSelect.h> // InitializeNativeTarget (getExecutionEngine)
+#include "llvm/Target/TargetSelect.h" // InitializeNativeTarget (getExecutionEngine)
 
-#include <llvm/Analysis/Verifier.h> // AbortProcessAction (verifyModule)
+#include "llvm/Analysis/Verifier.h" // AbortProcessAction (verifyModule)
 
-#include <llvm/PassManager.h>
-#include <llvm/LinkAllPasses.h> // createXYZPass
-#include <llvm/Support/StandardPasses.h> // createXYZPass
-//#include <llvm/Transforms/IPO.h> //FunctionInliningPass
-#include <llvm/Transforms/Utils/Cloning.h> //InlineFunction
+#include "llvm/PassManager.h"
+#include "llvm/LinkAllPasses.h" // createXYZPass
+#include "llvm/Support/StandardPasses.h" // createXYZPass
+//#include "llvm/Transforms/IPO.h" //FunctionInliningPass
+#include "llvm/Transforms/Utils/Cloning.h" //InlineFunction
 
-#include <llvm/Support/Timer.h>
+#include "llvm/Support/Timer.h"
 
-#include <llvm/Linker.h>
+#include "llvm/Linker.h"
 
 
 // for generateFunctionWrapper
-#include <llvm/Support/IRBuilder.h>
-#include <llvm/Support/TypeBuilder.h>
+#include "llvm/Support/IRBuilder.h"
+#include "llvm/Support/TypeBuilder.h"
+
+
+#include "packetizerAPI.hpp"
 
 #ifdef DEBUG
 #	define PACKETIZED_OPENCL_DEBUG(x) do { x } while (false)
@@ -97,13 +100,58 @@ namespace PacketizedOpenCL {
 		return (constVal % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
 	}
 
+	void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer) {
 
+		for (Function::iterator BB=kernel->begin(), BBE=kernel->end();
+				BB!=BBE; ++BB)
+		{
+			for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I)
+			{
+				if (!isa<CallInst>(I)) continue;
+
+				CallInst* call = cast<CallInst>(I);
+				Function* callee = call->getCalledFunction();
+
+				if (std::strstr(callee->getNameStr().c_str(), "get_global_id") ||
+					std::strstr(callee->getNameStr().c_str(), "get_local_id"))
+				{
+					// get dimension
+					assert (call->getNumArgOperands() == 1);
+					assert (isa<ConstantInt>(call->getArgOperand(0)));
+					Constant* dimC = cast<Constant>(call->getArgOperand(0));
+
+					if (constantEqualsInt(dimC, simdDim)) {
+						// VARYING / INDEX_CONSECUTIVE / ALIGN_TRUE
+						packetizer.addValueInfo(call, false, true, true);
+					} else {
+						// UNIFORM / INDEX_RANDOM / ALIGN_FALSE
+						packetizer.addValueInfo(call, true, false, false);
+					}
+
+					continue;
+				}
+
+				// All other OpenCL-runtime-calls:
+				// UNIFORM / INDEX_RANDOM / ALIGN_FALSE
+				if (std::strstr(callee->getNameStr().c_str(), "get_group_id") ||
+					std::strstr(callee->getNameStr().c_str(), "get_global_size") ||
+					std::strstr(callee->getNameStr().c_str(), "get_local_size"))
+				{
+					packetizer.addValueInfo(call, true, false, false);
+				}
+			}
+		}
+
+	}
+
+#if 0
 	// Generate a new function that only receives a void* argument.
 	// This void* is interpreted as a struct which holds exactly the values that
 	// would be passed as parameters to 'f'.
 	// The Wrapper extracts the values and calls f.
 	// NOTE: Return values are ignored, as the wrapper should *always* have the
 	//       exact same signature.
+	// NOTE: currently not used!
 	Function* generateFunctionWrapper(const std::string& wrapper_name, Function* f, Module* mod) {
 		assert (f && mod);
 		assert (f->getParent());
@@ -135,7 +183,6 @@ namespace PacketizedOpenCL {
 		LLVMContext& context = mod->getContext();
 
 		IRBuilder<> builder(context);
-		//std::map<std::string, Value*> NamedValues;
 
 		// determine all arguments of f
 		std::vector<const Argument*> oldArgs;
@@ -200,6 +247,7 @@ namespace PacketizedOpenCL {
 
 		return wrapper;
 	}
+#endif
 
 	Function* generateFunctionWrapperWithParams(const std::string& wrapper_name, Function* f, Module* mod, std::vector<const Type*>& additionalParams, const bool inlineCall) {
 		assert (f && mod);
@@ -232,7 +280,6 @@ namespace PacketizedOpenCL {
 		LLVMContext& context = mod->getContext();
 
 		IRBuilder<> builder(context);
-		//std::map<std::string, Value*> NamedValues;
 
 		// determine all arguments of f
 		std::vector<const Argument*> oldArgs;
@@ -322,6 +369,16 @@ namespace PacketizedOpenCL {
 			const FunctionType* fTypeG0 = FunctionType::get(Type::getInt32Ty(context), params, false);
 			Function::Create(fTypeG0, Function::ExternalLinkage, "get_global_id", mod);
 		}
+
+		// generate 'unsigned get_local_id(unsigned)' if not already there
+		// represents uniform accesses to local id (e.g. of other dimensions than simd_dim)
+		// is required to be broadcasted (loading from this as index otherwise would be equivalent to get_global_id_SIMD)
+		if (!mod->getFunction("get_local_id")) {
+			const FunctionType* fTypeL0 = FunctionType::get(Type::getInt32Ty(context), params, false);
+			Function::Create(fTypeL0, Function::ExternalLinkage, "get_local_id", mod);
+		}
+
+#ifdef PACKETIZED_OPENCL_OLD_PACKETIZER
 		// generate 'unsigned get_global_id_split(unsigned)'
 		// is replaced by get_global_id_split_SIMD during packetization
 		const FunctionType* fTypeG1 = FunctionType::get(Type::getInt32Ty(context), params, false);
@@ -336,14 +393,6 @@ namespace PacketizedOpenCL {
 		const FunctionType* fTypeG3 = FunctionType::get(Type::getInt32Ty(context), params, false);
 		Function::Create(fTypeG3, Function::ExternalLinkage, "get_global_id_SIMD", mod);
 
-
-		// generate 'unsigned get_local_id(unsigned)' if not already there
-		// represents uniform accesses to local id (e.g. of other dimensions than simd_dim)
-		// is required to be broadcasted (loading from this as index otherwise would be equivalent to get_global_id_SIMD)
-		if (!mod->getFunction("get_local_id")) {
-			const FunctionType* fTypeL0 = FunctionType::get(Type::getInt32Ty(context), params, false);
-			Function::Create(fTypeL0, Function::ExternalLinkage, "get_local_id", mod);
-		}
 		// generate 'unsigned get_local_id_split(unsigned)'
 		// is replaced by get_local_id_split_SIMD during packetization
 		const FunctionType* fTypeL1 = FunctionType::get(Type::getInt32Ty(context), params, false);
@@ -357,11 +406,11 @@ namespace PacketizedOpenCL {
 		// begin-index of the four consecutive values
 		const FunctionType* fTypeL3 = FunctionType::get(Type::getInt32Ty(context), params, false);
 		Function::Create(fTypeL3, Function::ExternalLinkage, "get_local_id_SIMD", mod);
-
+#endif
 
 		// generate 'void barrier(unsigned, unsigned)' if not already there
 		if (!mod->getFunction("barrier")) {
-			params.push_back(Type::getInt32Ty(context)); // receives 2 ints
+			params.push_back(Type::getInt32Ty(context)); // receives 2 integers
 			const FunctionType* fTypeB = FunctionType::get(Type::getInt32Ty(context), params, false);
 			Function::Create(fTypeB, Function::ExternalLinkage, "barrier", mod);
 		}
@@ -418,12 +467,17 @@ namespace PacketizedOpenCL {
 		return 0;
 	}
 
+	Function* createExternalFunction(const std::string& name, const FunctionType* fType, Module* mod) {
+		assert (mod);
+		return Function::Create(fType, Function::ExternalLinkage, name, mod);
+	}
 	Function* createExternalFunction(const std::string& name, const Type* returnType, std::vector<const Type*>& paramTypes, Module* mod) {
 		assert (mod);
 		const FunctionType* fType = FunctionType::get(returnType, paramTypes, false);
 		return Function::Create(fType, Function::ExternalLinkage, name, mod);
 	}
 
+#ifdef PACKETIZED_OPENCL_OLD_PACKETIZER
 	Function* generatePacketPrototypeFromOpenCLKernel(const Function* kernel, const std::string& packetKernelName, Module* mod) {
 		assert (kernel && mod);
 		assert (kernel->getParent() == mod);
@@ -1429,6 +1483,7 @@ namespace PacketizedOpenCL {
 			(*it)->eraseFromParent();
 		}
 	}
+#endif
 
 }
 

@@ -62,6 +62,7 @@
 namespace llvm {
 	class Module;
 	class Function;
+	class Value;
 }
 
 // WFV forward declaration
@@ -76,7 +77,8 @@ public:
 	PACKETIZER_API ~Packetizer();
 
 	PACKETIZER_API void addFunction(const std::string& functionName, const std::string& newName);
-	PACKETIZER_API void addNativeFunction(const std::string& scalarFunctionName, const int maskPosition, llvm::Function* packetFunction, const bool forcePacketization);
+	PACKETIZER_API void addVaryingFunctionMapping(const std::string& scalarFunctionName, const int maskPosition, llvm::Function* packetFunction);
+	PACKETIZER_API void addValueInfo(llvm::Value* value, const bool uniform, const bool consecutive, const bool aligned);
 	PACKETIZER_API void run();
 private:
 	WholeFunctionVectorizer* wfv; // TODO: hide?
