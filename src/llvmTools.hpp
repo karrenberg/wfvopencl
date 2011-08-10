@@ -61,7 +61,9 @@
 #include "llvm/Support/TypeBuilder.h"
 
 
-#include "packetizerAPI.hpp"
+#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+#	include "packetizerAPI.hpp"
+#endif
 
 #ifdef DEBUG
 #	define PACKETIZED_OPENCL_DEBUG(x) do { x } while (false)
@@ -100,6 +102,7 @@ namespace PacketizedOpenCL {
 		return (constVal % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
 	}
 
+#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
 	void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer) {
 
 		for (Function::iterator BB=kernel->begin(), BBE=kernel->end();
@@ -143,6 +146,7 @@ namespace PacketizedOpenCL {
 		}
 
 	}
+#endif
 
 #if 0
 	// Generate a new function that only receives a void* argument.
