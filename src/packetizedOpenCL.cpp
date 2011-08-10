@@ -916,7 +916,12 @@ namespace PacketizedOpenCL {
 			BranchInst::Create(latchBB, loopBB);
 
 			// Block latchBB
-			BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(counterType, 1, false), "inc", latchBB);
+#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
+			const uint64_t incInt = 1;
+#else
+			const uint64_t incInt = i == simd_dim ? PACKETIZED_OPENCL_SIMD_WIDTH : 1U;
+#endif
+			BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(counterType, incInt, false), "inc", latchBB);
 			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, loopCounterInc, local_size, "exitcond");
 			BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
@@ -1386,7 +1391,6 @@ namespace PacketizedOpenCL {
 		// PACKETIZATION ENABLED
 		// USE AUTO-GENERATED PACKET WRAPPER
 		//
-		// save SIMD function for argument checking (uniform vs. varying)
 		PACKETIZED_OPENCL_DEBUG( outs() << "  generating OpenCL-specific functions etc... "; );
 
 		// generate all necessary function declarations
@@ -1489,7 +1493,7 @@ namespace PacketizedOpenCL {
 				CallInst* call = cast<CallInst>(I);
 				const Function* callee = call->getCalledFunction();
 				if (!callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) continue;
-				hasBarriers = false;
+				hasBarriers = true;
 			}
 		}
 

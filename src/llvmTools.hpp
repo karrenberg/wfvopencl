@@ -124,7 +124,7 @@ namespace PacketizedOpenCL {
 						// VARYING / INDEX_CONSECUTIVE / ALIGN_TRUE
 						packetizer.addValueInfo(call, false, true, true);
 					} else {
-						// UNIFORM / INDEX_RANDOM / ALIGN_FALSE
+						// UNIFORM / INDEX_SAME / ALIGN_FALSE
 						packetizer.addValueInfo(call, true, false, false);
 					}
 
@@ -132,7 +132,7 @@ namespace PacketizedOpenCL {
 				}
 
 				// All other OpenCL-runtime-calls:
-				// UNIFORM / INDEX_RANDOM / ALIGN_FALSE
+				// UNIFORM / INDEX_SAME / ALIGN_FALSE
 				if (std::strstr(callee->getNameStr().c_str(), "get_group_id") ||
 					std::strstr(callee->getNameStr().c_str(), "get_global_size") ||
 					std::strstr(callee->getNameStr().c_str(), "get_local_size"))
