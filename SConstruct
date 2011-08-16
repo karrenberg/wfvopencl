@@ -207,48 +207,50 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 #""")
 
 # Those work in all configurations, including packetizer:
-#testApps = env.Split("""
-#BitonicSort
-#BlackScholesSimple
-#FastWalshTransform
-#Histogram
-#MandelbrotSimple
-#MatrixTranspose
-#SimpleConvolution
-#""")
-
-# These are our primary targets
 testApps = env.Split("""
-TestSimple
-TestLinearAccess
-TestConstantIndex
-Test2D
-Test2D2
-TestBarrier
-TestBarrier2
-TestLoopBarrier
-TestLoopBarrier2
-AmbientOcclusionRenderer
-BinarySearch
-BinomialOptionSimple
 BitonicSort
 BlackScholesSimple
-DCT
-DwtHaar1D
-EigenValue
-FastWalshTransform
 FloydWarshall
+FastWalshTransform
 Histogram
 MandelbrotSimple
 MatrixTranspose
-MersenneTwisterSimple
-NBodySimple
 PrefixSum
-RadixSort
-Reduction
-ScanLargeArrays
 SimpleConvolution
 """)
+
+# These are our primary targets
+#testApps = env.Split("""
+#TestSimple
+#TestLinearAccess
+#TestConstantIndex
+#Test2D
+#Test2D2
+#TestBarrier
+#TestBarrier2
+#TestLoopBarrier
+#TestLoopBarrier2
+#AmbientOcclusionRenderer
+#BinarySearch
+#BinomialOptionSimple
+#BitonicSort
+#BlackScholesSimple
+#DCT
+#DwtHaar1D
+#EigenValue
+#FastWalshTransform
+#FloydWarshall
+#Histogram
+#MandelbrotSimple
+#MatrixTranspose
+#MersenneTwisterSimple
+#NBodySimple
+#PrefixSum
+#RadixSort
+#Reduction
+#ScanLargeArrays
+#SimpleConvolution
+#""")
 
 # These use vectors or other bad stuff and don't work with any configuration atm
 #testApps = env.Split("""
