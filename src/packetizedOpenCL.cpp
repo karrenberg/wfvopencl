@@ -316,6 +316,106 @@ namespace PacketizedOpenCL {
 	}
 
 
+	// We assume that A dominates B, so all paths from A have to lead to B.
+	inline bool barrierBetweenInstructions(BasicBlock* block, Instruction* A, Instruction* B, std::set<BasicBlock*>& visitedBlocks) {
+		assert (block && A && B);
+
+		if (visitedBlocks.find(block) != visitedBlocks.end()) return false;
+		visitedBlocks.insert(block);
+
+		if (block == A->getParent()) {
+
+			bool foundI = false;
+			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+				if (!foundI && A != I) continue; // make sure we ignore instructions in front of A
+				foundI = true;
+
+				if (B == I) return false;
+
+				if (!isa<CallInst>(I)) continue;
+				CallInst* call = cast<CallInst>(I);
+				Function* callee = call->getCalledFunction();
+				if (callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) return true;
+			}
+
+		} else if (block == B->getParent()) {
+
+			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+				if (B == I) return false;
+
+				if (!isa<CallInst>(I)) continue;
+				CallInst* call = cast<CallInst>(I);
+				Function* callee = call->getCalledFunction();
+				if (callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) return true;
+			}
+			assert (false && "SHOULD NEVER HAPPEN!");
+			return false;
+
+		} else {
+
+			// This is a block between A and B -> test instructions
+			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+				if (!isa<CallInst>(I)) continue;
+				CallInst* call = cast<CallInst>(I);
+				Function* callee = call->getCalledFunction();
+				if (callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) return true;
+			}
+
+		}
+
+		// Neither B nor barrier found -> recurse into successor blocks.
+
+		typedef GraphTraits<BasicBlock*> BlockTraits;
+		for (BlockTraits::ChildIteratorType PI = BlockTraits::child_begin(block),
+				PE = BlockTraits::child_end(block); PI != PE; ++PI)
+		{
+			BasicBlock* succBB = *PI;
+			if (barrierBetweenInstructions(succBB, A, B, visitedBlocks)) return true;
+		}
+
+		return false;
+	}
+
+	// Replace all uses of a callback that do not follow the call directly by
+	// an additional call.
+	// This reduces the amount of live values we have to store when generating
+	// continuations.
+	void findCallbackUses(CallInst* call, std::vector<CallInst*>& calls, std::vector<Instruction*>& uses) {
+		assert (call);
+		for (CallInst::use_iterator U=call->use_begin(), UE=call->use_end(); U!=UE; ++U) {
+			assert (isa<Instruction>(*U));
+			Instruction* useI = cast<Instruction>(*U);
+
+			std::set<BasicBlock*> visitedBlocks;
+			if (!barrierBetweenInstructions(call->getParent(), call, useI, visitedBlocks)) continue;
+
+			calls.push_back(call);
+			uses.push_back(useI);
+		}
+	}
+
+	void replaceCallbackUsesByNewCallsInFunction(Function* callback, Function* parentF) {
+		if (!callback) return;
+		assert (parentF);
+
+		std::vector<CallInst*> calls;
+		std::vector<Instruction*> uses;
+		for (Function::use_iterator U=callback->use_begin(), UE=callback->use_end(); U!=UE; ++U) {
+			if (!isa<CallInst>(*U)) continue;
+			CallInst* call = cast<CallInst>(*U);
+			if (call->getParent()->getParent() != parentF) continue;
+
+			findCallbackUses(call, calls, uses);
+		}
+
+		for (unsigned i=0; i<calls.size(); ++i) {
+			Instruction* newCall = calls[i]->clone();
+			newCall->insertBefore(uses[i]);
+			uses[i]->replaceUsesOfWith(calls[i], newCall);
+		}
+	}
+
+
 	void replaceCallbacksByArgAccess(Function* f, Value* arg, Function* source) {
 		if (!f) return;
 		assert (arg && source);
@@ -1527,6 +1627,15 @@ namespace PacketizedOpenCL {
 			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simd_dim, context, module);
 
 		} else {
+
+			// minimize number of live values before splitting
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_global_id"), f_SIMD);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_id"), f_SIMD);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_num_groups"), f_SIMD);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_work_dim"), f_SIMD);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_global_size"), f_SIMD);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_size"), f_SIMD);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_group_id"), f_SIMD);
 
 			// eliminate barriers
 			FunctionPassManager FPM(module);
