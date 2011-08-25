@@ -138,7 +138,8 @@ namespace PacketizedOpenCL {
 				// UNIFORM / INDEX_SAME / ALIGN_FALSE
 				if (std::strstr(callee->getNameStr().c_str(), "get_group_id") ||
 					std::strstr(callee->getNameStr().c_str(), "get_global_size") ||
-					std::strstr(callee->getNameStr().c_str(), "get_local_size"))
+					std::strstr(callee->getNameStr().c_str(), "get_local_size") ||
+					std::strstr(callee->getNameStr().c_str(), "barrier"))
 				{
 					packetizer.addValueInfo(call, true, false, false);
 				}
