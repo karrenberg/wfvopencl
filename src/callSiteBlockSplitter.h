@@ -52,9 +52,6 @@
 #define DEBUG_CSBS(x) ((void)0)
 #endif
 
-#define PACKETIZED_OPENCL_BARRIER_SPECIAL_END_ID -1
-#define PACKETIZED_OPENCL_BARRIER_SPECIAL_START_ID 0
-
 using namespace llvm;
 
 

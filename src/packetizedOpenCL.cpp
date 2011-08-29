@@ -1351,149 +1351,24 @@ namespace PacketizedOpenCL {
 		delete [] local_ids;
 	}
 
+	inline Function* createKernel(Function* f, const std::string& kernel_name, const unsigned num_dimensions, const int simd_dim, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
+		assert (f && module && targetData);
+		assert (num_dimensions > 0 && num_dimensions < 4);
+		outs() << "simd_dim: " << simd_dim << "\n";
+		outs() << "num_dimensions: " << num_dimensions << "\n";
+		assert (simd_dim < (int)num_dimensions);
+
 #ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
-	inline Function* createKernelSequential(Function* f, const std::string& kernel_name, const unsigned num_dimensions, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret) {
-		PACKETIZED_OPENCL_DEBUG( outs() << "createKernelSequential(" << kernel_name << ")\n"; );
-		// eliminate barriers
-		FunctionPassManager FPM(module);
-		CallSiteBlockSplitter* CSBS = new CallSiteBlockSplitter(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER);
-		LivenessAnalyzer* LA = new LivenessAnalyzer(true);
-		ContinuationGenerator* CG = new ContinuationGenerator(true);
-		// set "special" parameter types that are generated for each continuation
-		// order is important!
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_id");   // generated inside switch (group_id * loc_size + loc_id)
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_id");    // generated inside switch (loop induction variables)
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_num_groups");  // generated inside switch (glob_size / loc_size)
-		CG->addSpecialParam(Type::getInt32Ty(context),       "get_work_dim");    // supplied from outside
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_global_size"); // supplied from outside
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_local_size");  // supplied from outside
-		CG->addSpecialParam(Type::getInt32PtrTy(context, 0), "get_group_id");    // supplied from outside
-		FPM.add(CSBS);
-		FPM.add(LA);
-		FPM.add(CG);
-		FPM.run(*f);
+		assert (simd_dim == -1); // packetization disabled: only -1 is a valid value
+		assert (!f_SIMD_ret);
 
-		Function* barrierFreeFunction = CG->getBarrierFreeFunction();
-		
-		llvm::Function* f_wrapper = NULL;
-
-		if (barrierFreeFunction) {
-			
-			// function had barriers that were now transformed into continuations
-
-			PACKETIZED_OPENCL_DEBUG( outs() << "Function " << kernel_name << " had barriers!\n"; );
-			PACKETIZED_OPENCL_DEBUG( verifyFunction(*barrierFreeFunction); );
-			PACKETIZED_OPENCL_DEBUG( outs() << *barrierFreeFunction << "\n"; );
-
-			f->replaceAllUsesWith(barrierFreeFunction);
-			barrierFreeFunction->takeName(f);
-			f->setName(barrierFreeFunction->getNameStr()+"_orig");
-
-			PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_nobarriers.mod.ll"); );
-
-			ContinuationGenerator::ContinuationVecType continuations;
-			CG->getContinuations(continuations);
-
-			PACKETIZED_OPENCL_DEBUG(
-				outs() << "continuations:\n";
-				for (SmallVector<Function*, 4>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
-					Function* continuation = *it;
-					outs() << " * " << continuation->getNameStr() << "\n";
-				}
-				outs() << "\n";
-			);
-
-			// generate wrapper for kernel (= all kernels have same signature)
-			//
-			std::stringstream strs2;
-			strs2 << kernel_name << "_wrapper";
-			const std::string wrapper_name = strs2.str();
-
-			PACKETIZED_OPENCL_DEBUG( outs() << "generating kernel wrapper... "; );
-			const bool inlineCall = true; // inline call immediately
-			PacketizedOpenCL::generateKernelWrapper(wrapper_name, barrierFreeFunction, module, targetData, inlineCall);
-			PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
-
-			f_wrapper = PacketizedOpenCL::getFunction(wrapper_name, module);
-			if (!f_wrapper) {
-				errs() << "ERROR: could not find wrapper function in kernel module!\n";
-				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
-				return NULL;
-			}
-
-			// - callbacks inside continuations have to be replaced by argument accesses
-			PacketizedOpenCL::mapCallbacksToContinuationArguments(num_dimensions, context, module, continuations);
-
-			// - generate loops
-			// - generate code for 3 generated special parameters in each loop
-			// - map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
-			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
-			const int simd_dim = -1;
-			PacketizedOpenCL::generateBlockSizeLoopsForContinuations(num_dimensions, simd_dim, context, f_wrapper, continuations);
-
-		} else {
-
-			// no barrier inside function
-
-			// generate wrapper for kernel (= all kernels have same signature)
-			//
-			PACKETIZED_OPENCL_DEBUG( outs() << "Function " << kernel_name << " has no barriers!\n"; );
-
-			std::stringstream strs2;
-			strs2 << kernel_name << "_wrapper";
-			const std::string wrapper_name = strs2.str();
-
-			PACKETIZED_OPENCL_DEBUG( outs() << "  generating kernel wrapper... "; );
-			const bool inlineCall = false; // don't inline call immediately (needed for generating loop(s))
-			PacketizedOpenCL::generateKernelWrapper(wrapper_name, f, module, targetData, inlineCall);
-			PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
-
-			f_wrapper = PacketizedOpenCL::getFunction(wrapper_name, module);
-			if (!f_wrapper) {
-				errs() << "ERROR: could not find wrapper function in kernel module!\n";
-				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
-				return NULL;
-			}
-
-			// generate loop(s) over blocksize(s) (BEFORE inlining!)
-			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f);
-			const int simdDim = -1;
-			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simdDim, context, module);
-		}
-		PACKETIZED_OPENCL_DEBUG( outs() << "wrapper finished!\n"; );
-
-		assert (f_wrapper);
-
-		// optimize wrapper with inlined kernel
-		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
-		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-		PacketizedOpenCL::optimizeFunction(f_wrapper, true); // disable LICM.
-#if 0
-		// TODO: why does the driver crash (later) if LICM was used? It is important for performance :(
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "ASDF.ll"); );
-		outs() << *f_wrapper << "\nNow running LICM...\n";
-		FunctionPassManager Passes(f_wrapper->getParent());
-		Passes.add(targetData);
-		Passes.add(createLICMPass());                  // Hoist loop invariants
-		Passes.doInitialization();
-		Passes.run(*f_wrapper);
-		Passes.doFinalization();
-#endif
-		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_final.ll"); );
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_final.mod.ll"); );
-
-		return f_wrapper;
-	}
+		std::stringstream strs;
+		strs << kernel_name;
 #else
-	inline Function* createKernelPacketized(Function* f, const std::string& kernel_name, const unsigned num_dimensions, const unsigned simd_dim, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
-		// PACKETIZATION ENABLED
-		// USE AUTO-GENERATED PACKET WRAPPER
-		//
-		PACKETIZED_OPENCL_DEBUG( outs() << "  generating OpenCL-specific functions etc... "; );
+		assert (simd_dim >= 0); // packetization enabled: 0, 1, 2 are valid values
+		assert (f_SIMD_ret);
 
-		// generate all necessary function declarations
+		// generate packet prototype
 		std::stringstream strs;
 		strs << kernel_name << "_SIMD";
 		const std::string kernel_simd_name = strs.str();
@@ -1525,7 +1400,7 @@ namespace PacketizedOpenCL {
 													 kernel_simd_name,
 													 module,
 													 PACKETIZED_OPENCL_SIMD_WIDTH,
-													 simd_dim,
+													 (cl_uint)simd_dim,
 													 use_sse41,
 													 use_avx,
 													 verbose);
@@ -1582,8 +1457,11 @@ namespace PacketizedOpenCL {
 //		}
 //		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_SIMD, "special.ll"); );
 
+		f = f_SIMD;
+#endif
+
 		bool hasBarriers = false;
-		for (Function::iterator BB=f_SIMD->begin(), BBE=f_SIMD->end();
+		for (Function::iterator BB=f->begin(), BBE=f->end();
 				BB!=BBE && !hasBarriers; ++BB)
 		{
 			for (BasicBlock::iterator I=BB->begin(), IE=BB->end();
@@ -1612,7 +1490,7 @@ namespace PacketizedOpenCL {
 
 			PACKETIZED_OPENCL_DEBUG( outs() << "  generating kernel wrapper... "; );
 			const bool inlineCall = false; // don't inline call immediately (needed for generating loop(s))
-			f_wrapper = PacketizedOpenCL::generateKernelWrapper(wrapper_name, f_SIMD, module, targetData, inlineCall);
+			f_wrapper = PacketizedOpenCL::generateKernelWrapper(wrapper_name, f, module, targetData, inlineCall);
 			if (!f_wrapper) {
 				errs() << "FAILED!\nERROR: wrapper generation for kernel module failed!\n";
 				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
@@ -1623,19 +1501,19 @@ namespace PacketizedOpenCL {
 			PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
 
 			// generate loop(s) over blocksize(s) (BEFORE inlining!)
-			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f_SIMD);
+			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f);
 			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simd_dim, context, module);
 
 		} else {
 
 			// minimize number of live values before splitting
-			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_global_id"), f_SIMD);
-			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_id"), f_SIMD);
-			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_num_groups"), f_SIMD);
-			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_work_dim"), f_SIMD);
-			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_global_size"), f_SIMD);
-			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_size"), f_SIMD);
-			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_group_id"), f_SIMD);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_global_id"), f);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_id"), f);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_num_groups"), f);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_work_dim"), f);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_global_size"), f);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_size"), f);
+			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_group_id"), f);
 
 			// eliminate barriers
 			FunctionPassManager FPM(module);
@@ -1658,7 +1536,7 @@ namespace PacketizedOpenCL {
 			FPM.add(LA);
 			FPM.add(CG);
 
-			FPM.run(*f_SIMD);
+			FPM.run(*f);
 
 			Function* barrierFreeFunction = CG->getBarrierFreeFunction();
 
@@ -1668,11 +1546,11 @@ namespace PacketizedOpenCL {
 			PACKETIZED_OPENCL_DEBUG( outs() << *barrierFreeFunction << "\n"; );
 			PACKETIZED_OPENCL_DEBUG( verifyFunction(*barrierFreeFunction); );
 
-			f_SIMD->replaceAllUsesWith(barrierFreeFunction);
-			barrierFreeFunction->takeName(f_SIMD);
-			f_SIMD->setName(barrierFreeFunction->getNameStr()+"_orig");
+			f->replaceAllUsesWith(barrierFreeFunction);
+			barrierFreeFunction->takeName(f);
+			f->setName(barrierFreeFunction->getNameStr()+"_orig");
 
-			f_SIMD = barrierFreeFunction;
+			f = barrierFreeFunction;
 
 			PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_barrier_wrapper.mod.ll"); );
 			
@@ -1694,7 +1572,7 @@ namespace PacketizedOpenCL {
 
 			PACKETIZED_OPENCL_DEBUG( outs() << "  generating kernel wrapper... "; );
 			const bool inlineCall = true; // inline call immediately (and only this call)
-			f_wrapper = PacketizedOpenCL::generateKernelWrapper(wrapper_name, f_SIMD, module, targetData, inlineCall);
+			f_wrapper = PacketizedOpenCL::generateKernelWrapper(wrapper_name, f, module, targetData, inlineCall);
 			if (!f_wrapper) {
 				errs() << "FAILED!\nERROR: wrapper generation for kernel module failed!\n";
 				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
@@ -1720,7 +1598,25 @@ namespace PacketizedOpenCL {
 		// optimize wrapper with inlined kernel
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-		PacketizedOpenCL::optimizeFunction(f_wrapper); // enable all optimizations
+
+#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+		// packetization disabled -> LICM makes problems
+		PacketizedOpenCL::optimizeFunction(f_wrapper, true); // disable LICM.
+#if 0
+		// TODO: why does the driver crash (later) if LICM was used? It is important for performance :(
+		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "ASDF.ll"); );
+		outs() << *f_wrapper << "\nNow running LICM...\n";
+		FunctionPassManager Passes(f_wrapper->getParent());
+		Passes.add(targetData);
+		Passes.add(createLICMPass());                  // Hoist loop invariants
+		Passes.doInitialization();
+		Passes.run(*f_wrapper);
+		Passes.doFinalization();
+#endif
+#else
+		// packetization enabled -> no problem with enabling all optimizations.
+		PacketizedOpenCL::optimizeFunction(f_wrapper);
+#endif
 		
 		PACKETIZED_OPENCL_DEBUG_RUNTIME(
 			for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
@@ -1738,10 +1634,12 @@ namespace PacketizedOpenCL {
 		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_wrapped_final.mod.ll"); );
 
 
-		*f_SIMD_ret = f_SIMD;
+#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+		// if packetization is enabled, we "return" the SIMD function as well
+		*f_SIMD_ret = f;
+#endif
 		return f_wrapper;
 	}
-#endif
 
 
 	inline cl_uint convertLLVMAddressSpace(cl_uint llvm_address_space) {
@@ -3876,7 +3774,8 @@ clCreateKernel(cl_program      program,
 
 #ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
 
-	llvm::Function* f_wrapper = PacketizedOpenCL::createKernelSequential(f, kernel_name, num_dimensions, module, program->targetData, context, errcode_ret);
+	const int simd_dim = -1;
+	llvm::Function* f_wrapper = PacketizedOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, NULL);
 	if (!f_wrapper) {
 		errs() << "ERROR: kernel generation failed!\n";
 		return NULL;
@@ -3888,10 +3787,10 @@ clCreateKernel(cl_program      program,
 #else
 
 	// determine best dimension for packetization
-	const unsigned simd_dim = PacketizedOpenCL::getBestSimdDim(f, num_dimensions);
+	const int simd_dim = PacketizedOpenCL::getBestSimdDim(f, num_dimensions);
 
 	llvm::Function* f_SIMD = NULL;
-	llvm::Function* f_wrapper = PacketizedOpenCL::createKernelPacketized(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, &f_SIMD);
+	llvm::Function* f_wrapper = PacketizedOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, &f_SIMD);
 	if (!f_wrapper || !f_SIMD) {
 		errs() << "ERROR: kernel generation failed!\n";
 		return NULL;
