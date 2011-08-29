@@ -84,7 +84,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 inline bool verifyResults(float* results, float* data, const unsigned index) {
-	float correctRes = (index+1)%GROUP_SIZE==0 ? 0.f : data[index+1];
+	float correctRes = (index >= DATA_SIZE-1) ? 0.f : data[index+1];
 
 	const bool correct = results[index] == correctRes;
 	return correct;
@@ -138,8 +138,8 @@ int main(int argc, char** argv) {
 	//
 	unsigned i = 0;
 	for (i = 0; i < DATA_SIZE; i++) {
-		//data[i] = rand() / (float) RAND_MAX;
-		data[i] = i;
+		data[i] = rand() / (float) RAND_MAX;
+		//data[i] = i;
 		//if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
 	}
 
@@ -284,7 +284,7 @@ int main(int argc, char** argv) {
     streamsdk::SDKFile kernelFile;
 	streamsdk::SDKCommon* sampleCommon = new streamsdk::SDKCommon();
     std::string kernelPath = sampleCommon->getPath();
-	kernelPath.append("TestBarrier2_Kernels.cl");
+	kernelPath.append("TestUnaligned_Kernels.cl");
 	if(!kernelFile.open(kernelPath.c_str()))
 	{
 		printf("Failed to load kernel file : %s\n", kernelPath.c_str());
@@ -292,7 +292,7 @@ int main(int argc, char** argv) {
 	}
 
 	const char * source = usePacketizer ?
-		"TestBarrier2_Kernels.bc" :
+		"TestUnaligned_Kernels.bc" :
 		kernelFile.source().c_str();
     size_t sourceSize[]    = { strlen(source) };
 
@@ -325,7 +325,7 @@ int main(int argc, char** argv) {
 
 	// Create the compute kernel in the program we wish to run
 	//
-	kernel = clCreateKernel(program, "TestBarrier2", &err);
+	kernel = clCreateKernel(program, "TestUnaligned", &err);
 	if (!kernel || err != CL_SUCCESS) {
 		printf("Error: Failed to create compute kernel!\n");
 		exit(1);
@@ -397,13 +397,13 @@ int main(int argc, char** argv) {
 			//printf("results[%d]: %f (correct)\n", i, results[i]);
 			correct++;
 		} else {
-			//const float shiftedElem = ((i+1)%GROUP_SIZE==0) ? 0.f : data[i+1];
+			//const float shiftedElem = (i >= DATA_SIZE-1) ? 0.f : data[i+1];
 			//printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], shiftedElem);
 		}
 	}
 //	printf("expected:\n");
 //	for (i = 0; i < dataSize; i++) {
-//		const float shiftedElem = ((i+1)%GROUP_SIZE==0) ? 0.f : data[i+1];
+//		const float shiftedElem = (i >= DATA_SIZE-1) ? 0.f : data[i+1];
 //		printf("results[%d]: %f\n", i, shiftedElem);
 //	}
 //	printf("computed:\n");
