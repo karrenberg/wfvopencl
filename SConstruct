@@ -203,9 +203,8 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ###
 
 testApps = env.Split("""
-TestBarrier
+TestUnaligned
 TestBarrier2
-TestLoopBarrier2
 """)
 
 # Those work in all configurations, including packetizer:

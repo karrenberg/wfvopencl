@@ -376,20 +376,56 @@ namespace PacketizedOpenCL {
 		return false;
 	}
 
+
+	// Special case for SExt/ZExt: step through and iterate over their uses again.
+	void findStepThroughCallbackUses(Instruction* inst, CallInst* call, std::vector<CallInst*>& calls, std::vector<Instruction*>& uses, std::vector<Instruction*>& targets) {
+		assert (inst);
+		for (Instruction::use_iterator U=inst->use_begin(), UE=inst->use_end(); U!=UE; ++U) {
+			assert (isa<Instruction>(*U));
+			Instruction* useI = cast<Instruction>(*U);
+
+			if (isa<SExtInst>(*U) || isa<ZExtInst>(*U)) {
+				findStepThroughCallbackUses(useI, call, calls, uses, targets);
+			}
+
+			std::set<BasicBlock*> visitedBlocks;
+			if (!barrierBetweenInstructions(inst->getParent(), inst, useI, visitedBlocks)) {
+				//outs() << "  no barrier between insts:\n";
+				//outs() << "    inst: " << *inst << "\n";
+				//outs() << "    useI: " << *useI << "\n";
+				continue;
+			}
+
+			calls.push_back(call);
+			targets.push_back(inst);
+			uses.push_back(useI);
+		}
+	}
+
 	// Replace all uses of a callback that do not follow the call directly by
 	// an additional call.
 	// This reduces the amount of live values we have to store when generating
 	// continuations.
-	void findCallbackUses(CallInst* call, std::vector<CallInst*>& calls, std::vector<Instruction*>& uses) {
+	void findCallbackUses(CallInst* call, std::vector<CallInst*>& calls, std::vector<Instruction*>& uses, std::vector<Instruction*>& targets) {
 		assert (call);
 		for (CallInst::use_iterator U=call->use_begin(), UE=call->use_end(); U!=UE; ++U) {
 			assert (isa<Instruction>(*U));
 			Instruction* useI = cast<Instruction>(*U);
 
+			if (isa<SExtInst>(useI) || isa<ZExtInst>(useI)) {
+				findStepThroughCallbackUses(useI, call, calls, uses, targets);
+			}
+
 			std::set<BasicBlock*> visitedBlocks;
-			if (!barrierBetweenInstructions(call->getParent(), call, useI, visitedBlocks)) continue;
+			if (!barrierBetweenInstructions(call->getParent(), call, useI, visitedBlocks)) {
+				//outs() << "  no barrier between insts:\n";
+				//outs() << "    inst: " << *inst << "\n";
+				//outs() << "    useI: " << *useI << "\n";
+				continue;
+			}
 
 			calls.push_back(call);
+			targets.push_back(call);
 			uses.push_back(useI);
 		}
 	}
@@ -398,20 +434,22 @@ namespace PacketizedOpenCL {
 		if (!callback) return;
 		assert (parentF);
 
-		std::vector<CallInst*> calls;
+		std::vector<CallInst*> calls; // actually, calls and sext/zext
 		std::vector<Instruction*> uses;
+		std::vector<Instruction*> targets;
 		for (Function::use_iterator U=callback->use_begin(), UE=callback->use_end(); U!=UE; ++U) {
-			if (!isa<CallInst>(*U)) continue;
+			assert (isa<CallInst>(*U));
 			CallInst* call = cast<CallInst>(*U);
 			if (call->getParent()->getParent() != parentF) continue;
 
-			findCallbackUses(call, calls, uses);
+			findCallbackUses(call, calls, uses, targets);
 		}
 
 		for (unsigned i=0; i<calls.size(); ++i) {
+			PACKETIZED_OPENCL_DEBUG( outs() << "replacing callback-use by new call in instruction: " << *uses[i] << "\n"; );
 			Instruction* newCall = calls[i]->clone();
 			newCall->insertBefore(uses[i]);
-			uses[i]->replaceUsesOfWith(calls[i], newCall);
+			uses[i]->replaceUsesOfWith(targets[i], newCall);
 		}
 	}
 
@@ -693,9 +731,10 @@ namespace PacketizedOpenCL {
 	}
 
 	// generate computation of "flattened" local id
-	// this is required to access the correct live value struct of each thread
-	// (all dimension's threads of the block are stored flattened in memory)
-	// if iterating 'for all dim0 { for all dim1 { for all dim2 { ... } } }' :
+	// this is required to access the correct live value struct of each local
+	// instance (all dimension's instances of the block are stored flattened in
+	// memory) if iterating
+	// 'for all dim0 { for all dim1 { for all dim2 { ... } } }' :
 	// local_flat_id(1d) = loc_id[0]
 	// local_flat_id(2d) = loc_id[0] + loc_id[1] * loc_size[0]
 	// local_flat_id(3d) = loc_id[0] + loc_id[1] * loc_size[0] + loc_id[2] * (loc_size[1] * loc_size[0])
@@ -999,14 +1038,17 @@ namespace PacketizedOpenCL {
 
 			BasicBlock* loopBB  = headerBB->splitBasicBlock(headerBB->begin(), headerBB->getNameStr()+".loop");
 			BasicBlock* latchBB = BasicBlock::Create(context, headerBB->getNameStr()+".loop.end", f, loopBB);
+			loopBB->moveBefore(latchBB); // only for more intuitive readability
 
 			// Block headerBB
+			std::stringstream sstr;
+			sstr << "local_id_" << i;
 			const Type* counterType = argType; //Type::getInt32Ty(context);
 			Argument* fwdref = new Argument(counterType);
-			PHINode* loopCounterPhi = PHINode::Create(counterType, "", headerBB->getFirstNonPHI());
+			PHINode* loopCounterPhi = PHINode::Create(counterType, sstr.str(), headerBB->getFirstNonPHI());
 			loopCounterPhi->reserveOperandSpace(2);
-			loopCounterPhi->addIncoming(fwdref, latchBB);
 			loopCounterPhi->addIncoming(Constant::getNullValue(counterType), entryBB);
+			loopCounterPhi->addIncoming(fwdref, latchBB);
 
 			Instruction* local_id = loopCounterPhi;
 
@@ -1022,7 +1064,7 @@ namespace PacketizedOpenCL {
 			const uint64_t incInt = i == simd_dim ? PACKETIZED_OPENCL_SIMD_WIDTH : 1U;
 #endif
 			BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(counterType, incInt, false), "inc", latchBB);
-			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_EQ, loopCounterInc, local_size, "exitcond");
+			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_UGE, loopCounterInc, local_size, "exitcond");
 			BranchInst::Create(exitBB, headerBB, exitcond1, latchBB);
 
 			// Resolve Forward References
@@ -1596,6 +1638,7 @@ namespace PacketizedOpenCL {
 		assert (f_wrapper);
 
 		// optimize wrapper with inlined kernel
+		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_beforeopt.ll"); );
 		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
 
@@ -1617,13 +1660,48 @@ namespace PacketizedOpenCL {
 		// packetization enabled -> no problem with enabling all optimizations.
 		PacketizedOpenCL::optimizeFunction(f_wrapper);
 #endif
+		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_afteropt.ll"); );
 		
 		PACKETIZED_OPENCL_DEBUG_RUNTIME(
 			for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
 				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
 					if (!isa<StoreInst>(I)) continue;
 					insertPrintf("  stored return value: ", I->getOperand(0), true, BB->getTerminator());
-					//insertPrintf("    address: ", I->getOperand(1), true, I);
+					//insertPrintf("    store-address: ", I->getOperand(1), true, I);
+				}
+			}
+			for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
+				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+					if (!isa<LoadInst>(I)) continue;
+					insertPrintf("  loaded value: ", I, true, BB->getTerminator());
+					//insertPrintf("    load-address: ", I->getOperand(0), true, I);
+				}
+			}
+		);
+
+		PACKETIZED_OPENCL_DEBUG_RUNTIME(
+			for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
+				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+					if (I->getName().equals("indvar")) {
+						insertPrintf("  indvar: ", I, true, BB->getTerminator());
+						continue;
+					}
+					if (I->getName().equals("indvar.next")) {
+						insertPrintf("  indvar.next: ", I, true, BB->getTerminator());
+						continue;
+					}
+					if (I->getName().equals("local_id_01")) {
+						insertPrintf("  local_id_01: ", I, true, BB->getTerminator());
+						continue;
+					}
+					if (I->getName().equals("global_id_04")) {
+						insertPrintf("  global_id_04: ", I, true, BB->getTerminator());
+						continue;
+					}
+					if (I->getName().equals("inc2")) {
+						insertPrintf("  inc2: ", I, true, BB->getTerminator());
+						continue;
+					}
 				}
 			}
 		);

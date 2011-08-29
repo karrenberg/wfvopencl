@@ -83,8 +83,8 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-inline bool verifyResults(float* results, float* data, const unsigned index, const unsigned localIndex) {
-	float correctRes = (localIndex >= GROUP_SIZE-4) ? 0.f : data[index+4];
+inline bool verifyResults(float* results, float* data, const unsigned index) {
+	float correctRes = (index+1)%GROUP_SIZE==0 ? 0.f : data[index+1];
 
 	const bool correct = results[index] == correctRes;
 	return correct;
@@ -353,7 +353,6 @@ int main(int argc, char** argv) {
 	err = 0;
 	err = clSetKernelArg(kernel, 0, sizeof (cl_mem), &input);
 	err |= clSetKernelArg(kernel, 1, sizeof (cl_mem), &output);
-	err |= clSetKernelArg(kernel, 2, GROUP_SIZE * sizeof (cl_float), NULL);
 	if (err != CL_SUCCESS) {
 		printf("Error: Failed to set kernel arguments! %d\n", err);
 		exit(1);
@@ -394,13 +393,12 @@ int main(int argc, char** argv) {
 	//
 	correct = 0;
 	for (i = 0; i < DATA_SIZE; i++) {
-		unsigned li = i % GROUP_SIZE;
-		if (verifyResults(results, data, i, li)) {
-			printf("results[%d]: %f (correct)\n", i, results[i]);
+		if (verifyResults(results, data, i)) {
+			//printf("results[%d]: %f (correct)\n", i, results[i]);
 			correct++;
 		} else {
-			const float shiftedElem = (li >= GROUP_SIZE-4) ? 0.f : data[i+4];
-			printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], shiftedElem);
+			//const float shiftedElem = ((i+1)%GROUP_SIZE==0) ? 0.f : data[i+1];
+			//printf("results[%d]: %f (wrong, expected: %f)\n", i, results[i], shiftedElem);
 		}
 	}
 //	printf("expected:\n");

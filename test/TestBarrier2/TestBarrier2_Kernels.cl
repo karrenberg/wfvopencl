@@ -13,17 +13,12 @@ __kernel void TestBarrier2(
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	// shared[l+1] is not initialized if there is no barrier :)
-#if 1
-	output[i] = (l == get_local_size(0)-1) ? 0.f : shared[l+1];
-#else
-	// optimized for barrier
-	output[get_global_id(0)] = (get_local_id(0) == get_local_size(0)-1) ? 0.f : shared[get_local_id(0)+1];
-#endif
+	// shared[l+4] is not initialized if there is no barrier :)
+	output[i] = (l >= get_local_size(0)-4) ? 0.f : shared[l+4];
 }
 
 
-// This looks like it fails (optimization creates 2 barriers)
+// This looks like it will fail (optimization creates 2 barriers)
 //__kernel void TestBad(
 //   __global float* input,
 //   __global float* output,

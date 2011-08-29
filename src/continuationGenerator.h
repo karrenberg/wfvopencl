@@ -1737,7 +1737,7 @@ private:
 			createContinuationNEW2(barrierInfo, sstr.str(), mod);
 		}
 		
-		DEBUG_LA( outs() << "\ngeneration of continuation  functions finished!\n"; );
+		DEBUG_LA( outs() << "\ngeneration of continuation functions finished!\n"; );
 		assert (continuationMap.size() == numContinuationFunctions);
 
 
@@ -1751,23 +1751,28 @@ private:
 		// NOTE: This has to be done BEFORE generating stores (we need to have
 		//       correct bitcasts)
 		//--------------------------------------------------------------------//
-		// get max size
+		DEBUG_LA( outs() << "\ndetermining size of each live value struct and union size...\n"; );
 		uint64_t unionMaxSize = 0;
 		for (ContinuationMapType::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 			BarrierInfo* binfo = it->second;
 			const uint64_t size = targetData->getTypeAllocSize(binfo->liveValueStructType);
 			if (size > unionMaxSize) unionMaxSize = size;
 		}
+
+		DEBUG_LA( outs() << "  max alloc-size: " << unionMaxSize << "\n"; );
+
 		// adjust structs of all continuations whose live value struct is smaller than maxsize
 		for (ContinuationMapType::iterator it=continuationMap.begin(), E=continuationMap.end(); it!=E; ++it) {
 			BarrierInfo* binfo = it->second;
 			const StructType* liveValueStructType = binfo->liveValueStructType;
-			const uint64_t size = targetData->getTypeAllocSize(liveValueStructType);
+			const uint64_t size = targetData->getTypeSizeInBits(liveValueStructType) / 8;
+			DEBUG_LA( outs() << "  exact size of struct for continuation " << binfo->id << ": " << size << "\n"; );
 			if (size == unionMaxSize) {
 				binfo->liveValueStructTypePadded = binfo->liveValueStructType; // no need to pad, size matches
 				continue;
 			}
 			assert (size < unionMaxSize);
+			DEBUG_LA( outs() << "    does not match max alloc size (" << unionMaxSize << "), creating padding of size " << unionMaxSize-size << "...\n"; );
 
 			std::vector<const Type*> params;
 			params.insert(params.end(), liveValueStructType->element_begin(), liveValueStructType->element_end());
@@ -1959,23 +1964,23 @@ private:
 		// generate union for live value structs
 		assert (cMap[0] && cMap[0]->liveValueStructTypePadded);
 		const uint64_t unionSize = targetData->getTypeAllocSize(cMap[0]->liveValueStructTypePadded);
-		DEBUG_LA( outs() << "union size for live value structs: " << unionSize << "\n"; );
+		DEBUG_LA( outs() << "union size for live value structs: " << unionSize << " bytes\n"; );
 		DEBUG_LA(
 			unsigned testUnionSize = unionSize;
 			for (ContinuationMapType::iterator it=cMap.begin(), E=cMap.end(); it!=E; ++it) {
 				BarrierInfo* bit = it->second;
 				const StructType* liveValueStructTypePadded = bit->liveValueStructTypePadded;
 				assert (liveValueStructTypePadded);
-				const uint64_t typeSize = targetData->getTypeAllocSize(liveValueStructTypePadded);
-				outs() << "type: " << *liveValueStructTypePadded << "\n";
+				const uint64_t typeSize = targetData->getTypeSizeInBits(liveValueStructTypePadded) / 8;
+				outs() << "padded type: " << *liveValueStructTypePadded << "\n";
 				outs() << "type size: " << typeSize << "\n";
 				assert (testUnionSize == typeSize && "type sizes for union have to match exactly!");
 			}
 		);
-		DEBUG_LA( outs() << "union size for live value structs: " << unionSize << "\n"; );
 		// allocate memory for union
 		Value* allocSize = ConstantInt::get(context, APInt(32, unionSize));
-		Value* dataPtr = builder.CreateAlloca(Type::getInt8Ty(context), allocSize, "liveValueUnion");
+		AllocaInst* dataPtr = builder.CreateAlloca(Type::getInt8Ty(context), allocSize, "liveValueUnion");
+		dataPtr->setAlignment(16);
 
 		builder.CreateBr(headerBB);
 
@@ -2022,6 +2027,8 @@ private:
 				Value* gep = builder.CreateGEP(bc, indices.begin(), indices.end(), "");
 				DEBUG_LA( outs() << "load gep(" << j << "): " << *gep << "\n"; );
 				LoadInst* load = builder.CreateLoad(gep, false, "");
+				load->setAlignment(16);
+				load->setVolatile(false);
 				contArgs[j] = load;
 			}
 
@@ -2062,6 +2069,7 @@ private:
 			sstr << "continuation." << i;  // "0123456789ABCDEF"[x] would be okay if we could guarantee a max number of continuations :p
 			calls[i] = builder.CreateCall(cMap[i]->continuation, args.begin(), args.end(), sstr.str());
 			DEBUG_LA( outs() << "created call for continuation '" << cMap[i]->continuation->getNameStr() << "':" << *calls[i] << "\n"; );
+			// TODO: set attributes etc.
 
 			builder.CreateBr(latchBB);
 
