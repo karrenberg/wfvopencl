@@ -79,7 +79,7 @@
 //
 #define DATA_SIZE (1024) // 1024
 #define GROUP_NR (8) // 8
-#define GROUP_SIZE (DATA_SIZE/GROUP_NR)
+#define GROUP_SIZE (DATA_SIZE / GROUP_NR)
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -138,8 +138,7 @@ int main(int argc, char** argv) {
 	// Fill our data set with random float values
 	//
 	unsigned i = 0;
-	const unsigned int dataSize = DATA_SIZE;
-	for (i = 0; i < dataSize; i++) {
+	for (i = 0; i < DATA_SIZE; i++) {
 		//data[i] = rand() / (float) RAND_MAX;
 		data[i] = i;
 		//if (i < 8) printf("  data[%d] = %f\n", i, data[i]);
@@ -335,8 +334,8 @@ int main(int argc, char** argv) {
 
 	// Create the input and output arrays in device memory for our calculation
 	//
-	input = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof (float) * dataSize, NULL, NULL);
-	output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof (float) * dataSize, NULL, NULL);
+	input = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof (float) * DATA_SIZE, NULL, NULL);
+	output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof (float) * DATA_SIZE, NULL, NULL);
 	if (!input || !output) {
 		printf("Error: Failed to allocate device memory!\n");
 		exit(1);
@@ -344,7 +343,7 @@ int main(int argc, char** argv) {
 
 	// Write our data set into the input array in device memory
 	//
-	err = clEnqueueWriteBuffer(commands, input, CL_TRUE, 0, sizeof (float) * dataSize, data, 0, NULL, NULL);
+	err = clEnqueueWriteBuffer(commands, input, CL_TRUE, 0, sizeof (float) * DATA_SIZE, data, 0, NULL, NULL);
 	if (err != CL_SUCCESS) {
 		printf("Error: Failed to write to source array!\n");
 		exit(1);
@@ -352,11 +351,10 @@ int main(int argc, char** argv) {
 
 	// Set the arguments to our compute kernel
 	//
-	const unsigned int groupSize = GROUP_SIZE;
 	err = 0;
 	err = clSetKernelArg(kernel, 0, sizeof (cl_mem), &input);
 	err |= clSetKernelArg(kernel, 1, sizeof (cl_mem), &output);
-	err |= clSetKernelArg(kernel, 2, groupSize * sizeof (cl_float), NULL);
+	err |= clSetKernelArg(kernel, 2, GROUP_SIZE * sizeof (cl_float), NULL);
 	if (err != CL_SUCCESS) {
 		printf("Error: Failed to set kernel arguments! %d\n", err);
 		exit(1);
@@ -369,12 +367,12 @@ int main(int argc, char** argv) {
 		//printf("Error: Failed to retrieve kernel work group info! %d\n", err);
 		//exit(1);
 	//}
-	local = groupSize;
+	local = GROUP_SIZE;
 
 	// Execute the kernel over the entire range of our 1d input data set
 	// using the maximum number of work group items for this device
 	//
-	global = dataSize;
+	global = DATA_SIZE;
 	err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
 	if (err) {
 		printf("Error: Failed to execute kernel!\n");
@@ -387,7 +385,7 @@ int main(int argc, char** argv) {
 
 	// Read back the results from the device to verify the output
 	//
-	err = clEnqueueReadBuffer(commands, output, CL_TRUE, 0, sizeof (float) * dataSize, results, 0, NULL, NULL);
+	err = clEnqueueReadBuffer(commands, output, CL_TRUE, 0, sizeof (float) * DATA_SIZE, results, 0, NULL, NULL);
 	if (err != CL_SUCCESS) {
 		printf("Error: Failed to read output array! %d\n", err);
 		exit(1);
@@ -396,8 +394,8 @@ int main(int argc, char** argv) {
 	// Validate our results
 	//
 	correct = 0;
-	for (i = 0; i < dataSize; i++) {
-		if (verifyResults(results, data, dataSize, i)) {
+	for (i = 0; i < DATA_SIZE; i++) {
+		if (verifyResults(results, data, DATA_SIZE, i)) {
 			//printf("results[%d]: %f (correct)\n", i, results[i]);
 			correct++;
 		} else {
@@ -417,8 +415,8 @@ int main(int argc, char** argv) {
 
 	// Print a brief summary detailing the results
 	//
-	printf("Computed '%d/%d' correct values!\n", correct, dataSize);
-	const bool allCorrect = correct == dataSize;
+	printf("Computed '%d/%d' correct values!\n", correct, DATA_SIZE);
+	const bool allCorrect = correct == DATA_SIZE;
 
 	// Shutdown and cleanup
 	//

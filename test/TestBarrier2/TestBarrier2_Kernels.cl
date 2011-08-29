@@ -21,3 +21,19 @@ __kernel void TestBarrier2(
 	output[get_global_id(0)] = (get_local_id(0) == get_local_size(0)-1) ? 0.f : shared[get_local_id(0)+1];
 #endif
 }
+
+
+// This looks like it fails (optimization creates 2 barriers)
+//__kernel void TestBad(
+//   __global float* input,
+//   __global float* output,
+//   __local  float* shared)
+//{
+//	int i = get_global_id(0);
+//
+//	if (i < 128) shared[i] = input[i];
+//
+//	barrier(CLK_LOCAL_MEM_FENCE);
+//
+//	if (i < 127) output[i] = shared[i+1];
+//}
