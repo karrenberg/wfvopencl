@@ -146,8 +146,9 @@ namespace PacketizedOpenCL {
 		}
 
 		// Add function "barrier" as native function to prevent any splitting
-		assert (kernel->getParent()->getFunction("barrier"));
-		packetizer.addVaryingFunctionMapping("barrier", -1, kernel->getParent()->getFunction("barrier"));
+		if (Function* barrierFn = kernel->getParent()->getFunction("barrier")) {
+			packetizer.addVaryingFunctionMapping("barrier", -1, barrierFn);
+		}
 
 	}
 #endif
@@ -591,6 +592,10 @@ namespace PacketizedOpenCL {
 			eb.setCodeModel(CodeModel::Default);
 			//eb.setMArch("x86-64");
 			//eb.setMCPU("corei7");
+			//std::vector<std::string> attrs;
+			//attrs.push_back("+sse41");
+			//eb.setMAttrs(attrs);
+
 
 			globalExecEngine = eb.create();
 
