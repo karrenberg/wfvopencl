@@ -384,7 +384,7 @@ namespace PacketizedOpenCL {
 			assert (isa<Instruction>(*U));
 			Instruction* useI = cast<Instruction>(*U);
 
-			if (isa<SExtInst>(*U) || isa<ZExtInst>(*U)) {
+			if (isa<SExtInst>(useI) || isa<ZExtInst>(useI)) {
 				findStepThroughCallbackUses(useI, call, calls, uses, targets);
 			}
 
@@ -447,9 +447,18 @@ namespace PacketizedOpenCL {
 
 		for (unsigned i=0; i<calls.size(); ++i) {
 			PACKETIZED_OPENCL_DEBUG( outs() << "replacing callback-use by new call in instruction: " << *uses[i] << "\n"; );
-			Instruction* newCall = calls[i]->clone();
-			newCall->insertBefore(uses[i]);
-			uses[i]->replaceUsesOfWith(targets[i], newCall);
+			if (!isa<CallInst>(targets[i])) {
+				Instruction* newCall = calls[i]->clone();
+				newCall->insertBefore(uses[i]);
+				Instruction* newTarget = targets[i]->clone();
+				newTarget->insertAfter(newCall);
+				newTarget->replaceUsesOfWith(calls[i], newCall);
+				uses[i]->replaceUsesOfWith(targets[i], newTarget);
+			} else {
+				Instruction* newCall = calls[i]->clone();
+				newCall->insertBefore(uses[i]);
+				uses[i]->replaceUsesOfWith(targets[i], newCall);
+			}
 		}
 	}
 
@@ -1545,7 +1554,6 @@ namespace PacketizedOpenCL {
 			generateBlockSizeLoopsForWrapper(f_wrapper, kernelCall, num_dimensions, simd_dim, context, module);
 
 		} else {
-
 			// minimize number of live values before splitting
 			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_global_id"), f);
 			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_id"), f);
@@ -1554,6 +1562,8 @@ namespace PacketizedOpenCL {
 			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_global_size"), f);
 			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_size"), f);
 			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_group_id"), f);
+
+			PACKETIZED_OPENCL_DEBUG( verifyFunction(*f); );
 
 			// eliminate barriers
 			FunctionPassManager FPM(module);
