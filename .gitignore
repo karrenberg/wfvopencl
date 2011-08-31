@@ -8,3 +8,6 @@ build/
 .sconsign.dblite
 *.obj
 *.exp
+*.dll
+*.lib
+*.pdb

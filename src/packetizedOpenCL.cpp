@@ -1396,8 +1396,6 @@ namespace PacketizedOpenCL {
 	inline Function* createKernel(Function* f, const std::string& kernel_name, const unsigned num_dimensions, const int simd_dim, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
 		assert (f && module && targetData);
 		assert (num_dimensions > 0 && num_dimensions < 4);
-		outs() << "simd_dim: " << simd_dim << "\n";
-		outs() << "num_dimensions: " << num_dimensions << "\n";
 		assert (simd_dim < (int)num_dimensions);
 
 #ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
