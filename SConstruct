@@ -237,6 +237,7 @@ SimpleConvolution
 #TestBarrier2
 #TestLoopBarrier
 #TestLoopBarrier2
+#TestDynCheckSpeed
 #AmbientOcclusionRenderer
 #BinomialOptionSimple
 #BitonicSort
