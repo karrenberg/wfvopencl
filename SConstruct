@@ -209,6 +209,7 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 
 # Those work in all configurations, including packetizer:
 testApps = env.Split("""
+TestSimple
 AmbientOcclusionRenderer
 BitonicSort
 BlackScholesSimple

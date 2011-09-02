@@ -36,12 +36,17 @@ do
 	echo "Verifying benchmark results on platform $PLATFORM... (Time: $(date +%H:%M))"
 	echo "-------------------------------------------------------------------"
 	echo ""
-	build/bin/BitonicSort -q -x 1048576 -e -p "$PLATFORM" && \
+	build/bin/AmbientOcclusionRenderer -q -e -p "$PLATFORM" && \
+		build/bin/BitonicSort -q -x 1048576 -e -p "$PLATFORM" && \
 		build/bin/BlackScholesSimple -q -e -x 16384 -p "$PLATFORM" && \
+		build/bin/DCT -q -e -x 12000 -y 12000 -p "$PLATFORM" && \
 		build/bin/FastWalshTransform -q -e -x 134217728 -p "$PLATFORM" && \
-		build/bin/Histogram -q -e -x 15872 -y 15872 -p "$PLATFORM" && \
+		build/bin/FloydWarshall -q -e -x 512 -p "$PLATFORM" && \
+		build/bin/Histogram -q -e -x 15600 -y 15600 -p "$PLATFORM" && \
 		build/bin/MandelbrotSimple -q -e -x 8192 -p "$PLATFORM" && \
-		build/bin/SimpleConvolution -q -e -x 8192 -y 8192 -m 1 -p "$PLATFORM"
+		build/bin/MatrixTranspose -q -e -x 12000 -p "$PLATFORM" && \
+		build/bin/NBodySimple -q -e -x 19968 -p "$PLATFORM"
+		#build/bin/SimpleConvolution -q -e -x 8192 -y 8192 -m 1 -p "$PLATFORM"
 
 	SUCCESS=$? # read output
 
@@ -52,7 +57,7 @@ do
 		echo "ERROR: at least one benchmark failed, skipping measurements for platform $PLATFORM!"
 		echo "-------------------------------------------------------------------"
 		echo ""
-		continue
+		#continue
 	fi
 
 	echo ""
@@ -64,23 +69,38 @@ do
 	for (( i = 0; i < $NUM_SAMPLES; i++ ))
 	do
 		echo ""
+		echo "AmbientOcclusionRenderer ($i)"
+		build/bin/AmbientOcclusionRenderer -q -t -p "$PLATFORM"
+		echo ""
 		echo "BitonicSort ($i)"
 		build/bin/BitonicSort -q -x 1048576 -t -p "$PLATFORM" # takes forever on AMD (~55sec)
 		echo ""
 		echo "BlackScholesSimple ($i)"
 		build/bin/BlackScholesSimple -q -t -x 16384 -p "$PLATFORM"
 		echo ""
+		echo "DCT ($i)"
+		build/bin/DCT -q -t -x 12000 -y 12000 -p "$PLATFORM"
+		echo ""
 		echo "FastWalshTransform ($i)"
 		build/bin/FastWalshTransform -q -t -x 134217728 -p "$PLATFORM"
 		echo ""
+		echo "FloydWarshall ($i)"
+		build/bin/FloydWarshall -q -t -x 512 -p "$PLATFORM"
+		echo ""
 		echo "Histogram ($i)"
-		build/bin/Histogram -q -t -x 15872 -y 15872 -p "$PLATFORM"
+		build/bin/Histogram -q -t -x 15600 -y 15600 -p "$PLATFORM"
 		echo ""
 		echo "MandelbrotSimple ($i)"
 		build/bin/MandelbrotSimple -q -t -x 8192 -p "$PLATFORM"
 		echo ""
-		echo "SimpleConvolution ($i)"
-		build/bin/SimpleConvolution -q -t -x 8192 -y 8192 -m 1 -p "$PLATFORM"
+		echo "NBodySimple ($i)"
+		build/bin/NBodySimple -q -t -x 19968 -p "$PLATFORM"
+		echo ""
+		echo "MatrixTranspose ($i)"
+		build/bin/MatrixTranspose -q -t -x 12000 -p "$PLATFORM"
+		#echo ""
+		#echo "SimpleConvolution ($i)"
+		#build/bin/SimpleConvolution -q -t -x 8192 -y 8192 -m 1 -p "$PLATFORM"
 	done
 
 	echo ""
