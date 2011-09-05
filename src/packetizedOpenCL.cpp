@@ -95,7 +95,11 @@
 #else
 	#define PACKETIZED_OPENCL_NUM_CORES 1
 #endif
-#define PACKETIZED_OPENCL_MAX_NUM_THREADS PACKETIZED_OPENCL_NUM_CORES
+#define PACKETIZED_OPENCL_MAX_NUM_THREADS PACKETIZED_OPENCL_NUM_CORES*2 // *4 is too much for FloydWarshall (up to 50% slower than *2), NUM_CORES only is not enough (execution times very unstable for some kernels)
+	// 5 threads: SimpleConvolution works with 2048/2048/3, segfaults starting somewhere above
+	// 8 threads: SimpleConvolution works with 2048/x/3, where x can be as high as 32k (probably higher), 2048 for width is max (segfault above)
+	// 5/8 threads: PrefixSum sometimes succeeds, sometimes fails
+	// 5/8 threads: Dwt works up to 65536, segfaults above
 
 
 // these defines are assumed to be set via build script:
@@ -4420,6 +4424,9 @@ typedef void (*kernelFnPtr)(
 
 #ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
 	assert (global_work_size >= PACKETIZED_OPENCL_SIMD_WIDTH);
+	assert (local_work_size == 1 || local_work_size >= PACKETIZED_OPENCL_SIMD_WIDTH);
+	assert (global_work_size % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
+	assert (local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
 #endif
 
 	// unfortunately we have to convert to 32bit values because we work with 32bit internally
@@ -4429,28 +4436,29 @@ typedef void (*kernelFnPtr)(
 #ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
 	const cl_uint modified_local_work_size = (cl_uint)local_work_size;
 #else
+	if (local_work_size != 1 && local_work_size < PACKETIZED_OPENCL_SIMD_WIDTH) {
+		errs() << "\nERROR: group size of dimension " << kernel->get_best_simd_dim() << " is smaller than the SIMD width!\n\n";
+		exit(-1);
+	}
 	PACKETIZED_OPENCL_DEBUG(
-		if (local_work_size < PACKETIZED_OPENCL_SIMD_WIDTH) {
-			errs() << "\nWARNING: group size of dimension " << kernel->get_best_simd_dim() << " is smaller than the SIMD width, will be set to global size!\n\n";
+		if (local_work_size == 1) {
+			errs() << "\nWARNING: group size of dimension " << kernel->get_best_simd_dim() << " is 1, will be increased to multiple of SIMD width!\n\n";
 		}
 	);
 
-	#ifdef PACKETIZED_OPENCL_USE_OPENMP
-	// TODO: simd width? simd width squared? other factor?
-	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_SIMD_WIDTH ?
-		PACKETIZED_OPENCL_SIMD_WIDTH*PACKETIZED_OPENCL_SIMD_WIDTH : local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH != 0 ?
-			local_work_size+(local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH) : (cl_uint)local_work_size;
-	#else
-	const cl_uint modified_local_work_size = local_work_size < PACKETIZED_OPENCL_SIMD_WIDTH ?
-		modified_global_work_size : local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH != 0 ?
-			local_work_size+(local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH) : (cl_uint)local_work_size;
-	#endif
-
-	// TODO: remove
-	//if (global_work_size != modified_global_work_size)
-		//errs() << "WARNING: global work size changed from '" << global_work_size << "' to '" << modified_global_work_size << "'!\n";
-	//if (local_work_size != modified_local_work_size)
-		//errs() << "WARNING: local work size changed from '" << local_work_size << "' to '" << modified_local_work_size << "'!\n";
+#	ifdef PACKETIZED_OPENCL_USE_OPENMP
+	// If the local work size is set to 1, we should be safe to set it to some arbitrary
+	// value unless the application does weird things.
+	// TODO: Test if kernel calls get_group_id or get_group_size, in which case we must not change anything!
+	// If not, the natural choice is to set the work size in a way that we end up with
+	// exactly as many iterations of the outermost loop as we have cores for multi-threading.
+	// Using larger amounts of iterations can severely degrade performance (e.g. FloydWarshall, Mandelbrot)
+	const cl_uint modified_local_work_size = local_work_size == 1 ?
+		modified_global_work_size/PACKETIZED_OPENCL_NUM_CORES : (cl_uint)local_work_size;
+#	else
+	const cl_uint modified_local_work_size = local_work_size == 1 ?
+		modified_global_work_size : (cl_uint)local_work_size;
+#	endif
 
 #endif
 
@@ -4578,6 +4586,8 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	//
 	const cl_uint num_iterations_0 = modified_global_work_size[0] / modified_local_work_size[0]; // = total # threads per block in dim 0
 	const cl_uint num_iterations_1 = modified_global_work_size[1] / modified_local_work_size[1]; // = total # threads per block in dim 1
+	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_global_work_sizes: " << modified_global_work_size[0] << " / " << modified_local_work_size[1] << "\n"; );
+	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_local_work_sizes: " << modified_local_work_size[0] << " / " << modified_local_work_size[1] << "\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 << ")...\n"; );
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && "should give error message before executeRangeKernel!");

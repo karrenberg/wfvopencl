@@ -145,8 +145,8 @@ echo "Computing statistical significance, confidence intervals, etc. ..."
 echo "-------------------------------------------------------------------"
 echo ""
 
-./SpeedupTest.sh benchmark_intel.cfg
-./SpeedupTest.sh benchmark_amd.cfg
+./SpeedUpTest.sh benchmark_intel.cfg
+./SpeedUpTest.sh benchmark_amd.cfg
 
 echo ""
 echo "-------------------------------------------------------------------"
