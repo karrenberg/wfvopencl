@@ -4650,6 +4650,22 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 //				verifyModule(*kernel->get_program()->module);
 //			);
 
+#ifdef PACKETIZED_OPENCL_USE_OPENMP
+			// fetch this thread's argument struct
+			const cl_uint tid = omp_get_thread_num();
+			void* newargstr = argstructs[tid];
+			// TODO: Adding a local copy seems to help OpenMP-based implementation?!
+			//       Otherwise, TestBarrier2 on Windows crashed (regardless of wrong results).
+			//const cl_uint mg = modified_global_work_size;
+			//const cl_uint ml = modified_local_work_size;
+			//typedPtr(newargstr, 1U, &mg, &ml, &i);
+			typedPtr(newargstr,
+				2U,
+				modified_global_work_size,
+				modified_local_work_size,
+				group_id
+			);
+#else
 			typedPtr(
 				argument_struct,
 				2U, // get_work_dim
@@ -4657,6 +4673,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 				modified_local_work_size,
 				group_id
 			);
+#endif
 
 			PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "iteration " << i << "/" << j << " finished!\n"; );
 			PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
@@ -4682,6 +4699,10 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	return CL_SUCCESS;
 }
 inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_size, const size_t* local_work_size) {
+	assert (false && "NOT IMPLEMENTED!");
+	outs() << "Support for kernels with #dimensions > 2 not fully implemented yet!\n";
+	return CL_INVALID_WORK_DIMENSION;
+
 	PACKETIZED_OPENCL_DEBUG( outs() << "  global_work_sizes: " << global_work_size[0] << ", " << global_work_size[1] << ", " << global_work_size[2] << "\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "  local_work_sizes: " << local_work_size[0] << ", " << local_work_size[1] << ", " << local_work_size[2] << "\n"; );
 	if (global_work_size[0] % local_work_size[0] != 0) return CL_INVALID_WORK_GROUP_SIZE;
