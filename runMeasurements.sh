@@ -46,7 +46,7 @@ do
 		build/bin/EigenValue -q -e -x 4096 -p "$PLATFORM" && \
 		build/bin/FastWalshTransform -q -e -x 134217728 -p "$PLATFORM" && \
 		build/bin/FloydWarshall -q -e -x 512 -p "$PLATFORM" && \
-		build/bin/Histogram -q -e -x 15872 -y 15872 -p "$PLATFORM" && \
+		build/bin/Histogram -q -e -x 15600 -y 15600 -p "$PLATFORM" && \
 		build/bin/MandelbrotSimple -q -e -x 8192 -p "$PLATFORM" && \
 		build/bin/MatrixTranspose -q -e -x 12000 -p "$PLATFORM" && \
 		build/bin/MersenneTwisterSimple -q -e -x 45000 -p "$PLATFORM" && \

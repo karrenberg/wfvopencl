@@ -1,27 +1,63 @@
 #!/bin/bash
-# TODO: add TestLoopBarrier2
-build/bin/TestSimple "$@" && \
-build/bin/Test2D "$@" && \
-build/bin/Test2D2 "$@" && \
-build/bin/TestLinearAccess "$@" && \
-build/bin/TestBarrier "$@" && \
-build/bin/TestBarrier2 "$@" && \
-build/bin/TestLoopBarrier "$@" && \
-build/bin/BitonicSort -q -e -x 32 "$@" && \
-build/bin/BinomialOptionSimple -q -e -x 32 "$@" && \
-build/bin/BlackScholesSimple -q -e "$@" && \
-build/bin/DCT -q -e "$@" && \
-build/bin/DwtHaar1D -q -e "$@" && \
-build/bin/EigenValue -q -e -x 16 "$@" && \
-build/bin/FastWalshTransform -q -e -x 32 "$@" && \
-build/bin/FloydWarshall -q -e -x 16 "$@" && \
-build/bin/Histogram -q -e "$@" && \
-build/bin/MandelbrotSimple -q -e -x 16 "$@" && \
-build/bin/MatrixTranspose -q -e -x 512 "$@" && \
-build/bin/NBodySimple -q -e -x 128 "$@" && \
-build/bin/PrefixSum -q -e "$@" && \
-build/bin/RadixSort -q -e "$@" && \
-build/bin/Reduction -q -e "$@" && \
-build/bin/SimpleConvolution -q -e -x 8 "$@" && \
-build/bin/AmbientOcclusionRenderer -q -e -x 128 -y 128 "$@"
 
+NUM_PLATFORMS=3
+
+echo ""
+echo "Packetizer configuration:"
+build/bin/TestSimple
+echo ""
+
+for (( PLATFORM = 0; PLATFORM < $NUM_PLATFORMS; PLATFORM++ ))
+do
+	# First test if all benchmarks produce correct results.
+	echo ""
+	echo "-------------------------------------------------------------------"
+	echo "Verifying benchmark results on platform $PLATFORM... (Time: $(date +%H:%M))"
+	echo "-------------------------------------------------------------------"
+	echo ""
+	echo ""
+	echo "AmbientOcclusionRenderer"
+	build/bin/AmbientOcclusionRenderer -q -e -p "$PLATFORM"
+	echo ""
+	echo "BitonicSort"
+	build/bin/BitonicSort -q -x 1048576 -e -p "$PLATFORM"
+	echo ""
+	echo "BlackScholesSimple"
+	build/bin/BlackScholesSimple -q -e -x 16384 -p "$PLATFORM"
+	echo ""
+	echo "DCT"
+	build/bin/DCT -q -e -x 8192 -y 8192 -p "$PLATFORM"
+	echo ""
+	echo "DwtHaar1D"
+	build/bin/DwtHaar1D -q -e -x 8388608 -p "$PLATFORM"
+	echo ""
+	echo "FastWalshTransform"
+	build/bin/FastWalshTransform -q -e -x 134217728 -p "$PLATFORM"
+	echo ""
+	echo "FloydWarshall"
+	build/bin/FloydWarshall -q -e -x 512 -p "$PLATFORM"
+	echo ""
+	echo "Histogram"
+	build/bin/Histogram -q -e -x 15600 -y 15600 -p "$PLATFORM"
+	echo ""
+	echo "MandelbrotSimple"
+	build/bin/MandelbrotSimple -q -e -x 8192 -p "$PLATFORM"
+	echo ""
+	echo "MatrixTranspose"
+	build/bin/MatrixTranspose -q -e -x 12000 -p "$PLATFORM"
+	echo ""
+	echo "NBodySimple"
+	build/bin/NBodySimple -q -e -x 19968 -p "$PLATFORM"
+	echo ""
+	echo "PrefixSum"
+	build/bin/PrefixSum -q -e -x 256 -p "$PLATFORM"
+	echo ""
+	echo "SimpleConvolution"
+	build/bin/SimpleConvolution -q -e -x 8192 -y 8192 -m 1 -p "$PLATFORM"
+done
+
+echo ""
+echo "-------------------------------------------------------------------"
+echo "Verification of benchmark results finished! (Time: $(date +%H:%M))"
+echo "-------------------------------------------------------------------"
+echo ""
