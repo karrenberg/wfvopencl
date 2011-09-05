@@ -4426,7 +4426,7 @@ typedef void (*kernelFnPtr)(
 	assert (global_work_size >= PACKETIZED_OPENCL_SIMD_WIDTH);
 	assert (local_work_size == 1 || local_work_size >= PACKETIZED_OPENCL_SIMD_WIDTH);
 	assert (global_work_size % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
-	assert (local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
+	assert (local_work_size == 1 || local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
 #endif
 
 	// unfortunately we have to convert to 32bit values because we work with 32bit internally
@@ -4578,6 +4578,15 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	// unfortunately we have to convert to 32bit values because we work with 32bit internally
 	const cl_uint modified_global_work_size[2] = { (cl_uint)global_work_size[0], (cl_uint)global_work_size[1] };
 	const cl_uint modified_local_work_size[2] = { (cl_uint)local_work_size[0], (cl_uint)local_work_size[1] };
+
+#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+	const cl_uint simd_dim = kernel->get_best_simd_dim();
+
+	assert (global_work_size[simd_dim] >= PACKETIZED_OPENCL_SIMD_WIDTH);
+	assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] >= PACKETIZED_OPENCL_SIMD_WIDTH);
+	assert (global_work_size[simd_dim] % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
+	assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
+#endif
 
 	// TODO: insert warnings as in 1D case if sizes do not match simd width etc.
 
