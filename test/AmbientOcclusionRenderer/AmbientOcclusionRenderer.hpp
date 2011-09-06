@@ -121,8 +121,6 @@ jurisdiction and venue of these courts.
 #include <sys/time.h>
 #endif
 
-#define GROUP_SIZE 512
-
 /**
 * AmbientOcclusionRenderer 
 * Class implements OpenCL  AmbientOcclusionRenderer sample
@@ -173,8 +171,8 @@ public:
         kernelTime(0),
 		iterations(1),
 		tex(0),
-		width(512),
-		height(512),
+		width(1024),
+		height(1024),
         hDevMem(NULL),
         devices(NULL),
 		context(NULL),
@@ -195,8 +193,8 @@ public:
         kernelTime(0),
 		iterations(1),
 		tex(0),
-		width(512),
-		height(512),
+		width(1024),
+		height(1024),
         hDevMem(NULL),
         devices(NULL),
 		context(NULL),

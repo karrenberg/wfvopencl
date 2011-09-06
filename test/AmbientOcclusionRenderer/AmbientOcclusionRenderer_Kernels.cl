@@ -252,9 +252,11 @@ float computeAO(struct Intersection* isect, float* sd)
 	return occlusion;//(float4)(occlusion, occlusion, occlusion, 1.0f);
 }
 
-__kernel void AmbientOcclusionRenderer(__global uint * out) {
+__kernel void AmbientOcclusionRenderer(__global uint * out, uint width, uint height) {
 
 	//uint nIndex = get_global_id(0) + get_global_id(1) * get_global_size(0);
+	const float hwidth = width/2.0f;
+	const float hheight = height/2.0f;
 
 	struct Intersection i;
 	i.hit = 0;
@@ -265,8 +267,8 @@ __kernel void AmbientOcclusionRenderer(__global uint * out) {
 	
 	//float px = ((float)(int)(get_local_id(0) + get_group_id(0) * get_local_size(0)) - hwidth) / hwidth;
 	//float py = ((float)(int)(get_local_id(1) + get_group_id(1) * get_local_size(1)) - hheight) / hheight;
-	const float px = ((float)(int)(get_global_id(0)) - 512) / 512.0f;
-	const float py = ((float)(int)(get_global_id(1)) - 512) / 512.0f;
+	const float px = ((float)(int)(get_global_id(0)) - hwidth) / hwidth;
+	const float py = ((float)(int)(get_global_id(1)) - hheight) / hheight;
 	//float px = (int)((get_global_id(0)) - hwidth) / hwidth;
 	//float py = (int)((get_global_id(1)) - hheight) / hheight;
 	//float4 dir = normalize((float4)(px, py, -1.0f, 0.0f));
@@ -282,7 +284,7 @@ __kernel void AmbientOcclusionRenderer(__global uint * out) {
 	r.dirX = dirX;
 	r.dirY = dirY;
 	r.dirZ = dirZ;
-	int seed = (int)(fmod((dirX+512.0f) * (dirY+512.0f) * 4525434.0f, 65536.0f));
+	int seed = (int)(fmod((dirX+hwidth) * (dirY+hheight) * 4525434.0f, 65536.0f));
 	
 	int rcol = 0;
 	Intersect(&r, &i);

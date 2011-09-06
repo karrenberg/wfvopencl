@@ -763,6 +763,29 @@ int AmbientOcclusionRenderer::runCLKernels()
 				"clSetKernelArg failed. (outputBuffer)"))
 		return SDK_FAILURE;
 
+	status = clSetKernelArg(
+			kernel,
+			1,
+			sizeof(cl_uint),
+			(void *)&width);
+	if(!sampleCommon->checkVal(
+				status,
+				CL_SUCCESS,
+				"clSetKernelArg failed. (outputBuffer)"))
+		return SDK_FAILURE;
+
+	status = clSetKernelArg(
+			kernel,
+			2,
+			sizeof(cl_uint),
+			(void *)&height);
+	if(!sampleCommon->checkVal(
+				status,
+				CL_SUCCESS,
+				"clSetKernelArg failed. (outputBuffer)"))
+		return SDK_FAILURE;
+
+
     status = clEnqueueNDRangeKernel(
         commandQueue,
         kernel,
