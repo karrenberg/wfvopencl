@@ -11,3 +11,4 @@ build/
 *.dll
 *.lib
 *.pdb
+*.manifest

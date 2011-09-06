@@ -1,0 +1,10 @@
+"Name","SpeedupMin","SpeedupMean","IsMeanSignificant","MeanConfLevel","SpeedupMedian","IsMedianSignificant","MedianConfLevel","CoefMin","CoefMean","CoefMedian"
+"AmbientOcclusionRenderer",1.328,1.357,TRUE,0.99,1.359,TRUE,0.99,1,1,1
+"BitonicSort",7.657,7.306,TRUE,0.99,7.339,TRUE,0.99,1,1,1
+"BlackScholesSimple",1.399,1.351,TRUE,0.99,1.329,TRUE,0.99,1,1,1
+"DCT",1.677,1.914,TRUE,0.99,2.033,TRUE,0.99,1,1,1
+"FastWalshTransform",1.256,1.341,TRUE,0.99,1.35,TRUE,0.99,1,1,1
+"Histogram",2.716,2.981,TRUE,0.99,3.146,TRUE,0.99,1,1,1
+"MandelbrotSimple",2.412,2.895,TRUE,0.99,3.114,TRUE,0.99,1,1,1
+"MatrixTranspose",2.242,2.631,TRUE,0.99,2.735,TRUE,0.99,1,1,1
+"NBodySimple",2.313,1.686,TRUE,0.99,1.455,TRUE,0.99,1,1,1
