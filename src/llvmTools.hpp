@@ -869,7 +869,7 @@ namespace PacketizedOpenCL {
 		Passes.add(createReassociatePass());           // Reassociate expressions
 		if (!disableLoopRotate) Passes.add(createLoopRotatePass());            // Rotate Loop // makes packetized Mandelbrot fail
 		if (!disableLICM) Passes.add(createLICMPass());                  // Hoist loop invariants // makes scalar driver crash after optimization
-		Passes.add(createLoopUnswitchPass(OptimizeSize || OptimizationLevel < 3));
+		//Passes.add(createLoopUnswitchPass(OptimizeSize || OptimizationLevel < 3)); // breaks DCT with UNIFORM_ANALYSIS=0
 		Passes.add(createInstructionCombiningPass());
 		Passes.add(createIndVarSimplifyPass());        // Canonicalize indvars
 		Passes.add(createLoopIdiomPass());             // Recognize idioms like memset.

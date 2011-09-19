@@ -4595,7 +4595,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	//
 	const cl_uint num_iterations_0 = modified_global_work_size[0] / modified_local_work_size[0]; // = total # threads per block in dim 0
 	const cl_uint num_iterations_1 = modified_global_work_size[1] / modified_local_work_size[1]; // = total # threads per block in dim 1
-	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_global_work_sizes: " << modified_global_work_size[0] << " / " << modified_local_work_size[1] << "\n"; );
+	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_global_work_sizes: " << modified_global_work_size[0] << " / " << modified_global_work_size[1] << "\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_local_work_sizes: " << modified_local_work_size[0] << " / " << modified_local_work_size[1] << "\n"; );
 	PACKETIZED_OPENCL_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 << ")...\n"; );
 
