@@ -13,7 +13,7 @@ debug_runtime     = ARGUMENTS.get('debug_runtime', 0)     # enable debugging of 
 profile           = ARGUMENTS.get('profile', 0)           # enable profiling
 use_openmp        = ARGUMENTS.get('openmp', 0)            # enable OpenMP
 num_threads       = ARGUMENTS.get('threads', 0)           # set number of threads to use in OpenMP
-split             = ARGUMENTS.get('split', 0)             # disable load/store optimizations (= always perform scalar load/store)
+split             = ARGUMENTS.get('split', 0)             # disable load/store optimizations (= always perform scalar load/store, experimental)
 packetize         = ARGUMENTS.get('packetize', 0)         # enable packetization
 packetizer_shared = ARGUMENTS.get('packetizer_shared', 0) # should be set if Packetizer was compiled as a shared library (see below)
 llvm_no_debug     = ARGUMENTS.get('llvm_no_debug', 0)     # should be set if LLVM was compiled in release mode (at least on windows)
@@ -210,6 +210,15 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 # Those work in all configurations, including packetizer:
 testApps = env.Split("""
 TestSimple
+TestLinearAccess
+TestConstantIndex
+TestUnaligned
+Test2D
+Test2D2
+TestBarrier
+TestBarrier2
+TestLoopBarrier
+TestDynCheckSpeed
 AmbientOcclusionRenderer
 BitonicSort
 BlackScholesSimple
@@ -222,7 +231,6 @@ MandelbrotSimple
 MatrixTranspose
 NBodySimple
 PrefixSum
-SimpleConvolution
 """)
 
 # These are our primary targets
@@ -262,7 +270,6 @@ SimpleConvolution
 #testApps = env.Split("""
 #BinarySearch
 #Reduction
-#
 #BinomialOption
 #BlackScholes
 #FFT

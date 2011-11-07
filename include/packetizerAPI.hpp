@@ -63,6 +63,9 @@ namespace llvm {
 	class Module;
 	class Function;
 	class Value;
+
+	class BasicBlock;
+	class Instruction;
 }
 
 // WFV forward declaration
@@ -80,8 +83,36 @@ public:
 	PACKETIZER_API void addVaryingFunctionMapping(const std::string& scalarFunctionName, const int maskPosition, llvm::Function* packetFunction);
 	PACKETIZER_API void addValueInfo(llvm::Value* value, const bool uniform, const bool consecutive, const bool aligned);
 	PACKETIZER_API void run();
+
 private:
-	WholeFunctionVectorizer* wfv; // TODO: hide?
+	WholeFunctionVectorizer* wfv; // TODO: hide somehow?
+
+public:
+	////////////////////////////////////////////////////////////////////////////
+	// The following functions are currently only used for testing purposes.  //
+	////////////////////////////////////////////////////////////////////////////
+
+	// TODO: put these into their own "analysis header"
+	PACKETIZER_API bool analyzeFunction(const std::string& functionName, const std::string& newName);
+
+	PACKETIZER_API bool isUniform(const llvm::Value* value) const;
+	PACKETIZER_API bool isSame(const llvm::Value* value) const;
+	PACKETIZER_API bool isConsecutive(const llvm::Value* value) const;
+	PACKETIZER_API bool isRandom(const llvm::Value* value) const;
+	PACKETIZER_API bool isAligned(const llvm::Value* value) const;
+	PACKETIZER_API bool isMask(const llvm::Value* value) const;
+
+	PACKETIZER_API bool requiresReplication(const llvm::Value* value) const;
+	PACKETIZER_API bool requiresSplitResult(const llvm::Value* value) const;
+	PACKETIZER_API bool requiresSplitFull(const llvm::Value* value) const;
+	PACKETIZER_API bool requiresSplitFullGuarded(const llvm::Value* value) const;
+
+	PACKETIZER_API bool isNonDivergent(const llvm::BasicBlock* block) const;
+	PACKETIZER_API bool isFullyNonDivergent(const llvm::BasicBlock* block) const;
+	PACKETIZER_API bool hasUniformExit(const llvm::BasicBlock* block) const;
+	PACKETIZER_API bool hasFullyUniformExit(const llvm::BasicBlock* block) const;
+
+	PACKETIZER_API bool isInputIndependent(const llvm::Instruction* value) const;
 };
 
 
