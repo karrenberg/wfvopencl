@@ -28,8 +28,11 @@
 #include <cassert>
 #include <set>
 
+#include "llvm/Assembly/Parser.h"
+
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/system_error.h" // error_code
+#include "llvm/Support/SourceMgr.h" // SMDiagnostic
 
 #include "llvm/Module.h"
 #include "llvm/Target/TargetData.h"

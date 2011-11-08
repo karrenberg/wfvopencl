@@ -22,10 +22,13 @@
  * along with packetizedOpenCL.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-#include <assert.h>
+
+#include <cassert>
+#include <cstdio> // remove, tmpnam
+#include <cstring> // memcpy
+
+#include <fstream>
 #include <sstream>  // std::stringstream
-#include <string.h> // memcpy
-//#include <cstdio>   // printf
 
 #include <xmmintrin.h> // test output etc.
 #include <emmintrin.h> // test output etc. (windows requires this for __m128i)
@@ -3679,7 +3682,21 @@ clCreateProgramWithSource(cl_context        context,
 	_cl_program* p = new _cl_program();
 	p->dispatch = &static_dispatch;
 	p->context = context;
-	p->fileName = *strings;
+
+	// create temp filename
+	char* tmpFilename = (char*)malloc(L_tmpnam * sizeof(char));
+	tmpnam(tmpFilename);
+	p->fileName = tmpFilename;
+
+	// write to temp file
+	std::ofstream of(tmpFilename);
+	if (!of.good()) {
+		*errcode_ret = CL_OUT_OF_RESOURCES;
+		return NULL;
+	}
+	of << *strings;
+	of.close();
+
 	return p;
 }
 
@@ -3749,11 +3766,25 @@ clBuildProgram(cl_program           program,
 	if (device_list && num_devices == 0) return CL_INVALID_VALUE;
 	if (user_data && !pfn_notify) return CL_INVALID_VALUE;
 
-	// TODO: read .cl representation, invoke clc, invoke llvm-as
-	// alternative: link libClang and use it directly from here :)
+	// create filename for clc output
+	char clcOutPath[L_tmpnam];
+	tmpnam(clcOutPath);
 
-	//FIXME: hardcoded for testing ;)
-	llvm::Module* mod = PacketizedOpenCL::createModuleFromFile(program->fileName);
+	// compile using clc
+	std::stringstream clcCmd;
+	clcCmd << "clc -o " << clcOutPath << " --msse2 " << program->fileName;
+	printf("*** %s\n", clcCmd.str().c_str());
+	system(clcCmd.str().c_str());
+
+	// assemble and load module
+	llvm::SMDiagnostic asmErr;
+	llvm::LLVMContext& context = llvm::getGlobalContext();
+	llvm::Module* mod = llvm::ParseAssemblyFile(clcOutPath, asmErr, context);
+
+	// remove clc output
+	remove(clcOutPath);
+
+	// check if module has been loaded
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
 	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(mod, "debug_kernel_orig_orig_targetdata.mod.ll"); );
 
