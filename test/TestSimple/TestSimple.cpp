@@ -289,9 +289,7 @@ int main(int argc, char** argv)
 		return SDK_FAILURE;
 	}
 
-	const char * source = usePacketizer ?
-		"TestSimple_Kernels.bc" :
-		kernelFile.source().c_str();
+	const char * source = kernelFile.source().c_str();
     size_t sourceSize[]    = { strlen(source) };
 
     program = clCreateProgramWithSource(

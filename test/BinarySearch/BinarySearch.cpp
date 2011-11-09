@@ -714,9 +714,7 @@ BinarySearch::setupCL(void)
 			return SDK_FAILURE;
 		}
 
-		const char * source = platformIsPacketizedOpenCL ?
-			"BinarySearch_Kernels.bc" :
-			kernelFile.source().c_str();
+		const char * source = kernelFile.source().c_str();
 
         size_t sourceSize[] = { strlen(source) };
         program = clCreateProgramWithSource(context,
