@@ -18,8 +18,8 @@
 #endif
 #define DEBUG_TYPE "livenessanalyzer"
 
+#include <llvm/ADT/ValueMap.h>
 #include <llvm/Support/raw_ostream.h>
-
 #include <llvm/Pass.h>
 #include <llvm/Function.h>
 #include <llvm/Module.h>

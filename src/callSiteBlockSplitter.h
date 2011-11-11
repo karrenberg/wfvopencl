@@ -27,7 +27,9 @@
 #include <llvm/Module.h>
 #include "llvm/ADT/SetVector.h"
 
-#include "llvmTools.hpp"
+//#include "llvmTools.hpp"
+#include <llvm/ADT/DenseMap.h>
+#include <llvm/Instructions.h>
 
 #ifdef DEBUG
 #define DEBUG_CSBS(x) do { x } while (false)

@@ -18,13 +18,16 @@
 #endif
 #define DEBUG_TYPE "continuationgenerator"
 
+#include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Support/raw_ostream.h>
-
+#include <llvm/Support/IRBuilder.h>
+#include <llvm/Target/TargetData.h>
+#include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Utils/FunctionUtils.h> // ExtractCodeRegion
+#include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/Pass.h>
 #include <llvm/Function.h>
 #include <llvm/Module.h>
-#include <llvm/Analysis/LoopInfo.h>
-#include <llvm/Transforms/Utils/FunctionUtils.h> // ExtractCodeRegion
 
 #include "callSiteBlockSplitter.h"
 #include "livenessAnalyzer.h"
