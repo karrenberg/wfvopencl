@@ -10,7 +10,6 @@
  * chapter 4 of the OpenCL 1.1 specification.
  */
 
-#include "icd.h"
 #include "wfvocl.h"
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL

@@ -10,6 +10,7 @@
  * chapter 5.7 and 5.8 of the OpenCL 1.1 specification.
  */
 
+#include "cast.h"
 #include "wfvocl.h"
 
 /**

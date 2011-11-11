@@ -31,9 +31,7 @@
 // Tools
 //----------------------------------------------------------------------------//
 
-template<typename T, typename U> T ptr_cast(U* p) {
-	return reinterpret_cast<T>(reinterpret_cast<size_t>(p));
-}
+#include "cast.h"
 
 template<typename T> void* void_cast(T* p) {
 	return ptr_cast<void*>(p);
