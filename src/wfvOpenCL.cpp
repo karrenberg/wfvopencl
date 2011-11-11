@@ -6,7 +6,7 @@
  * This file is distributed under the University of Illinois Open Source
  * License. See the COPYING file in the root directory for details.
  *
- * Copyright (C) 2008, 2009, 2010, 2011 Saarland University
+ * Copyright (C) 2010, 2011 Saarland University
  *
  */
 
@@ -31,16 +31,16 @@
 #endif
 
 #ifdef _WIN32
-#	define PACKETIZED_OPENCL_DLLEXPORT __declspec(dllexport)
+#	define WFVOPENCL_DLLEXPORT __declspec(dllexport)
 #else
-#	define PACKETIZED_OPENCL_DLLEXPORT
+#	define WFVOPENCL_DLLEXPORT
 #endif
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_PACKETIZATION
 #include "packetizerAPI.hpp" // packetizer
 #endif
 
-#ifdef PACKETIZED_OPENCL_ENABLE_JIT_PROFILING
+#ifdef WFVOPENCL_ENABLE_JIT_PROFILING
 #include "JITProfiling.h"
 #endif
 
@@ -50,42 +50,42 @@
 #include "livenessAnalyzer.h"
 #include "continuationGenerator.h"
 
-#ifndef PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER
-	#define PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER "barrier"
+#ifndef WFVOPENCL_FUNCTION_NAME_BARRIER
+	#define WFVOPENCL_FUNCTION_NAME_BARRIER "barrier"
 #endif
 
 //----------------------------------------------------------------------------//
 // Configuration
 //----------------------------------------------------------------------------//
-#define PACKETIZED_OPENCL_VERSION_STRING "0.1" // <major_number>.<minor_number>
+#define WFVOPENCL_VERSION_STRING "0.1" // <major_number>.<minor_number>
 
-#define PACKETIZED_OPENCL_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
-#define PACKETIZED_OPENCL_ICD_SUFFIX "pkt"
+#define WFVOPENCL_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
+#define WFVOPENCL_ICD_SUFFIX "pkt"
 #ifdef __APPLE__
-#	define PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
+#	define WFVOPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
 #else
-#	define PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32:64"
+#	define WFVOPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32:64"
 #endif
-#define PACKETIZED_OPENCL_ADDRESS_BITS 32
-#define PACKETIZED_OPENCL_MAX_WORK_GROUP_SIZE 100000//8192
-#define PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS 3
+#define WFVOPENCL_ADDRESS_BITS 32
+#define WFVOPENCL_MAX_WORK_GROUP_SIZE 100000//8192
+#define WFVOPENCL_MAX_NUM_DIMENSIONS 3
 
-#ifdef PACKETIZED_OPENCL_USE_AVX
-	#undef PACKETIZED_OPENCL_USE_SSE41
-	#define PACKETIZED_OPENCL_SIMD_WIDTH 8
+#ifdef WFVOPENCL_USE_AVX
+	#undef WFVOPENCL_USE_SSE41
+	#define WFVOPENCL_SIMD_WIDTH 8
 #else
-	#define PACKETIZED_OPENCL_USE_SSE41
-	#define PACKETIZED_OPENCL_SIMD_WIDTH 4
+	#define WFVOPENCL_USE_SSE41
+	#define WFVOPENCL_SIMD_WIDTH 4
 #endif
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP // TODO: #ifdef _OPENMP
-	#ifndef PACKETIZED_OPENCL_NUM_CORES // can be supplied by build script
-		#define PACKETIZED_OPENCL_NUM_CORES 4 // TODO: determine somehow, omp_get_num_threads() does not work because it is dynamic (=1 if called here)
+#ifdef WFVOPENCL_USE_OPENMP // TODO: #ifdef _OPENMP
+	#ifndef WFVOPENCL_NUM_CORES // can be supplied by build script
+		#define WFVOPENCL_NUM_CORES 4 // TODO: determine somehow, omp_get_num_threads() does not work because it is dynamic (=1 if called here)
 	#endif
 #else
-	#define PACKETIZED_OPENCL_NUM_CORES 1
+	#define WFVOPENCL_NUM_CORES 1
 #endif
-#define PACKETIZED_OPENCL_MAX_NUM_THREADS PACKETIZED_OPENCL_NUM_CORES*2 // *4 is too much for FloydWarshall (up to 50% slower than *2), NUM_CORES only is not enough (execution times very unstable for some kernels)
+#define WFVOPENCL_MAX_NUM_THREADS WFVOPENCL_NUM_CORES*2 // *4 is too much for FloydWarshall (up to 50% slower than *2), NUM_CORES only is not enough (execution times very unstable for some kernels)
 	// 5 threads: SimpleConvolution works with 2048/2048/3, segfaults starting somewhere above
 	// 8 threads: SimpleConvolution works with 2048/x/3, where x can be as high as 32k (probably higher), 2048 for width is max (segfault above)
 	// 5/8 threads: PrefixSum sometimes succeeds, sometimes fails
@@ -93,42 +93,42 @@
 
 
 // these defines are assumed to be set via build script:
-//#define PACKETIZED_OPENCL_NO_PACKETIZATION
-//#define PACKETIZED_OPENCL_USE_OPENMP
-//#define PACKETIZED_OPENCL_SPLIT_EVERYTHING
-//#define PACKETIZED_OPENCL_ENABLE_JIT_PROFILING
+//#define WFVOPENCL_NO_PACKETIZATION
+//#define WFVOPENCL_USE_OPENMP
+//#define WFVOPENCL_SPLIT_EVERYTHING
+//#define WFVOPENCL_ENABLE_JIT_PROFILING
 //#define NDEBUG
 //----------------------------------------------------------------------------//
 
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 #include <omp.h>
 #endif
 
 #ifdef DEBUG
-#define PACKETIZED_OPENCL_DEBUG(x) do { x } while (false)
+#define WFVOPENCL_DEBUG(x) do { x } while (false)
 #else
-#define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
+#define WFVOPENCL_DEBUG(x) ((void)0)
 #endif
 
 #ifdef DEBUG_RUNTIME
-#define PACKETIZED_OPENCL_DEBUG_RUNTIME(x) do { x } while (false)
+#define WFVOPENCL_DEBUG_RUNTIME(x) do { x } while (false)
 #else
-#define PACKETIZED_OPENCL_DEBUG_RUNTIME(x) ((void)0)
+#define WFVOPENCL_DEBUG_RUNTIME(x) ((void)0)
 #endif
 
 #ifdef NDEBUG // force debug output disabled
-#undef PACKETIZED_OPENCL_DEBUG
-#define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
-#define PACKETIZED_OPENCL_DEBUG_RUNTIME(x) ((void)0)
+#undef WFVOPENCL_DEBUG
+#define WFVOPENCL_DEBUG(x) ((void)0)
+#define WFVOPENCL_DEBUG_RUNTIME(x) ((void)0)
 #endif
 
 
 // HACK
-//#ifdef PACKETIZED_OPENCL_DEBUG
-//#undef PACKETIZED_OPENCL_DEBUG
+//#ifdef WFVOPENCL_DEBUG
+//#undef WFVOPENCL_DEBUG
 //#endif
-//#define PACKETIZED_OPENCL_DEBUG(x) do { x } while (false)
+//#define WFVOPENCL_DEBUG(x) do { x } while (false)
 
 //----------------------------------------------------------------------------//
 // Tools
@@ -170,9 +170,9 @@ extern "C" {
 ///////////////////////////////////////////////////////////////////////////
 //                     OpenCL Code Generation                            //
 ///////////////////////////////////////////////////////////////////////////
-namespace PacketizedOpenCL {
+namespace WFVOpenCL {
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_PACKETIZATION
 		bool packetizeKernelFunction(
 			const std::string& kernelName,
 			const std::string& targetKernelName,
@@ -183,12 +183,12 @@ namespace PacketizedOpenCL {
 			const bool use_avx,
 			const bool verbose)
 	{
-		if (!PacketizedOpenCL::getFunction(kernelName, mod)) {
+		if (!WFVOpenCL::getFunction(kernelName, mod)) {
 			errs() << "ERROR: source function '" << kernelName
 					<< "' not found in module!\n";
 			return false;
 		}
-		if (!PacketizedOpenCL::getFunction(targetKernelName, mod)) {
+		if (!WFVOpenCL::getFunction(targetKernelName, mod)) {
 			errs() << "ERROR: target function '" << targetKernelName
 					<< "' not found in module!\n";
 			return false;
@@ -198,7 +198,7 @@ namespace PacketizedOpenCL {
 
 		packetizer.addFunction(kernelName, targetKernelName);
 
-		PacketizedOpenCL::addNativeFunctions(PacketizedOpenCL::getFunction(kernelName, mod), simdDim, packetizer);
+		WFVOpenCL::addNativeFunctions(WFVOpenCL::getFunction(kernelName, mod), simdDim, packetizer);
 
 		packetizer.run();
 
@@ -329,7 +329,7 @@ namespace PacketizedOpenCL {
 				if (!isa<CallInst>(I)) continue;
 				CallInst* call = cast<CallInst>(I);
 				Function* callee = call->getCalledFunction();
-				if (callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) return true;
+				if (callee->getName().equals(WFVOPENCL_FUNCTION_NAME_BARRIER)) return true;
 			}
 
 		} else if (block == B->getParent()) {
@@ -340,7 +340,7 @@ namespace PacketizedOpenCL {
 				if (!isa<CallInst>(I)) continue;
 				CallInst* call = cast<CallInst>(I);
 				Function* callee = call->getCalledFunction();
-				if (callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) return true;
+				if (callee->getName().equals(WFVOPENCL_FUNCTION_NAME_BARRIER)) return true;
 			}
 			assert (false && "SHOULD NEVER HAPPEN!");
 			return false;
@@ -352,7 +352,7 @@ namespace PacketizedOpenCL {
 				if (!isa<CallInst>(I)) continue;
 				CallInst* call = cast<CallInst>(I);
 				Function* callee = call->getCalledFunction();
-				if (callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) return true;
+				if (callee->getName().equals(WFVOPENCL_FUNCTION_NAME_BARRIER)) return true;
 			}
 
 		}
@@ -440,7 +440,7 @@ namespace PacketizedOpenCL {
 		}
 
 		for (unsigned i=0; i<calls.size(); ++i) {
-			PACKETIZED_OPENCL_DEBUG( outs() << "replacing callback-use by new call in instruction: " << *uses[i] << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "replacing callback-use by new call in instruction: " << *uses[i] << "\n"; );
 			if (!isa<CallInst>(targets[i])) {
 				Instruction* newCall = calls[i]->clone();
 				newCall->insertBefore(uses[i]);
@@ -461,7 +461,7 @@ namespace PacketizedOpenCL {
 		if (!f) return;
 		assert (arg && source);
 
-		PACKETIZED_OPENCL_DEBUG( outs() << "\nreplaceCallbacksByArgAccess(" << f->getNameStr() << ", " << *arg << ", " << source->getName() << ")\n"; );
+		WFVOPENCL_DEBUG( outs() << "\nreplaceCallbacksByArgAccess(" << f->getNameStr() << ", " << *arg << ", " << source->getName() << ")\n"; );
 
 		const bool isArrayArg = isa<ArrayType>(arg->getType());
 		const bool isPointerArg = isa<PointerType>(arg->getType());
@@ -469,23 +469,23 @@ namespace PacketizedOpenCL {
 		for (Function::use_iterator U=f->use_begin(), UE=f->use_end(); U!=UE; ) {
 			if (!isa<CallInst>(*U)) continue;
 			CallInst* call = cast<CallInst>(*U++);
-			PACKETIZED_OPENCL_DEBUG( outs() << "replacing use: " << *call << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "replacing use: " << *call << "\n"; );
 
 			if (call->getParent()->getParent() != source) {
-				PACKETIZED_OPENCL_DEBUG( outs() << "  is in different function: " << call->getParent()->getParent()->getNameStr() << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "  is in different function: " << call->getParent()->getParent()->getNameStr() << "\n"; );
 				continue; // ignore uses in other functions
 			}
 
 			// if arg type is an array, check second operand of call (= supplied parameter)
 			// and generate appropriate ExtractValueInst
 			if (isArrayArg) {
-				PACKETIZED_OPENCL_DEBUG( outs() << "  array arg found!\n"; );
+				WFVOPENCL_DEBUG( outs() << "  array arg found!\n"; );
 				const Value* dimVal = call->getArgOperand(0);
 				assert (isa<ConstantInt>(dimVal));
 				const ConstantInt* dimConst = cast<ConstantInt>(dimVal);
 				const uint64_t* dimension = dimConst->getValue().getRawData();
 				ExtractValueInst* ev = ExtractValueInst::Create(arg, *dimension, "", call);
-				PACKETIZED_OPENCL_DEBUG( outs() << "  new extract: " << *ev << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "  new extract: " << *ev << "\n"; );
 				
 				// if the result is a 64bit integer value, truncate to 32bit -> more other problems :/
 				//if (ev->getType() == f->getReturnType()) arg = ev;
@@ -496,21 +496,21 @@ namespace PacketizedOpenCL {
 				call->replaceAllUsesWith(ev);
 				call->eraseFromParent();
 			} else if (isPointerArg) {
-				PACKETIZED_OPENCL_DEBUG( outs() << "  pointer arg found!\n"; );
+				WFVOPENCL_DEBUG( outs() << "  pointer arg found!\n"; );
 				Value* dimVal = call->getArgOperand(0);
-				PACKETIZED_OPENCL_DEBUG( outs() << "  dimVal: " << *dimVal << "\n"; );
-				PACKETIZED_OPENCL_DEBUG( outs() << "  arg: " << *arg << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "  dimVal: " << *dimVal << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "  arg: " << *arg << "\n"; );
 				GetElementPtrInst* gep = GetElementPtrInst::Create(arg, dimVal, "", call);
 				LoadInst* load = new LoadInst(gep, "", false, 16, call);
-				PACKETIZED_OPENCL_DEBUG( outs() << "  new gep: " << *gep << "\n"; );
-				PACKETIZED_OPENCL_DEBUG( outs() << "  new load: " << *load << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "  new gep: " << *gep << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "  new load: " << *load << "\n"; );
 
 				assert (f->getReturnType() == load->getType());
 				call->replaceAllUsesWith(load);
 				call->eraseFromParent();
 			} else {
-				PACKETIZED_OPENCL_DEBUG( outs() << "  normal arg found!\n"; );
-				PACKETIZED_OPENCL_DEBUG( outs() << "  arg: " << *arg << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "  normal arg found!\n"; );
+				WFVOPENCL_DEBUG( outs() << "  arg: " << *arg << "\n"; );
 				assert (f->getReturnType() == arg->getType());
 				call->replaceAllUsesWith(arg);
 				call->eraseFromParent();
@@ -540,7 +540,7 @@ namespace PacketizedOpenCL {
 		// other callbacks are resolved inside kernel
 
 		// generate wrapper
-		llvm::Function* wrapper = PacketizedOpenCL::generateFunctionWrapperWithParams(wrapper_name, f, mod, additionalParams, inlineCall);
+		llvm::Function* wrapper = WFVOpenCL::generateFunctionWrapperWithParams(wrapper_name, f, mod, additionalParams, inlineCall);
 		if (!wrapper) return NULL;
 
 		// set argument names and attributes
@@ -567,29 +567,29 @@ namespace PacketizedOpenCL {
 	inline void fixFunctionNames(Module* mod) {
 		assert (mod);
 		// fix __sqrt_f32
-		if (PacketizedOpenCL::getFunction("__sqrt_f32", mod)) {
+		if (WFVOpenCL::getFunction("__sqrt_f32", mod)) {
 
 			// create llvm.sqrt.f32 intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("llvm.sqrt.f32", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("llvm.sqrt.f32", mod));
+			WFVOpenCL::createExternalFunction("llvm.sqrt.f32", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("llvm.sqrt.f32", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__sqrt_f32", mod), PacketizedOpenCL::getFunction("llvm.sqrt.f32", mod));
+			WFVOpenCL::replaceAllUsesWith(WFVOpenCL::getFunction("__sqrt_f32", mod), WFVOpenCL::getFunction("llvm.sqrt.f32", mod));
 		}
 		// fix __exp_f32
-		if (PacketizedOpenCL::getFunction("__exp_f32", mod)) {
+		if (WFVOpenCL::getFunction("__exp_f32", mod)) {
 
 #if 1
 			// create llvm.exp.f32 intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("llvm.exp.f32", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("llvm.exp.f32", mod));
+			WFVOpenCL::createExternalFunction("llvm.exp.f32", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("llvm.exp.f32", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__exp_f32", mod), PacketizedOpenCL::getFunction("llvm.exp.f32", mod));
+			WFVOpenCL::replaceAllUsesWith(WFVOpenCL::getFunction("__exp_f32", mod), WFVOpenCL::getFunction("llvm.exp.f32", mod));
 #else
 			// TODO: This requires llvm/Intrinsics.h to be included in this file.
 			//       Do we really want to capsulate all LLVM stuff into llvmTools.hpp ???
@@ -600,53 +600,53 @@ namespace PacketizedOpenCL {
 #endif
 		}
 		// fix __log_f32
-		if (PacketizedOpenCL::getFunction("__log_f32", mod)) {
+		if (WFVOpenCL::getFunction("__log_f32", mod)) {
 
 			// create llvm.log.f32 intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("llvm.log.f32", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("llvm.log.f32", mod));
+			WFVOpenCL::createExternalFunction("llvm.log.f32", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("llvm.log.f32", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__log_f32", mod), PacketizedOpenCL::getFunction("llvm.log.f32", mod));
+			WFVOpenCL::replaceAllUsesWith(WFVOpenCL::getFunction("__log_f32", mod), WFVOpenCL::getFunction("llvm.log.f32", mod));
 		}
 		// fix __log2_f32
-		if (PacketizedOpenCL::getFunction("__log2_f32", mod)) {
+		if (WFVOpenCL::getFunction("__log2_f32", mod)) {
 
 			// create llvm.log2.f32 intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("llvm.log.f32", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("llvm.log.f32", mod));
+			WFVOpenCL::createExternalFunction("llvm.log.f32", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("llvm.log.f32", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__log2_f32", mod), PacketizedOpenCL::getFunction("llvm.log.f32", mod));
+			WFVOpenCL::replaceAllUsesWith(WFVOpenCL::getFunction("__log2_f32", mod), WFVOpenCL::getFunction("llvm.log.f32", mod));
 		}
 		// fix __fabs_f32
-		if (PacketizedOpenCL::getFunction("__fabs_f32", mod)) {
+		if (WFVOpenCL::getFunction("__fabs_f32", mod)) {
 
 			// create fabs intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("fabs", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("fabs", mod));
+			WFVOpenCL::createExternalFunction("fabs", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("fabs", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__fabs_f32", mod), PacketizedOpenCL::getFunction("fabs", mod));
+			WFVOpenCL::replaceAllUsesWith(WFVOpenCL::getFunction("__fabs_f32", mod), WFVOpenCL::getFunction("fabs", mod));
 		}
 		// fix __fmod_f32
-		if (Function* fmodFun = PacketizedOpenCL::getFunction("__fmod_f32", mod)) {
+		if (Function* fmodFun = WFVOpenCL::getFunction("__fmod_f32", mod)) {
 #if 0
 			// create llvm.fmod.f32 intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("fmodf", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("fmodf", mod));
+			WFVOpenCL::createExternalFunction("fmodf", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("fmodf", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(fmodFun, PacketizedOpenCL::getFunction("fmodf", mod));
+			WFVOpenCL::replaceAllUsesWith(fmodFun, WFVOpenCL::getFunction("fmodf", mod));
 #else
 			for (Function::use_iterator U=fmodFun->use_begin(), UE=fmodFun->use_end(); U!=UE; ) {
 				assert (isa<CallInst>(*U));
@@ -660,41 +660,41 @@ namespace PacketizedOpenCL {
 #endif
 		}
 		// fix __cos_f32
-		if (PacketizedOpenCL::getFunction("__cos_f32", mod)) {
+		if (WFVOpenCL::getFunction("__cos_f32", mod)) {
 
 			// create llvm.cos.f32 intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("llvm.cos.f32", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("llvm.cos.f32", mod));
+			WFVOpenCL::createExternalFunction("llvm.cos.f32", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("llvm.cos.f32", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__cos_f32", mod), PacketizedOpenCL::getFunction("llvm.cos.f32", mod));
+			WFVOpenCL::replaceAllUsesWith(WFVOpenCL::getFunction("__cos_f32", mod), WFVOpenCL::getFunction("llvm.cos.f32", mod));
 		}
 		// fix __sin_f32
-		if (PacketizedOpenCL::getFunction("__sin_f32", mod)) {
+		if (WFVOpenCL::getFunction("__sin_f32", mod)) {
 
 			// create llvm.sin.f32 intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("llvm.sin.f32", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("llvm.sin.f32", mod));
+			WFVOpenCL::createExternalFunction("llvm.sin.f32", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("llvm.sin.f32", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__sin_f32", mod), PacketizedOpenCL::getFunction("llvm.sin.f32", mod));
+			WFVOpenCL::replaceAllUsesWith(WFVOpenCL::getFunction("__sin_f32", mod), WFVOpenCL::getFunction("llvm.sin.f32", mod));
 		}
 		// fix __pow_f32
-		if (PacketizedOpenCL::getFunction("__pow_f32", mod)) {
+		if (WFVOpenCL::getFunction("__pow_f32", mod)) {
 
 			// create llvm.pow.f32 intrinsic
-			const llvm::Type* floatType = PacketizedOpenCL::getTypeFromString(mod, "f");
+			const llvm::Type* floatType = WFVOpenCL::getTypeFromString(mod, "f");
 			std::vector<const llvm::Type*> params;
 			params.push_back(floatType);
 			params.push_back(floatType);
-			PacketizedOpenCL::createExternalFunction("powf", floatType, params, mod);
-			assert (PacketizedOpenCL::getFunction("powf", mod));
+			WFVOpenCL::createExternalFunction("powf", floatType, params, mod);
+			assert (WFVOpenCL::getFunction("powf", mod));
 
-			PacketizedOpenCL::replaceAllUsesWith(PacketizedOpenCL::getFunction("__pow_f32", mod), PacketizedOpenCL::getFunction("powf", mod));
+			WFVOpenCL::replaceAllUsesWith(WFVOpenCL::getFunction("__pow_f32", mod), WFVOpenCL::getFunction("powf", mod));
 		}
 	}
 
@@ -724,12 +724,12 @@ namespace PacketizedOpenCL {
 					const ConstantInt* dimConst = cast<ConstantInt>(dimVal);
 					const uint64_t dimension = *dimConst->getValue().getRawData() +1; // uses count from 0, max_dim from 1
 					
-					assert (dimension <= PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS);
+					assert (dimension <= WFVOPENCL_MAX_NUM_DIMENSIONS);
 					if (dimension > max_dim) max_dim = dimension;
 				}
 			}
 		}
-		PACKETIZED_OPENCL_DEBUG( outs() << "\nnumber of dimensions used in kernel: " << max_dim << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "\nnumber of dimensions used in kernel: " << max_dim << "\n"; );
 		return max_dim;
 	}
 
@@ -764,14 +764,14 @@ namespace PacketizedOpenCL {
 			local_id_flat->setName(sstr.str());
 		}
 		
-		PACKETIZED_OPENCL_DEBUG_RUNTIME( insertPrintf("\ncontinuation ", ConstantInt::get(newCall->getContext(), APInt(32, continuation_id)), true, callBB->getFirstNonPHI()); );
+		WFVOPENCL_DEBUG_RUNTIME( insertPrintf("\ncontinuation ", ConstantInt::get(newCall->getContext(), APInt(32, continuation_id)), true, callBB->getFirstNonPHI()); );
 		
 		// adjust GEP-instructions to point to current localID's live value struct,
 		// e.g. GEP liveValueUnion, i32 0, i32 elementindex
 		// ---> GEP liveValueUnion, i32 local_id_flat, i32 elementindex
 		// TODO: move this to a new function
 		Value* liveValueStruct = newCall->getArgOperand(newCall->getNumArgOperands()-1); // live value union is last parameter to call
-		PACKETIZED_OPENCL_DEBUG( outs() << "live value struct: " << *liveValueStruct << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "live value struct: " << *liveValueStruct << "\n"; );
 
 		// now get the bitcast-use of the union in this same block
 		BitCastInst* liveValueStructBc = NULL;
@@ -808,7 +808,7 @@ namespace PacketizedOpenCL {
 			gep->replaceAllUsesWith(newGEP);
 			gep->eraseFromParent();
 			
-			PACKETIZED_OPENCL_DEBUG_RUNTIME(
+			WFVOPENCL_DEBUG_RUNTIME(
 				assert (newGEP->getNumUses() == 1);
 				Value* gepUse = newGEP->use_back();
 				insertPrintf("live value loaded: ", gepUse, true, newCall);
@@ -818,12 +818,12 @@ namespace PacketizedOpenCL {
 
 	void adjustLiveValueStoreGEPs(Function* continuation, const unsigned num_dimensions, LLVMContext& context) {
 		assert (continuation);
-		PACKETIZED_OPENCL_DEBUG( outs() << "\nadjustLiveValueStoreGEPs(" << continuation->getNameStr() << ")\n"; );
+		WFVOPENCL_DEBUG( outs() << "\nadjustLiveValueStoreGEPs(" << continuation->getNameStr() << ")\n"; );
 		// get the live value union (= last parameter of function)
 		Value* liveValueStruct = --(continuation->arg_end());
-		PACKETIZED_OPENCL_DEBUG( outs() << "live value struct: " << *liveValueStruct << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "live value struct: " << *liveValueStruct << "\n"; );
 		if (liveValueStruct->use_empty()) {
-			PACKETIZED_OPENCL_DEBUG( outs() << "  has no uses -> no adjustment necessary!\n"; );
+			WFVOPENCL_DEBUG( outs() << "  has no uses -> no adjustment necessary!\n"; );
 			return;
 		}
 
@@ -901,7 +901,7 @@ namespace PacketizedOpenCL {
 				gep->replaceAllUsesWith(newGEP);
 				gep->eraseFromParent();
 
-				PACKETIZED_OPENCL_DEBUG_RUNTIME(
+				WFVOPENCL_DEBUG_RUNTIME(
 					assert (newGEP->getNumUses() == 1);
 					Value* gepUse = newGEP->use_back();
 					assert (isa<StoreInst>(gepUse));
@@ -923,17 +923,17 @@ namespace PacketizedOpenCL {
 		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
 			Function* continuation = *it;
 			assert (continuation);
-			PACKETIZED_OPENCL_DEBUG( outs() << "\nmapping callbacks to arguments in continuation '" << continuation->getNameStr() << "'...\n"; );
+			WFVOPENCL_DEBUG( outs() << "\nmapping callbacks to arguments in continuation '" << continuation->getNameStr() << "'...\n"; );
 
 			// correct order is important! (has to match parameter list of continuation)
 			llvm::Function::arg_iterator arg = continuation->arg_begin();
-			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(arg++), continuation);
-			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(arg++), continuation);
-			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(arg++), continuation);
-			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(arg++), continuation);
-			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(arg++), continuation);
-			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(arg++), continuation);
-			PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(arg++), continuation);
+			WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      cast<Value>(arg++), continuation);
+			WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       cast<Value>(arg++), continuation);
+			WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     cast<Value>(arg++), continuation);
+			WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(arg++), continuation);
+			WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(arg++), continuation);
+			WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(arg++), continuation);
+			WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(arg++), continuation);
 		}
 
 		return;
@@ -987,17 +987,17 @@ namespace PacketizedOpenCL {
 			num_groupss[i] = SelectInst::Create(cmp, ConstantInt::get(context, APInt(32, 1)), div, sstr4.str(), insertBefore);
 #endif
 
-			PACKETIZED_OPENCL_DEBUG( outs() << "  global_sizes[" << i << "]: " << *(global_sizes[i]) << "\n"; );
-			PACKETIZED_OPENCL_DEBUG( outs() << "  local_sizes[" << i << "] : " << *(local_sizes[i]) << "\n"; );
-			PACKETIZED_OPENCL_DEBUG( outs() << "  group_ids[" << i << "]   : " << *(group_ids[i]) << "\n"; );
-			PACKETIZED_OPENCL_DEBUG( outs() << "  num_groups[" << i << "]  : " << *(num_groupss[i]) << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "  global_sizes[" << i << "]: " << *(global_sizes[i]) << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "  local_sizes[" << i << "] : " << *(local_sizes[i]) << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "  group_ids[" << i << "]   : " << *(group_ids[i]) << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "  num_groups[" << i << "]  : " << *(num_groupss[i]) << "\n"; );
 
 			// store num_groups into array
 			gep = GetElementPtrInst::Create(arg_num_groups_array, dimIdx, "", insertBefore);
 			new StoreInst(num_groupss[i], gep, false, 16, insertBefore);
 			//InsertValueInst::Create(arg_num_groups_array, num_groupss[i], i, "", insertBefore); // TODO: maybe later...
 
-			PACKETIZED_OPENCL_DEBUG_RUNTIME(
+			WFVOPENCL_DEBUG_RUNTIME(
 				insertPrintf("i = ", dimIdx, true, insertBefore);
 				insertPrintf("work_dim: ", arg_work_dim, true, insertBefore);
 				insertPrintf("global_sizes[i]: ", global_sizes[i], true, insertBefore);
@@ -1061,10 +1061,10 @@ namespace PacketizedOpenCL {
 			BranchInst::Create(latchBB, loopBB);
 
 			// Block latchBB
-#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_PACKETIZATION
 			const uint64_t incInt = 1;
 #else
-			const uint64_t incInt = i == simd_dim ? PACKETIZED_OPENCL_SIMD_WIDTH : 1U;
+			const uint64_t incInt = i == simd_dim ? WFVOPENCL_SIMD_WIDTH : 1U;
 #endif
 			BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(counterType, incInt, false), "inc", latchBB);
 			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_UGE, loopCounterInc, local_size, "exitcond");
@@ -1102,7 +1102,7 @@ namespace PacketizedOpenCL {
 			global_ids[i] = global_id;
 			local_ids[i] = local_id;
 
-			PACKETIZED_OPENCL_DEBUG_RUNTIME(
+			WFVOPENCL_DEBUG_RUNTIME(
 				//insertPrintf("global_id[i]: ", global_ids[i], true, call);
 				//insertPrintf("local_id[i]: ", local_ids[i], true, call);
 			);
@@ -1113,8 +1113,8 @@ namespace PacketizedOpenCL {
 	void generateBlockSizeLoopsForWrapper(Function* f, CallInst* call, const unsigned num_dimensions, const int simd_dim, LLVMContext& context, Module* module) {
 		assert (f && call);
 		assert (f == call->getParent()->getParent());
-		assert (num_dimensions <= PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS);
-		PACKETIZED_OPENCL_DEBUG( outs() << "\ngenerating loop(s) over group size(s) in function '"
+		assert (num_dimensions <= WFVOPENCL_MAX_NUM_DIMENSIONS);
+		WFVOPENCL_DEBUG( outs() << "\ngenerating loop(s) over group size(s) in function '"
 				<< f->getNameStr() << "' around call to '" << call->getCalledFunction()->getNameStr() << "'...\n\n"; );
 
 		Instruction* insertBefore = call;
@@ -1125,10 +1125,10 @@ namespace PacketizedOpenCL {
 		Value* arg_local_size_array = ++A;
 		Value* arg_group_id_array = ++A;
 
-		PACKETIZED_OPENCL_DEBUG( outs() << "  work_dim arg   : " << *arg_work_dim << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( outs() << "  global_size arg: " << *arg_global_size_array << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( outs() << "  local_size arg : " << *arg_local_size_array << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  work_dim arg   : " << *arg_work_dim << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  global_size arg: " << *arg_global_size_array << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  local_size arg : " << *arg_local_size_array << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
 
 		// allocate array of size 'num_dimensions' for special parameter num_groups
 		assert (arg_global_size_array->getType()->isPointerTy());
@@ -1193,31 +1193,31 @@ namespace PacketizedOpenCL {
 				global_ids,
 				local_ids);
 
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f, "debug_block_wrapper_noinline.ll"); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f, "debug_block_wrapper_noinline.ll"); );
 
 		// inline all calls inside wrapper
-		PacketizedOpenCL::inlineFunctionCalls(f);
+		WFVOpenCL::inlineFunctionCalls(f);
 
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f, "debug_block_wrapper_inline.ll"); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f, "debug_block_wrapper_inline.ll"); );
 
 		// replace functions by parameter accesses (has to be done AFTER inlining!
 		// start with second argument (first is void* of argument_struct)
 		llvm::Function::arg_iterator arg = f->arg_begin();
-		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(++arg), f);
-		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(++arg), f);
-		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(++arg), f);
-		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f);
+		WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_work_dim"),       cast<Value>(++arg), f);
+		WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_size"),    cast<Value>(++arg), f);
+		WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_size"),     cast<Value>(++arg), f);
+		WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_group_id"),       cast<Value>(++arg), f);
 
 		// remap calls to parameters that are generated inside loop(s)
-		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     arg_num_groups_array, f);
-		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      arg_global_id_array, f);
-		PacketizedOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       arg_local_id_array, f);
+		WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_num_groups"),     arg_num_groups_array, f);
+		WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_global_id"),      arg_global_id_array, f);
+		WFVOpenCL::replaceCallbacksByArgAccess(module->getFunction("get_local_id"),       arg_local_id_array, f);
 
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f, "debug_block_wrapper_final.ll"); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f, "debug_block_wrapper_final.ll"); );
 
 
-		PACKETIZED_OPENCL_DEBUG( outs() << "\n" << *f << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( verifyFunction(*f); );
+		WFVOPENCL_DEBUG( outs() << "\n" << *f << "\n"; );
+		WFVOPENCL_DEBUG( verifyFunction(*f); );
 
 		delete [] global_sizes;
 		delete [] local_sizes;
@@ -1225,7 +1225,7 @@ namespace PacketizedOpenCL {
 		delete [] num_groupss;
 		delete [] global_ids;
 		delete [] local_ids;
-		PACKETIZED_OPENCL_DEBUG( outs() << "generateBlockSizeLoopsForWrapper finished!\n"; );
+		WFVOPENCL_DEBUG( outs() << "generateBlockSizeLoopsForWrapper finished!\n"; );
 	}
 
 	// NOTE: This function relies on the switch-wrapper function (the one calling
@@ -1233,8 +1233,8 @@ namespace PacketizedOpenCL {
 	//       its generation!
 	void generateBlockSizeLoopsForContinuations(const unsigned num_dimensions, const int simd_dim, LLVMContext& context, Function* f, ContinuationGenerator::ContinuationVecType& continuations) {
 		assert (f);
-		assert (num_dimensions <= PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS);
-		PACKETIZED_OPENCL_DEBUG( outs() << "\ngenerating loops over group size(s) around continuations...\n\n"; );
+		assert (num_dimensions <= WFVOPENCL_MAX_NUM_DIMENSIONS);
+		WFVOPENCL_DEBUG( outs() << "\ngenerating loops over group size(s) around continuations...\n\n"; );
 		typedef ContinuationGenerator::ContinuationVecType ContVecType;
 
 		Instruction* insertBefore = f->begin()->getFirstNonPHI();
@@ -1245,10 +1245,10 @@ namespace PacketizedOpenCL {
 		Value* arg_local_size_array = ++A;
 		Value* arg_group_id_array = ++A;
 
-		PACKETIZED_OPENCL_DEBUG( outs() << "  work_dim arg   : " << *arg_work_dim << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( outs() << "  global_size arg: " << *arg_global_size_array << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( outs() << "  local_size arg : " << *arg_local_size_array << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  work_dim arg   : " << *arg_work_dim << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  global_size arg: " << *arg_global_size_array << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  local_size arg : " << *arg_local_size_array << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  group_id arg   : " << *arg_group_id_array << "\n"; );
 
 		// allocate array of size 'num_dimensions' for special parameter num_groups
 		Value* numDimVal = ConstantInt::get(context,  APInt(32, num_dimensions));
@@ -1287,10 +1287,10 @@ namespace PacketizedOpenCL {
 		for (ContVecType::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it, ++continuation_id) {
 			Function* continuation = *it;
 			assert (continuation);
-			PACKETIZED_OPENCL_DEBUG( outs() << "\n  generating loop(s) for continuation " << continuation_id << ": '" << continuation->getNameStr() << "'...\n"; );
-			PACKETIZED_OPENCL_DEBUG( outs() << "    has " << continuation->getNumUses() << " uses!\n"; );
+			WFVOPENCL_DEBUG( outs() << "\n  generating loop(s) for continuation " << continuation_id << ": '" << continuation->getNameStr() << "'...\n"; );
+			WFVOPENCL_DEBUG( outs() << "    has " << continuation->getNumUses() << " uses!\n"; );
 			
-			//PACKETIZED_OPENCL_DEBUG( outs() << *continuation << "\n"; );
+			//WFVOPENCL_DEBUG( outs() << *continuation << "\n"; );
 
 			assert (!continuation->use_empty());
 
@@ -1299,7 +1299,7 @@ namespace PacketizedOpenCL {
 				CallInst* call = cast<CallInst>(*U);
 				if (call->getParent()->getParent() != f) continue; // ignore all uses in different functions
 
-				PACKETIZED_OPENCL_DEBUG( outs() << "    generating loop(s) around call: " << *call << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "    generating loop(s) around call: " << *call << "\n"; );
 
 				generateLoopsAroundCall(
 						call,
@@ -1323,7 +1323,7 @@ namespace PacketizedOpenCL {
 				params.push_back(arg_local_size_array);
 				params.push_back(arg_group_id_array);
 
-				PACKETIZED_OPENCL_DEBUG(
+				WFVOPENCL_DEBUG(
 					outs() << "\n    params for new call:\n";
 					outs() << "     * " << *arg_global_id_array << "\n";
 					outs() << "     * " << *arg_local_id_array << "\n";
@@ -1339,14 +1339,14 @@ namespace PacketizedOpenCL {
 				for (unsigned i=params.size(); i<call->getNumArgOperands(); ++i) {
 					Value* opV = call->getArgOperand(i);
 					params.push_back(opV);
-					PACKETIZED_OPENCL_DEBUG( outs() << "     * " << *opV << "\n"; );
+					WFVOPENCL_DEBUG( outs() << "     * " << *opV << "\n"; );
 				}
 				CallInst* newCall = CallInst::Create(call->getCalledFunction(), params.begin(), params.end(), "", call);
 				call->replaceAllUsesWith(newCall);
 				call->eraseFromParent();
 
-				PACKETIZED_OPENCL_DEBUG( outs() << "\n    new call: " << *newCall << "\n\n"; );
-				PACKETIZED_OPENCL_DEBUG( outs() << "\n" << *continuation << "\n"; );
+				WFVOPENCL_DEBUG( outs() << "\n    new call: " << *newCall << "\n\n"; );
+				WFVOPENCL_DEBUG( outs() << "\n" << *continuation << "\n"; );
 
 				// adjust GEP-instructions to point to current localID's live value struct,
 				// e.g. GEP liveValueUnion, i32 0, i32 elementindex
@@ -1358,8 +1358,8 @@ namespace PacketizedOpenCL {
 				// of the next continuation.
 				adjustLiveValueStoreGEPs(continuation, num_dimensions, context);
 
-				PACKETIZED_OPENCL_DEBUG( outs() << "\n" << *continuation << "\n"; );
-				PACKETIZED_OPENCL_DEBUG( verifyFunction(*continuation); );
+				WFVOPENCL_DEBUG( outs() << "\n" << *continuation << "\n"; );
+				WFVOPENCL_DEBUG( verifyFunction(*continuation); );
 
 				break; // there is exactly one use of the continuation of interest
 			}
@@ -1371,7 +1371,7 @@ namespace PacketizedOpenCL {
 		CallInst* someContinuationCall = cast<CallInst>(continuations.back()->use_back());
 		assert (someContinuationCall->getArgOperand(someContinuationCall->getNumArgOperands()-1));
 		Value* liveValueUnion = someContinuationCall->getArgOperand(someContinuationCall->getNumArgOperands()-1);
-		PACKETIZED_OPENCL_DEBUG( outs() << "liveValueUnion: " << *liveValueUnion << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "liveValueUnion: " << *liveValueUnion << "\n"; );
 
 		assert (isa<AllocaInst>(liveValueUnion));
 		AllocaInst* alloca = cast<AllocaInst>(liveValueUnion);
@@ -1385,8 +1385,8 @@ namespace PacketizedOpenCL {
 		newAlloca->takeName(alloca);
 		alloca->eraseFromParent();
 
-		PACKETIZED_OPENCL_DEBUG( outs() << "\n" << *f << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( verifyFunction(*f); );
+		WFVOPENCL_DEBUG( outs() << "\n" << *f << "\n"; );
+		WFVOPENCL_DEBUG( verifyFunction(*f); );
 
 		delete [] global_sizes;
 		delete [] local_sizes;
@@ -1401,7 +1401,7 @@ namespace PacketizedOpenCL {
 		assert (num_dimensions > 0 && num_dimensions < 4);
 		assert (simd_dim < (int)num_dimensions);
 
-#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_PACKETIZATION
 		assert (simd_dim == -1); // packetization disabled: only -1 is a valid value
 		assert (!f_SIMD_ret);
 
@@ -1416,21 +1416,21 @@ namespace PacketizedOpenCL {
 		strs << kernel_name << "_SIMD";
 		const std::string kernel_simd_name = strs.str();
 
-		llvm::Function* f_SIMD = PacketizedOpenCL::createExternalFunction(kernel_simd_name, f->getFunctionType(), module);
+		llvm::Function* f_SIMD = WFVOpenCL::createExternalFunction(kernel_simd_name, f->getFunctionType(), module);
 		if (!f_SIMD) {
 			errs() << "ERROR: could not create packet prototype for kernel '" << kernel_simd_name << "'!\n";
 			return NULL;
 		}
 
-		PACKETIZED_OPENCL_DEBUG( outs() << *f << "\n"; );
+		WFVOPENCL_DEBUG( outs() << *f << "\n"; );
 
-		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
-		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
+		WFVOPENCL_DEBUG( verifyModule(*module); );
+		WFVOPENCL_DEBUG( outs() << "done.\n"; );
 
 		// packetize scalar function into SIMD function
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f, "debug_kernel_pre_packetization.ll"); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f, "debug_kernel_pre_packetization.ll"); );
 
-#ifdef PACKETIZED_OPENCL_USE_AVX
+#ifdef WFVOPENCL_USE_AVX
 		const bool use_sse41 = false;
 		const bool use_avx = true;
 #else
@@ -1439,10 +1439,10 @@ namespace PacketizedOpenCL {
 #endif
 		const bool verbose = false;
 		const bool success = 
-			PacketizedOpenCL::packetizeKernelFunction(f->getNameStr(),
+			WFVOpenCL::packetizeKernelFunction(f->getNameStr(),
 													 kernel_simd_name,
 													 module,
-													 PACKETIZED_OPENCL_SIMD_WIDTH,
+													 WFVOPENCL_SIMD_WIDTH,
 													 (cl_uint)simd_dim,
 													 use_sse41,
 													 use_avx,
@@ -1452,14 +1452,14 @@ namespace PacketizedOpenCL {
 			errs() << "ERROR: packetization of kernel failed!\n";
 			return NULL;
 		}
-		f_SIMD = PacketizedOpenCL::getFunction(kernel_simd_name, module); // old pointer not valid anymore!
+		f_SIMD = WFVOpenCL::getFunction(kernel_simd_name, module); // old pointer not valid anymore!
 
-		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd.mod.ll"); );
-		PACKETIZED_OPENCL_DEBUG( outs() << *f_SIMD << "\n"; );
+		WFVOPENCL_DEBUG( verifyModule(*module); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd.mod.ll"); );
+		WFVOPENCL_DEBUG( outs() << *f_SIMD << "\n"; );
 
-		PACKETIZED_OPENCL_DEBUG_RUNTIME(
+		WFVOPENCL_DEBUG_RUNTIME(
 			BasicBlock* block = &f_SIMD->getEntryBlock();
 			insertPrintf("\nf_SIMD called!", Constant::getNullValue(Type::getInt32Ty(getGlobalContext())), true, block->getFirstNonPHI());
 			for (Function::iterator BB=f_SIMD->begin(), BBE=f_SIMD->end(); BB!=BBE; ++BB) {
@@ -1498,7 +1498,7 @@ namespace PacketizedOpenCL {
 //				insertPrintf("in-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
 //			}
 //		}
-//		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_SIMD, "special.ll"); );
+//		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_SIMD, "special.ll"); );
 
 		f = f_SIMD;
 #endif
@@ -1513,7 +1513,7 @@ namespace PacketizedOpenCL {
 				if (!isa<CallInst>(I)) continue;
 				CallInst* call = cast<CallInst>(I);
 				const Function* callee = call->getCalledFunction();
-				if (!callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) continue;
+				if (!callee->getName().equals(WFVOPENCL_FUNCTION_NAME_BARRIER)) continue;
 				hasBarriers = true;
 			}
 		}
@@ -1531,17 +1531,17 @@ namespace PacketizedOpenCL {
 			strs2 << kernel_name << "_wrapper";
 			const std::string wrapper_name = strs2.str();
 
-			PACKETIZED_OPENCL_DEBUG( outs() << "  generating kernel wrapper... "; );
+			WFVOPENCL_DEBUG( outs() << "  generating kernel wrapper... "; );
 			const bool inlineCall = false; // don't inline call immediately (needed for generating loop(s))
-			f_wrapper = PacketizedOpenCL::generateKernelWrapper(wrapper_name, f, module, targetData, inlineCall);
+			f_wrapper = WFVOpenCL::generateKernelWrapper(wrapper_name, f, module, targetData, inlineCall);
 			if (!f_wrapper) {
 				errs() << "FAILED!\nERROR: wrapper generation for kernel module failed!\n";
 				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
 				return NULL;
 			}
-			PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
-			PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_arg_wrapper.ll"); );
-			PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
+			WFVOPENCL_DEBUG( outs() << "done.\n"; );
+			WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_arg_wrapper.ll"); );
+			WFVOPENCL_DEBUG( verifyModule(*module); );
 
 			// generate loop(s) over blocksize(s) (BEFORE inlining!)
 			CallInst* kernelCall = getWrappedKernelCall(f_wrapper, f);
@@ -1557,12 +1557,12 @@ namespace PacketizedOpenCL {
 			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_local_size"), f);
 			replaceCallbackUsesByNewCallsInFunction(module->getFunction("get_group_id"), f);
 
-			PACKETIZED_OPENCL_DEBUG( verifyFunction(*f); );
+			WFVOPENCL_DEBUG( verifyFunction(*f); );
 
 			// eliminate barriers
 			FunctionPassManager FPM(module);
 
-			CallSiteBlockSplitter* CSBS = new CallSiteBlockSplitter(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER);
+			CallSiteBlockSplitter* CSBS = new CallSiteBlockSplitter(WFVOPENCL_FUNCTION_NAME_BARRIER);
 			LivenessAnalyzer* LA = new LivenessAnalyzer(true);
 			ContinuationGenerator* CG = new ContinuationGenerator(true);
 
@@ -1587,8 +1587,8 @@ namespace PacketizedOpenCL {
 			// NOTE: We must not optimize or inline anything yet,
 			// the wrapper is required as generated for loop generation!
 
-			PACKETIZED_OPENCL_DEBUG( outs() << *barrierFreeFunction << "\n"; );
-			PACKETIZED_OPENCL_DEBUG( verifyFunction(*barrierFreeFunction); );
+			WFVOPENCL_DEBUG( outs() << *barrierFreeFunction << "\n"; );
+			WFVOPENCL_DEBUG( verifyFunction(*barrierFreeFunction); );
 
 			f->replaceAllUsesWith(barrierFreeFunction);
 			barrierFreeFunction->takeName(f);
@@ -1596,12 +1596,12 @@ namespace PacketizedOpenCL {
 
 			f = barrierFreeFunction;
 
-			PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_barrier_wrapper.mod.ll"); );
+			WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(module, "debug_barrier_wrapper.mod.ll"); );
 			
 			ContinuationGenerator::ContinuationVecType continuations;
 			CG->getContinuations(continuations);
 
-			PACKETIZED_OPENCL_DEBUG(
+			WFVOPENCL_DEBUG(
 				outs() << "continuations:\n";
 				for (SmallVector<Function*, 4>::iterator it=continuations.begin(), E=continuations.end(); it!=E; ++it) {
 					Function* continuation = *it;
@@ -1614,42 +1614,42 @@ namespace PacketizedOpenCL {
 			strs << "_wrapper";
 			const std::string wrapper_name = strs.str();
 
-			PACKETIZED_OPENCL_DEBUG( outs() << "  generating kernel wrapper... "; );
+			WFVOPENCL_DEBUG( outs() << "  generating kernel wrapper... "; );
 			const bool inlineCall = true; // inline call immediately (and only this call)
-			f_wrapper = PacketizedOpenCL::generateKernelWrapper(wrapper_name, f, module, targetData, inlineCall);
+			f_wrapper = WFVOpenCL::generateKernelWrapper(wrapper_name, f, module, targetData, inlineCall);
 			if (!f_wrapper) {
 				errs() << "FAILED!\nERROR: wrapper generation for kernel module failed!\n";
 				*errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; //sth like that :p
 				return NULL;
 			}
-			PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
-			PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper.ll"); );
-			PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
+			WFVOPENCL_DEBUG( outs() << "done.\n"; );
+			WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper.ll"); );
+			WFVOPENCL_DEBUG( verifyModule(*module); );
 
 			// - callbacks inside continuations have to be replaced by argument accesses
-			PacketizedOpenCL::mapCallbacksToContinuationArguments(num_dimensions, context, module, continuations);
+			WFVOpenCL::mapCallbacksToContinuationArguments(num_dimensions, context, module, continuations);
 
 			// - generate loops
 			// - generate code for 3 generated special parameters in each loop
 			// - map "special" arguments of calls to each continuation correctly (either to wrapper-param or to generated value inside loop)
 			// - make liveValueUnion an array of unions (size: blocksize[0]*blocksize[1]*blocksize[2]*...)
-			PacketizedOpenCL::generateBlockSizeLoopsForContinuations(num_dimensions, simd_dim, context, f_wrapper, continuations);
+			WFVOpenCL::generateBlockSizeLoopsForContinuations(num_dimensions, simd_dim, context, f_wrapper, continuations);
 
 		}
 
 		assert (f_wrapper);
 
 		// optimize wrapper with inlined kernel
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_beforeopt.ll"); );
-		PACKETIZED_OPENCL_DEBUG( outs() << "optimizing wrapper... "; );
-		PacketizedOpenCL::inlineFunctionCalls(f_wrapper, targetData);
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_beforeopt.ll"); );
+		WFVOPENCL_DEBUG( outs() << "optimizing wrapper... "; );
+		WFVOpenCL::inlineFunctionCalls(f_wrapper, targetData);
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_PACKETIZATION
 		// packetization disabled -> LICM makes problems
-		PacketizedOpenCL::optimizeFunction(f_wrapper, true); // disable LICM.
+		WFVOpenCL::optimizeFunction(f_wrapper, true); // disable LICM.
 #if 0
 		// TODO: why does the driver crash (later) if LICM was used? It is important for performance :(
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "ASDF.ll"); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "ASDF.ll"); );
 		outs() << *f_wrapper << "\nNow running LICM...\n";
 		FunctionPassManager Passes(f_wrapper->getParent());
 		Passes.add(targetData);
@@ -1660,11 +1660,11 @@ namespace PacketizedOpenCL {
 #endif
 #else
 		// packetization enabled -> no problem with enabling all optimizations.
-		PacketizedOpenCL::optimizeFunction(f_wrapper);
+		WFVOpenCL::optimizeFunction(f_wrapper);
 #endif
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_afteropt.ll"); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_afteropt.ll"); );
 		
-		PACKETIZED_OPENCL_DEBUG_RUNTIME(
+		WFVOPENCL_DEBUG_RUNTIME(
 			for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
 				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
 					if (!isa<StoreInst>(I)) continue;
@@ -1681,7 +1681,7 @@ namespace PacketizedOpenCL {
 			}
 		);
 
-		PACKETIZED_OPENCL_DEBUG_RUNTIME(
+		WFVOPENCL_DEBUG_RUNTIME(
 			for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
 				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
 					if (I->getName().equals("indvar")) {
@@ -1708,13 +1708,13 @@ namespace PacketizedOpenCL {
 			}
 		);
 
-		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( verifyModule(*module); );
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_wrapped_final.mod.ll"); );
+		WFVOPENCL_DEBUG( outs() << "done.\n" << *f_wrapper << "\n"; );
+		WFVOPENCL_DEBUG( verifyModule(*module); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_kernel_wrapped_final.ll"); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(module, "debug_kernel_wrapped_final.mod.ll"); );
 
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_PACKETIZATION
 		// if packetization is enabled, we "return" the SIMD function as well
 		*f_SIMD_ret = f;
 #endif
@@ -2587,19 +2587,19 @@ private:
 public:
 	_cl_kernel(_cl_context* ctx, _cl_program* prog, llvm::Function* f,
 			llvm::Function* f_wrapper, llvm::Function* f_SIMD=NULL)
-		: dispatch(&static_dispatch), context(ctx), program(prog), compiled_function(NULL), num_args(PacketizedOpenCL::getNumArgs(f)), args(num_args),
+		: dispatch(&static_dispatch), context(ctx), program(prog), compiled_function(NULL), num_args(WFVOpenCL::getNumArgs(f)), args(num_args),
 		argument_struct(NULL), argument_struct_size(0), num_dimensions(0), best_simd_dim(0),
 		function(f), function_wrapper(f_wrapper), function_SIMD(f_SIMD)
 	{
-		PACKETIZED_OPENCL_DEBUG( outs() << "  creating kernel object... \n"; );
+		WFVOPENCL_DEBUG( outs() << "  creating kernel object... \n"; );
 		assert (ctx && prog && f && f_wrapper);
 
 		// compile wrapper function (to be called in clEnqueueNDRangeKernel())
 		// NOTE: be sure that f_SIMD or f are inlined and f_wrapper was optimized to the max :p
-		PACKETIZED_OPENCL_DEBUG( outs() << "    compiling function '" << f_wrapper->getNameStr() << "'... "; );
-		PACKETIZED_OPENCL_DEBUG( verifyModule(*prog->module); );
-		PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(prog->module, "debug_kernel_final_before_compilation.mod.ll"); );
-//		prog->module = PacketizedOpenCL::createModuleFromFile("KERNELTEST.bc");
+		WFVOPENCL_DEBUG( outs() << "    compiling function '" << f_wrapper->getNameStr() << "'... "; );
+		WFVOPENCL_DEBUG( verifyModule(*prog->module); );
+		WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(prog->module, "debug_kernel_final_before_compilation.mod.ll"); );
+//		prog->module = WFVOpenCL::createModuleFromFile("KERNELTEST.bc");
 //		f_wrapper = prog->module->getFunction(f_wrapper->getNameStr());
 //		f = prog->module->getFunction(f->getNameStr());
 //		f_wrapper->viewCFG();
@@ -2627,11 +2627,11 @@ public:
 			}
 		}
 #endif
-		compiled_function = PacketizedOpenCL::getPointerToFunction(prog->module, f_wrapper);
+		compiled_function = WFVOpenCL::getPointerToFunction(prog->module, f_wrapper);
 		if (!compiled_function) {
 			errs() << "\nERROR: JIT compilation of kernel function failed!\n";
 		}
-#ifdef PACKETIZED_OPENCL_ENABLE_JIT_PROFILING
+#ifdef WFVOPENCL_ENABLE_JIT_PROFILING
 		iJIT_Method_Load ml;
 		ml.method_id = iJIT_GetNewMethodID();
 		const unsigned mnamesize = f_wrapper->getNameStr().size();
@@ -2649,10 +2649,10 @@ public:
 		ml.source_file_name = NULL;
 		iJIT_NotifyEvent(iJVM_EVENT_TYPE_METHOD_LOAD_FINISHED, (void*)&ml);
 #endif
-		PACKETIZED_OPENCL_DEBUG( if (compiled_function) outs() << "done.\n"; );
+		WFVOPENCL_DEBUG( if (compiled_function) outs() << "done.\n"; );
 
 		// get argument information
-		PACKETIZED_OPENCL_DEBUG( outs() << "    collecting argument information...\n"; );
+		WFVOPENCL_DEBUG( outs() << "    collecting argument information...\n"; );
 
 		assert (num_args > 0); // TODO: don't we allow kernels without arguments? do they make sense?
 
@@ -2660,8 +2660,8 @@ public:
 		size_t max_elem_size = 0;
 		for (cl_uint arg_index=0; arg_index<num_args; ++arg_index) {
 			// get type of argument and corresponding size
-			const llvm::Type* argType = PacketizedOpenCL::getArgumentType(f, arg_index);
-			const size_t arg_size_bytes = PacketizedOpenCL::getTypeSizeInBits(program->targetData, argType) / 8;
+			const llvm::Type* argType = WFVOpenCL::getArgumentType(f, arg_index);
+			const size_t arg_size_bytes = WFVOpenCL::getTypeSizeInBits(program->targetData, argType) / 8;
 
 			if (max_elem_size < arg_size_bytes) max_elem_size = arg_size_bytes;
 
@@ -2683,22 +2683,22 @@ public:
 		// allocate memory for argument_struct
 		// TODO: do we have to care about type padding?
 		argument_struct = malloc(argument_struct_size);
-		PACKETIZED_OPENCL_DEBUG( outs() << "      size of argument-struct: " << argument_struct_size << " bytes\n"; );
-		PACKETIZED_OPENCL_DEBUG( outs() << "      address of argument-struct: " << argument_struct << "\n"; );
-		PACKETIZED_OPENCL_DEBUG(
-			const llvm::Type* argType = PacketizedOpenCL::getArgumentType(f_wrapper, 0);
+		WFVOPENCL_DEBUG( outs() << "      size of argument-struct: " << argument_struct_size << " bytes\n"; );
+		WFVOPENCL_DEBUG( outs() << "      address of argument-struct: " << argument_struct << "\n"; );
+		WFVOPENCL_DEBUG(
+			const llvm::Type* argType = WFVOpenCL::getArgumentType(f_wrapper, 0);
 			outs() << "      LLVM type: " << *argType << "\n";
-			const llvm::Type* sType = PacketizedOpenCL::getContainedType(argType, 0); // get size of struct, not of pointer to struct
-			outs() << "      LLVM type size: " << PacketizedOpenCL::getTypeSizeInBits(prog->targetData, sType)/8 << "\n";
+			const llvm::Type* sType = WFVOpenCL::getContainedType(argType, 0); // get size of struct, not of pointer to struct
+			outs() << "      LLVM type size: " << WFVOpenCL::getTypeSizeInBits(prog->targetData, sType)/8 << "\n";
 		);
 
 		// create argument objects
 		size_t current_size=0;
 		for (cl_uint arg_index=0; arg_index<num_args; ++arg_index) {
 
-			const llvm::Type* argType = PacketizedOpenCL::getArgumentType(f, arg_index);
-			const size_t arg_size_bytes = PacketizedOpenCL::getTypeSizeInBits(program->targetData, argType) / 8;
-			const cl_uint address_space = PacketizedOpenCL::convertLLVMAddressSpace(PacketizedOpenCL::getAddressSpace(argType));
+			const llvm::Type* argType = WFVOpenCL::getArgumentType(f, arg_index);
+			const size_t arg_size_bytes = WFVOpenCL::getTypeSizeInBits(program->targetData, argType) / 8;
+			const cl_uint address_space = WFVOpenCL::convertLLVMAddressSpace(WFVOpenCL::getAddressSpace(argType));
 
 			// if necessary, add padding
 			size_t gap_bytes = current_size % arg_size_bytes;
@@ -2708,15 +2708,15 @@ public:
 			void* arg_struct_addr = (char*)argument_struct + current_size;
 			current_size += arg_size_bytes;
 
-			PACKETIZED_OPENCL_DEBUG( outs() << "      argument " << arg_index << "\n"; );
-			PACKETIZED_OPENCL_DEBUG( outs() << "        size     : " << arg_size_bytes << " bytes\n"; );
-			PACKETIZED_OPENCL_DEBUG( outs() << "        address  : " << (void*)arg_struct_addr << "\n"; );
-			PACKETIZED_OPENCL_DEBUG( outs() << "        addrspace: " << PacketizedOpenCL::getAddressSpaceString(address_space) << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "      argument " << arg_index << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "        size     : " << arg_size_bytes << " bytes\n"; );
+			WFVOPENCL_DEBUG( outs() << "        address  : " << (void*)arg_struct_addr << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "        addrspace: " << WFVOpenCL::getAddressSpaceString(address_space) << "\n"; );
 
 			args[arg_index] = new _cl_kernel_arg(arg_size_bytes, address_space, arg_struct_addr);
 		}
 
-		PACKETIZED_OPENCL_DEBUG( outs() << "  kernel object created successfully!\n\n"; );
+		WFVOPENCL_DEBUG( outs() << "  kernel object created successfully!\n\n"; );
 	}
 
 	~_cl_kernel() {
@@ -2794,8 +2794,8 @@ public:
 			}
 		}
 
-		PACKETIZED_OPENCL_DEBUG( outs() << "  data source: " << data << "\n"; );
-		PACKETIZED_OPENCL_DEBUG( outs() << "  target pointer: " << arg_pos << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  data source: " << data << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "  target pointer: " << arg_pos << "\n"; );
 
 		return CL_SUCCESS;
 	}
@@ -2865,12 +2865,12 @@ struct _cl_event {
 ///////////////////////////////////////////////////////////////////////////
 
 /* Platform API */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetPlatformIDs(cl_uint          num_entries,
                  cl_platform_id * platforms,
                  cl_uint *        num_platforms)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetPlatformIDs!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetPlatformIDs!\n"; );
 	if (!platforms && !num_platforms) return CL_INVALID_VALUE;
 	if (platforms && num_entries == 0) return CL_INVALID_VALUE;
 
@@ -2880,19 +2880,19 @@ clGetPlatformIDs(cl_uint          num_entries,
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetPlatformInfo(cl_platform_id   platform,
                   cl_platform_info param_name,
                   size_t           param_value_size,
                   void *           param_value,
                   size_t *         param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetPlatformInfo!\n"; );
-	PACKETIZED_OPENCL_DEBUG ( outs() << "  platform:             " << platform << "\n"; );
-	PACKETIZED_OPENCL_DEBUG ( outs() << "  param_name:           " << param_name << "\n"; );
-	PACKETIZED_OPENCL_DEBUG ( outs() << "  param_value_size:     " << (unsigned)param_value_size << "\n"; );
-	PACKETIZED_OPENCL_DEBUG ( outs() << "  param_value:          " << (void*)param_value << "\n"; );
-	PACKETIZED_OPENCL_DEBUG ( outs() << "  param_value_size_ret: " << (void*)param_value_size_ret << "\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetPlatformInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "  platform:             " << platform << "\n"; );
+	WFVOPENCL_DEBUG ( outs() << "  param_name:           " << param_name << "\n"; );
+	WFVOPENCL_DEBUG ( outs() << "  param_value_size:     " << (unsigned)param_value_size << "\n"; );
+	WFVOPENCL_DEBUG ( outs() << "  param_value:          " << (void*)param_value << "\n"; );
+	WFVOPENCL_DEBUG ( outs() << "  param_value_size_ret: " << (void*)param_value_size_ret << "\n"; );
 	if (!platform) return CL_INVALID_PLATFORM; //effect implementation defined
 	if (param_value && param_value_size == 0) return CL_INVALID_VALUE;
 
@@ -2905,14 +2905,14 @@ clGetPlatformInfo(cl_platform_id   platform,
 			res = "1.0";
 			break;
 		case CL_PLATFORM_NAME:
-#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
-#	ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_NO_PACKETIZATION
+#	ifdef WFVOPENCL_USE_OPENMP
 			res = "Packetized OpenCL (scalar, multi-threaded)";
 #	else
 			res = "Packetized OpenCL (scalar, single-threaded)";
 #	endif
 #else
-#	ifdef PACKETIZED_OPENCL_USE_OPENMP
+#	ifdef WFVOPENCL_USE_OPENMP
 			res = "Packetized OpenCL (vectorized, multi-threaded)";
 #	else
 			res = "Packetized OpenCL (vectorized, single-threaded)";
@@ -2923,10 +2923,10 @@ clGetPlatformInfo(cl_platform_id   platform,
 			res = "Ralf Karrenberg, Saarland University";
 			break;
 		case CL_PLATFORM_EXTENSIONS:
-			res = PACKETIZED_OPENCL_EXTENSIONS;
+			res = WFVOPENCL_EXTENSIONS;
 			break;
 		case CL_PLATFORM_ICD_SUFFIX_KHR:
-			res = PACKETIZED_OPENCL_ICD_SUFFIX;
+			res = WFVOPENCL_ICD_SUFFIX;
 			break;
 		default:
 			errs() << "ERROR: clGetPlatformInfo() queried unknown parameter (" << param_name << ")!\n";
@@ -2946,14 +2946,14 @@ clGetPlatformInfo(cl_platform_id   platform,
 }
 
 /* Device APIs */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetDeviceIDs(cl_platform_id   platform,
                cl_device_type   device_type,
                cl_uint          num_entries,
                cl_device_id *   devices,
                cl_uint *        num_devices)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetDeviceIDs!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetDeviceIDs!\n"; );
 	if (device_type != CL_DEVICE_TYPE_CPU) {
 		errs() << "ERROR: packetized OpenCL driver can not handle devices other than CPU!\n";
 		return CL_DEVICE_NOT_FOUND;
@@ -2967,14 +2967,14 @@ clGetDeviceIDs(cl_platform_id   platform,
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetDeviceInfo(cl_device_id    device,
                 cl_device_info  param_name,
                 size_t          param_value_size,
                 void *          param_value,
                 size_t *        param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetDeviceInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetDeviceInfo!\n"; );
 	if (!device) return CL_INVALID_DEVICE;
 
 	// TODO: move into _cl_device_id, this here is the wrong place !!
@@ -2994,13 +2994,13 @@ clGetDeviceInfo(cl_device_id    device,
 		case CL_DEVICE_MAX_COMPUTE_UNITS: {
 			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
 
-#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
-			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_NUM_CORES;
+#ifdef WFVOPENCL_NO_PACKETIZATION
+			if (param_value) *(cl_uint*)param_value = WFVOPENCL_NUM_CORES;
 #else
-	#ifndef PACKETIZED_OPENCL_USE_OPENMP
-			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_SIMD_WIDTH;
+	#ifndef WFVOPENCL_USE_OPENMP
+			if (param_value) *(cl_uint*)param_value = WFVOPENCL_SIMD_WIDTH;
 	#else
-			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_NUM_CORES*PACKETIZED_OPENCL_SIMD_WIDTH; // ? :P
+			if (param_value) *(cl_uint*)param_value = WFVOPENCL_NUM_CORES*WFVOPENCL_SIMD_WIDTH; // ? :P
 	#endif
 #endif
 
@@ -3009,23 +3009,23 @@ clGetDeviceInfo(cl_device_id    device,
 		}
 		case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS: {
 			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
-			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS;
+			if (param_value) *(cl_uint*)param_value = WFVOPENCL_MAX_NUM_DIMENSIONS;
 			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_uint);
 			break;
 		}
 		case CL_DEVICE_MAX_WORK_ITEM_SIZES: {
 			if (param_value_size < sizeof(size_t)) return CL_INVALID_VALUE;
 			if (param_value) {
-				for (unsigned i=0; i<PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS; ++i) {
-					((size_t*)param_value)[i] = PacketizedOpenCL::getDeviceMaxMemAllocSize(); // TODO: FIXME
+				for (unsigned i=0; i<WFVOPENCL_MAX_NUM_DIMENSIONS; ++i) {
+					((size_t*)param_value)[i] = WFVOpenCL::getDeviceMaxMemAllocSize(); // TODO: FIXME
 				}
 			}
-			if (param_value_size_ret) *param_value_size_ret = sizeof(size_t)*PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS;
+			if (param_value_size_ret) *param_value_size_ret = sizeof(size_t)*WFVOPENCL_MAX_NUM_DIMENSIONS;
 			break;
 		}
 		case CL_DEVICE_MAX_WORK_GROUP_SIZE: {
 			if (param_value_size < sizeof(size_t)) return CL_INVALID_VALUE;
-			if (param_value) *(size_t*)param_value = PacketizedOpenCL::getDeviceMaxMemAllocSize(); // FIXME
+			if (param_value) *(size_t*)param_value = WFVOpenCL::getDeviceMaxMemAllocSize(); // FIXME
 			if (param_value_size_ret) *param_value_size_ret = sizeof(size_t*);
 			break;
 		}
@@ -3061,7 +3061,7 @@ clGetDeviceInfo(cl_device_id    device,
 		}
 		case CL_DEVICE_ADDRESS_BITS: {
 			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
-			if (param_value) *(cl_uint*)param_value = PACKETIZED_OPENCL_ADDRESS_BITS;
+			if (param_value) *(cl_uint*)param_value = WFVOPENCL_ADDRESS_BITS;
 			if (param_value_size_ret) *param_value_size_ret = sizeof(cl_uint);
 			break;
 		}
@@ -3174,7 +3174,7 @@ clGetDeviceInfo(cl_device_id    device,
 			// local memory == global memory for cpu
 			// TODO: make sure size*maxNumThreads(*simdWidth?) is really available on host ;)
 			if (param_value_size < sizeof(unsigned long long)) return CL_INVALID_VALUE;
-			if (param_value) *(unsigned long long*)param_value = PacketizedOpenCL::getDeviceMaxMemAllocSize(); // FIXME: use own function
+			if (param_value) *(unsigned long long*)param_value = WFVOpenCL::getDeviceMaxMemAllocSize(); // FIXME: use own function
 			if (param_value_size_ret) *param_value_size_ret = sizeof(unsigned long long);
 			break;
 		}
@@ -3234,7 +3234,7 @@ clGetDeviceInfo(cl_device_id    device,
 		}
 		case CL_DRIVER_VERSION: {
 			if (param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
-			if (param_value) strcpy((char*)param_value, PACKETIZED_OPENCL_VERSION_STRING);
+			if (param_value) strcpy((char*)param_value, WFVOPENCL_VERSION_STRING);
 			if (param_value_size_ret) *param_value_size_ret = sizeof(char*);
 			break;
 		}
@@ -3251,7 +3251,7 @@ clGetDeviceInfo(cl_device_id    device,
 		}
 		case CL_DEVICE_EXTENSIONS: {
 			if (param_value_size < sizeof(char*)) return CL_INVALID_VALUE;
-			if (param_value) strcpy((char*)param_value, PACKETIZED_OPENCL_EXTENSIONS);
+			if (param_value) strcpy((char*)param_value, WFVOPENCL_EXTENSIONS);
 			if (param_value_size_ret) *param_value_size_ret = sizeof(char*);
 			break;
 		}
@@ -3266,7 +3266,7 @@ clGetDeviceInfo(cl_device_id    device,
 }
 
 /* Context APIs  */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_context CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_context CL_API_CALL
 clCreateContext(const cl_context_properties * properties,
                 cl_uint                       num_devices,
                 const cl_device_id *          devices,
@@ -3274,21 +3274,21 @@ clCreateContext(const cl_context_properties * properties,
                 void *                        user_data,
                 cl_int *                      errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateContext!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateContext!\n"; );
 	*errcode_ret = CL_SUCCESS;
 	_cl_context* c = new _cl_context();
 	c->dispatch = &static_dispatch;
 	return c;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_context CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_context CL_API_CALL
 clCreateContextFromType(const cl_context_properties * properties,
                         cl_device_type                device_type,
                         void (CL_CALLBACK *           pfn_notify)(const char *, const void *, size_t, void *),
                         void *                        user_data,
                         cl_int *                      errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateContextFromType!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateContextFromType!\n"; );
 	if (!pfn_notify && user_data) { *errcode_ret = CL_INVALID_VALUE; return NULL; }
 
 	if (device_type != CL_DEVICE_TYPE_CPU) { *errcode_ret = CL_DEVICE_NOT_AVAILABLE; return NULL; }
@@ -3299,37 +3299,37 @@ clCreateContextFromType(const cl_context_properties * properties,
 	return c;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainContext(cl_context context)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainContext!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainContext!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseContext(cl_context context)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseContext!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseContext!\n"; );
 	_cl_context* ptr = (_cl_context*)context;
 	delete ptr;
 	return CL_SUCCESS;
 }
 
 // TODO: this function should query the context, not return stuff itself ;)
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetContextInfo(cl_context         context,
                  cl_context_info    param_name,
                  size_t             param_value_size,
                  void *             param_value,
                  size_t *           param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetContextInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetContextInfo!\n"; );
 	if (!context) return CL_INVALID_CONTEXT;
 
 	switch (param_name) {
 		case CL_CONTEXT_REFERENCE_COUNT: {
-			PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clGetContextInfo(CL_CONTEXT_REFERENCE_COUNT)!\n"; );
+			WFVOPENCL_DEBUG( outs() << "TODO: implement clGetContextInfo(CL_CONTEXT_REFERENCE_COUNT)!\n"; );
 			if (param_value && param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
 			break;
 		}
@@ -3343,7 +3343,7 @@ clGetContextInfo(cl_context         context,
 			break;
 		}
 		case CL_CONTEXT_PROPERTIES: {
-			PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clGetContextInfo(CL_CONTEXT_PROPERTIES)!\n"; );
+			WFVOPENCL_DEBUG( outs() << "TODO: implement clGetContextInfo(CL_CONTEXT_PROPERTIES)!\n"; );
 			if (param_value && param_value_size < sizeof(cl_context_properties)) return CL_INVALID_VALUE;
 			break;
 		}
@@ -3362,13 +3362,13 @@ clGetContextInfo(cl_context         context,
 creates a command-queue on a specific device.
 */
 // -> ??
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_command_queue CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_command_queue CL_API_CALL
 clCreateCommandQueue(cl_context                     context,
                      cl_device_id                   device,
                      cl_command_queue_properties    properties,
                      cl_int *                       errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateCommandQueue!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateCommandQueue!\n"; );
 	errcode_ret = CL_SUCCESS;
 	_cl_command_queue* cq = new _cl_command_queue();
 	cq->dispatch = &static_dispatch;
@@ -3376,43 +3376,43 @@ clCreateCommandQueue(cl_context                     context,
 	return cq;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainCommandQueue(cl_command_queue command_queue)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainCommandQueue!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainCommandQueue!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseCommandQueue(cl_command_queue command_queue)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseCommandQueue!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseCommandQueue!\n"; );
 	_cl_command_queue* ptr = (_cl_command_queue*)command_queue;
 	delete ptr;
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetCommandQueueInfo(cl_command_queue      command_queue,
                       cl_command_queue_info param_name,
                       size_t                param_value_size,
                       void *                param_value,
                       size_t *              param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetCommandQueueInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetCommandQueueInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
 //#ifdef CL_USE_DEPRECATED_OPENCL_1_0_APIS
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetCommandQueueProperty(cl_command_queue              command_queue,
 			cl_command_queue_properties					properties, 
 			cl_bool										enable,
 			cl_command_queue_properties *				old_properties)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetCommandQueueProperty!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clSetCommandQueueProperty!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
@@ -3429,16 +3429,16 @@ user-defined structure. An image object is used to represent a buffer that can b
 or a frame-buffer. The elements of an image object are selected from a list of predefined image
 formats. The minimum number of elements in a memory object is one.
 */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
 clCreateBuffer(cl_context   context,
                cl_mem_flags flags,
                size_t       size, //in bytes
                void *       host_ptr,
                cl_int *     errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateBuffer!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateBuffer!\n"; );
 	if (!context) { if (errcode_ret) *errcode_ret = CL_INVALID_CONTEXT; return NULL; }
-	if (size == 0 || size > PacketizedOpenCL::getDeviceMaxMemAllocSize()) { if (errcode_ret) *errcode_ret = CL_INVALID_BUFFER_SIZE; return NULL; }
+	if (size == 0 || size > WFVOpenCL::getDeviceMaxMemAllocSize()) { if (errcode_ret) *errcode_ret = CL_INVALID_BUFFER_SIZE; return NULL; }
 	const bool useHostPtr   = flags & CL_MEM_USE_HOST_PTR;
 	const bool copyHostPtr  = flags & CL_MEM_COPY_HOST_PTR;
 	const bool allocHostPtr = flags & CL_MEM_ALLOC_HOST_PTR;
@@ -3450,24 +3450,24 @@ clCreateBuffer(cl_context   context,
 	const bool canRead     = (flags & CL_MEM_READ_ONLY) || (flags & CL_MEM_READ_WRITE);
 	const bool canWrite    = (flags & CL_MEM_WRITE_ONLY) || (flags & CL_MEM_READ_WRITE);
 
-	PACKETIZED_OPENCL_DEBUG( outs() << "clCreateBuffer(" << size << " bytes, " << host_ptr << ")\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  canRead     : " << (canRead ? "true" : "false") << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  canWrite    : " << (canWrite ? "true" : "false") << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  useHostPtr  : " << (useHostPtr ? "true" : "false") << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  copyHostPtr : " << (copyHostPtr ? "true" : "false") << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  allocHostPtr: " << (allocHostPtr ? "true" : "false") << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "clCreateBuffer(" << size << " bytes, " << host_ptr << ")\n"; );
+	WFVOPENCL_DEBUG( outs() << "  canRead     : " << (canRead ? "true" : "false") << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  canWrite    : " << (canWrite ? "true" : "false") << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  useHostPtr  : " << (useHostPtr ? "true" : "false") << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  copyHostPtr : " << (copyHostPtr ? "true" : "false") << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  allocHostPtr: " << (allocHostPtr ? "true" : "false") << "\n"; );
 
 	void* device_ptr = NULL;
 
 	if (useHostPtr) {
 		assert (host_ptr);
 		device_ptr = host_ptr;
-		PACKETIZED_OPENCL_DEBUG( outs() << "    using supplied host ptr: " << device_ptr << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "    using supplied host ptr: " << device_ptr << "\n"; );
 	}
 
 	if (allocHostPtr) {
 		device_ptr = malloc(size);
-		PACKETIZED_OPENCL_DEBUG( outs() << "    new host ptr allocated: " << device_ptr << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "    new host ptr allocated: " << device_ptr << "\n"; );
 		if (!device_ptr) { if (errcode_ret) *errcode_ret = CL_MEM_OBJECT_ALLOCATION_FAILURE; return NULL; }
 	}
 
@@ -3479,20 +3479,20 @@ clCreateBuffer(cl_context   context,
 		assert (host_ptr);
 		if (!allocHostPtr) {
 			device_ptr = malloc(size);
-			PACKETIZED_OPENCL_DEBUG( outs() << "    new host ptr allocated for copying: " << device_ptr << "\n"; );
+			WFVOPENCL_DEBUG( outs() << "    new host ptr allocated for copying: " << device_ptr << "\n"; );
 			if (!device_ptr) { if (errcode_ret) *errcode_ret = CL_MEM_OBJECT_ALLOCATION_FAILURE; return NULL; }
 		}
 		// copy data into new_host_ptr
-		PACKETIZED_OPENCL_DEBUG( outs() << "    copying data of supplied host ptr to new host ptr... "; );
+		WFVOPENCL_DEBUG( outs() << "    copying data of supplied host ptr to new host ptr... "; );
 		memcpy(device_ptr, host_ptr, size);
-		PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
+		WFVOPENCL_DEBUG( outs() << "done.\n"; );
 	}
 
 	// if no flag was supplied, allocate memory (host_ptr must be NULL by specification)
 	if (!device_ptr) {
 		assert (!host_ptr);
 		device_ptr = malloc(size);
-		PACKETIZED_OPENCL_DEBUG( outs() << "    new host ptr allocated (no flag specified): " << device_ptr << "\n"; );
+		WFVOPENCL_DEBUG( outs() << "    new host ptr allocated (no flag specified): " << device_ptr << "\n"; );
 		if (!device_ptr) { if (errcode_ret) *errcode_ret = CL_MEM_OBJECT_ALLOCATION_FAILURE; return NULL; }
 	}
 
@@ -3500,19 +3500,19 @@ clCreateBuffer(cl_context   context,
 	return new _cl_mem(context, size, device_ptr, canRead, canWrite);
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
 clCreateSubBuffer(cl_mem                   buffer,
                   cl_mem_flags             flags,
                   cl_buffer_create_type    buffer_create_type,
                   const void *             buffer_create_info,
                   cl_int *                 errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateSubBuffer!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateSubBuffer!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return NULL;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
 clCreateImage2D(cl_context              context,
                 cl_mem_flags            flags,
                 const cl_image_format * image_format,
@@ -3522,12 +3522,12 @@ clCreateImage2D(cl_context              context,
                 void *                  host_ptr,
                 cl_int *                errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateImage2D!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateImage2D!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return NULL;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
 clCreateImage3D(cl_context              context,
                 cl_mem_flags            flags,
                 const cl_image_format * image_format,
@@ -3539,29 +3539,29 @@ clCreateImage3D(cl_context              context,
                 void *                  host_ptr,
                 cl_int *                errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateImage3D!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateImage3D!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return NULL;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainMemObject(cl_mem memobj)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainMemObject!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainMemObject!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseMemObject!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseMemObject!\n"; );
 	_cl_mem* ptr = (_cl_mem*)memobj;
 	delete ptr;
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetSupportedImageFormats(cl_context           context,
                            cl_mem_flags         flags,
                            cl_mem_object_type   image_type,
@@ -3569,82 +3569,82 @@ clGetSupportedImageFormats(cl_context           context,
                            cl_image_format *    image_formats,
                            cl_uint *            num_image_formats)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetSupportedImageFormats!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetSupportedImageFormats!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetMemObjectInfo(cl_mem           memobj,
                    cl_mem_info      param_name,
                    size_t           param_value_size,
                    void *           param_value,
                    size_t *         param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetMemObjectInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetMemObjectInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetImageInfo(cl_mem           image,
                cl_image_info    param_name,
                size_t           param_value_size,
                void *           param_value,
                size_t *         param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetImageInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetImageInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetMemObjectDestructorCallback(cl_mem memobj, 
 								 void (CL_CALLBACK * pfn_notify)( cl_mem /* memobj */, void* /*user_data*/), 
 								 void * user_data)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetMemObjectDestructorCallback!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clSetMemObjectDestructorCallback!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
 /* Sampler APIs  */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_sampler CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_sampler CL_API_CALL
 clCreateSampler(cl_context          context,
                 cl_bool             normalized_coords,
                 cl_addressing_mode  addressing_mode,
                 cl_filter_mode      filter_mode,
                 cl_int *            errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateSampler!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateSampler!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return NULL;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainSampler(cl_sampler sampler)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainSampler!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainSampler!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseSampler(cl_sampler sampler)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseSampler!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseSampler!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetSamplerInfo(cl_sampler         sampler,
                  cl_sampler_info    param_name,
                  size_t             param_value_size,
                  void *             param_value,
                  size_t *           param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetSamplerInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetSamplerInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
@@ -3657,14 +3657,14 @@ the strings array into the program object. The devices associated with the progr
 devices associated with context.
 */
 // -> read strings and store as .cl representation
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_program CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_program CL_API_CALL
 clCreateProgramWithSource(cl_context        context,
                           cl_uint           count,
                           const char **     strings,
                           const size_t *    lengths,
                           cl_int *          errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateProgramWithSource!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateProgramWithSource!\n"; );
 	*errcode_ret = CL_SUCCESS;
 	_cl_program* p = new _cl_program();
 	p->dispatch = &static_dispatch;
@@ -3688,7 +3688,7 @@ clCreateProgramWithSource(cl_context        context,
 }
 
 // -> read binary and store as .cl representation
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_program CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_program CL_API_CALL
 clCreateProgramWithBinary(cl_context                     context,
                           cl_uint                        num_devices,
                           const cl_device_id *           device_list,
@@ -3697,24 +3697,24 @@ clCreateProgramWithBinary(cl_context                     context,
                           cl_int *                       binary_status,
                           cl_int *                       errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateProgramWithBinary!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateProgramWithBinary!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return NULL;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainProgram(cl_program program)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainProgram!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainProgram!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseProgram(cl_program program)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseProgram!\n"; );
-#ifdef PACKETIZED_OPENCL_ENABLE_JIT_PROFILING
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseProgram!\n"; );
+#ifdef WFVOPENCL_ENABLE_JIT_PROFILING
 	int success = iJIT_NotifyEvent(iJVM_EVENT_TYPE_SHUTDOWN, NULL);
 	if (success != 1) {
 		errs() << "ERROR: termination of profiling failed!\n";
@@ -3739,7 +3739,7 @@ associated with program.
 // -> invoke clc
 // -> invoke llvm-as
 // -> store module in _cl_program object
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clBuildProgram(cl_program           program,
                cl_uint              num_devices,
                const cl_device_id * device_list,
@@ -3747,7 +3747,7 @@ clBuildProgram(cl_program           program,
                void (CL_CALLBACK *  pfn_notify)(cl_program /* program */, void * /* user_data */),
                void *               user_data)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clBuildProgram!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clBuildProgram!\n"; );
 	if (!program) return CL_INVALID_PROGRAM;
 	if (!device_list && num_devices > 0) return CL_INVALID_VALUE;
 	if (device_list && num_devices == 0) return CL_INVALID_VALUE;
@@ -3773,10 +3773,10 @@ clBuildProgram(cl_program           program,
 
 	// check if module has been loaded
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
-	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(mod, "debug_kernel_orig_orig_targetdata.mod.ll"); );
+	WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(mod, "debug_kernel_orig_orig_targetdata.mod.ll"); );
 
 	// TODO: do this here or only after packetization?
-	mod->setDataLayout(PACKETIZED_OPENCL_LLVM_DATA_LAYOUT_64);
+	mod->setDataLayout(WFVOPENCL_LLVM_DATA_LAYOUT_64);
 	// we have to reset the target triple (LLVM does not know amd-opencl)
 	//mod->setTargetTriple("");
 #if defined _WIN32
@@ -3794,27 +3794,27 @@ clBuildProgram(cl_program           program,
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clUnloadCompiler(void)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clUnloadCompiler!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clUnloadCompiler!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetProgramInfo(cl_program         program,
                  cl_program_info    param_name,
                  size_t             param_value_size,
                  void *             param_value,
                  size_t *           param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetProgramInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetProgramInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetProgramBuildInfo(cl_program            program,
                       cl_device_id          device,
                       cl_program_build_info param_name,
@@ -3822,7 +3822,7 @@ clGetProgramBuildInfo(cl_program            program,
                       void *                param_value,
                       size_t *              param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetProgramBuildInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetProgramBuildInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
@@ -3831,15 +3831,15 @@ clGetProgramBuildInfo(cl_program            program,
 
 // -> compile bitcode of function from .bc file to native code
 // -> store void* in _cl_kernel object
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_kernel CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_kernel CL_API_CALL
 clCreateKernel(cl_program      program,
                const char *    kernel_name,
                cl_int *        errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateKernel!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateKernel!\n"; );
 	if (!program) { *errcode_ret = CL_INVALID_PROGRAM; return NULL; }
 	if (!program->module) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
-	PACKETIZED_OPENCL_DEBUG( outs() << "\nclCreateKernel(" << program->module->getModuleIdentifier() << ", " << kernel_name << ")\n"; );
+	WFVOPENCL_DEBUG( outs() << "\nclCreateKernel(" << program->module->getModuleIdentifier() << ", " << kernel_name << ")\n"; );
 
 	// does the returned error code mean we should compile before??
 	llvm::Module* module = program->module;
@@ -3850,40 +3850,40 @@ clCreateKernel(cl_program      program,
 	strs << "__OpenCL_" << kernel_name << "_kernel";
 	const std::string new_kernel_name = strs.str();
 
-	PACKETIZED_OPENCL_DEBUG( outs() << "new kernel name: " << new_kernel_name << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "new kernel name: " << new_kernel_name << "\n"; );
 
-	llvm::Function* f = PacketizedOpenCL::getFunction(new_kernel_name, module);
+	llvm::Function* f = WFVOpenCL::getFunction(new_kernel_name, module);
 	if (!f) { *errcode_ret = CL_INVALID_KERNEL_NAME; return NULL; }
 
-	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_orig_noopt.mod.ll"); );
+	WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(module, "debug_kernel_orig_noopt.mod.ll"); );
 
 	// before doing anything, replace function names generated by clc
-	PacketizedOpenCL::fixFunctionNames(module);
+	WFVOpenCL::fixFunctionNames(module);
 
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
-	PacketizedOpenCL::inlineFunctionCalls(f, program->targetData);
+	WFVOpenCL::inlineFunctionCalls(f, program->targetData);
 	// Optimize
 	// This is essential, we have to get rid of allocas etc.
 	// Unfortunately, for packetization enabled, loop rotate has to be disabled (otherwise, Mandelbrot breaks).
-#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
-	PacketizedOpenCL::optimizeFunction(f); // enable all optimizations
+#ifdef WFVOPENCL_NO_PACKETIZATION
+	WFVOpenCL::optimizeFunction(f); // enable all optimizations
 #else
-	PacketizedOpenCL::optimizeFunction(f, false, true); // enable LICM, disable loop rotate
+	WFVOpenCL::optimizeFunction(f, false, true); // enable LICM, disable loop rotate
 #endif
 
-	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeFunctionToFile(f, "debug_kernel_orig.ll"); );
-	PACKETIZED_OPENCL_DEBUG( PacketizedOpenCL::writeModuleToFile(module, "debug_kernel_orig.mod.ll"); );
+	WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f, "debug_kernel_orig.ll"); );
+	WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(module, "debug_kernel_orig.mod.ll"); );
 
 	LLVMContext& context = module->getContext();
 
 	// determine number of dimensions required by kernel
-	const unsigned num_dimensions = PacketizedOpenCL::determineNumDimensionsUsed(f);
+	const unsigned num_dimensions = WFVOpenCL::determineNumDimensionsUsed(f);
 
 
-#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_PACKETIZATION
 
 	const int simd_dim = -1;
-	llvm::Function* f_wrapper = PacketizedOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, NULL);
+	llvm::Function* f_wrapper = WFVOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, NULL);
 	if (!f_wrapper) {
 		errs() << "ERROR: kernel generation failed!\n";
 		return NULL;
@@ -3895,10 +3895,10 @@ clCreateKernel(cl_program      program,
 #else
 
 	// determine best dimension for packetization
-	const int simd_dim = PacketizedOpenCL::getBestSimdDim(f, num_dimensions);
+	const int simd_dim = WFVOpenCL::getBestSimdDim(f, num_dimensions);
 
 	llvm::Function* f_SIMD = NULL;
-	llvm::Function* f_wrapper = PacketizedOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, &f_SIMD);
+	llvm::Function* f_wrapper = WFVOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, &f_SIMD);
 	if (!f_wrapper || !f_SIMD) {
 		errs() << "ERROR: kernel generation failed!\n";
 		return NULL;
@@ -3916,42 +3916,42 @@ clCreateKernel(cl_program      program,
 	return kernel;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clCreateKernelsInProgram(cl_program     program,
                          cl_uint        num_kernels,
                          cl_kernel *    kernels,
                          cl_uint *      num_kernels_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateKernelsInProgram!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateKernelsInProgram!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainKernel(cl_kernel    kernel)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainKernel!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainKernel!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseKernel(cl_kernel   kernel)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseKernel!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseKernel!\n"; );
 	_cl_kernel* ptr = (_cl_kernel*)kernel;
 	delete ptr;
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetKernelArg(cl_kernel    kernel,
                cl_uint      arg_index,
                size_t       arg_size,
                const void * arg_value)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetKernelArg!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "\nclSetKernelArg(" << kernel->function_wrapper->getNameStr() << ", " << arg_index << ", " << arg_size << ")\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clSetKernelArg!\n"; );
+	WFVOPENCL_DEBUG( outs() << "\nclSetKernelArg(" << kernel->function_wrapper->getNameStr() << ", " << arg_index << ", " << arg_size << ")\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (arg_index > kernel->get_num_args()) return CL_INVALID_ARG_INDEX;
 
@@ -3959,19 +3959,19 @@ clSetKernelArg(cl_kernel    kernel,
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetKernelInfo(cl_kernel       kernel,
                 cl_kernel_info  param_name,
                 size_t          param_value_size,
                 void *          param_value,
                 size_t *        param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetKernelInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetKernelInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetKernelWorkGroupInfo(cl_kernel                  kernel,
                          cl_device_id               device,
                          cl_kernel_work_group_info  param_name,
@@ -3979,12 +3979,12 @@ clGetKernelWorkGroupInfo(cl_kernel                  kernel,
                          void *                     param_value,
                          size_t *                   param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetKernelWorkGroupInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetKernelWorkGroupInfo!\n"; );
 	if (!kernel) return CL_INVALID_KERNEL;
 	//if (!device) return CL_INVALID_DEVICE;
 	switch (param_name) {
 		case CL_KERNEL_WORK_GROUP_SIZE:{
-			*(size_t*)param_value = PACKETIZED_OPENCL_MAX_WORK_GROUP_SIZE; //simdWidth * maxNumThreads;
+			*(size_t*)param_value = WFVOPENCL_MAX_WORK_GROUP_SIZE; //simdWidth * maxNumThreads;
 			break; // type conversion slightly hacked (should use param_value_size) ;)
 		}
 		case CL_KERNEL_COMPILE_WORK_GROUP_SIZE: {
@@ -4001,107 +4001,107 @@ clGetKernelWorkGroupInfo(cl_kernel                  kernel,
 }
 
 /* Event Object APIs  */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clWaitForEvents(cl_uint             num_events,
                 const cl_event *    event_list)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clWaitForEvents!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clWaitForEvents()\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clWaitForEvents!\n"; );
+	WFVOPENCL_DEBUG( outs() << "TODO: implement clWaitForEvents()\n"; );
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetEventInfo(cl_event         event,
                cl_event_info    param_name,
                size_t           param_value_size,
                void *           param_value,
                size_t *         param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetEventInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetEventInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_event CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_event CL_API_CALL
 clCreateUserEvent(cl_context    context,
                   cl_int *      errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clCreateUserEvent!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateUserEvent!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainEvent(cl_event event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clRetainEvent!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainEvent!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseEvent(cl_event event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clReleaseEvent!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseEvent!\n"; );
 	_cl_event* ptr = (_cl_event*)event;
 	delete ptr;
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetUserEventStatus(cl_event   event,
                      cl_int     execution_status)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetUserEventStatus!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clSetUserEventStatus!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
                      
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetEventCallback( cl_event    event,
                     cl_int      command_exec_callback_type,
                     void (CL_CALLBACK * pfn_notify)(cl_event, cl_int, void *),
                     void *      user_data)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clSetEventCallback!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clSetEventCallback!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
 
 /* Profiling APIs  */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clGetEventProfilingInfo(cl_event            event,
                         cl_profiling_info   param_name,
                         size_t              param_value_size,
                         void *              param_value,
                         size_t *            param_value_size_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetEventProfilingInfo!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetEventProfilingInfo!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
 /* Flush and Finish APIs */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clFlush(cl_command_queue command_queue)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clFlush!\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "TODO: implement clFlush()\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clFlush!\n"; );
+	WFVOPENCL_DEBUG( outs() << "TODO: implement clFlush()\n"; );
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clFinish(cl_command_queue command_queue)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clFinish!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clFinish!\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	// do nothing :P
 	return CL_SUCCESS;
 }
 
 /* Enqueued Commands APIs */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueReadBuffer(cl_command_queue    command_queue,
                     cl_mem              buffer,
                     cl_bool             blocking_read,
@@ -4112,7 +4112,7 @@ clEnqueueReadBuffer(cl_command_queue    command_queue,
                     const cl_event *    event_wait_list,
                     cl_event *          event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadBuffer!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadBuffer!\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if (!buffer) return CL_INVALID_MEM_OBJECT;
 	if (!ptr || buffer->get_size() < cb+offset) return CL_INVALID_VALUE;
@@ -4141,7 +4141,7 @@ clEnqueueReadBuffer(cl_command_queue    command_queue,
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueReadBufferRect(cl_command_queue    command_queue,
 						cl_mem              buffer,
 						cl_bool             blocking_read,
@@ -4157,12 +4157,12 @@ clEnqueueReadBufferRect(cl_command_queue    command_queue,
 						const cl_event *    event_wait_list,
 						cl_event *          event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadBufferRec!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadBufferRec!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWriteBuffer(cl_command_queue   command_queue,
                      cl_mem             buffer,
                      cl_bool            blocking_write,
@@ -4173,7 +4173,7 @@ clEnqueueWriteBuffer(cl_command_queue   command_queue,
                      const cl_event *   event_wait_list,
                      cl_event *         event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteBuffer!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteBuffer!\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if (!buffer) return CL_INVALID_MEM_OBJECT;
 	if (!ptr || buffer->get_size() < cb+offset) return CL_INVALID_VALUE;
@@ -4199,7 +4199,7 @@ clEnqueueWriteBuffer(cl_command_queue   command_queue,
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWriteBufferRect(cl_command_queue    command_queue,
                          cl_mem              buffer,
                          cl_bool             blocking_write,
@@ -4215,13 +4215,13 @@ clEnqueueWriteBufferRect(cl_command_queue    command_queue,
                          const cl_event *    event_wait_list,
                          cl_event *          event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteBufferRec!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteBufferRec!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyBuffer(cl_command_queue    command_queue,
                     cl_mem              src_buffer,
                     cl_mem              dst_buffer,
@@ -4232,7 +4232,7 @@ clEnqueueCopyBuffer(cl_command_queue    command_queue,
                     const cl_event *    event_wait_list,
                     cl_event *          event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBuffer!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBuffer!\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if (!src_buffer) return CL_INVALID_MEM_OBJECT;
 	if (!dst_buffer) return CL_INVALID_MEM_OBJECT;
@@ -4265,7 +4265,7 @@ clEnqueueCopyBuffer(cl_command_queue    command_queue,
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyBufferRect(cl_command_queue    command_queue,
 						cl_mem              src_buffer,
                         cl_mem              dst_buffer,
@@ -4280,12 +4280,12 @@ clEnqueueCopyBufferRect(cl_command_queue    command_queue,
                         const cl_event *    event_wait_list,
                         cl_event *          event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBufferRec!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBufferRec!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueReadImage(cl_command_queue     command_queue,
                    cl_mem               image,
                    cl_bool              blocking_read,
@@ -4298,12 +4298,12 @@ clEnqueueReadImage(cl_command_queue     command_queue,
                    const cl_event *     event_wait_list,
                    cl_event *           event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadImage!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWriteImage(cl_command_queue    command_queue,
                     cl_mem              image,
                     cl_bool             blocking_write,
@@ -4316,12 +4316,12 @@ clEnqueueWriteImage(cl_command_queue    command_queue,
                     const cl_event *    event_wait_list,
                     cl_event *          event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteImage!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyImage(cl_command_queue     command_queue,
                    cl_mem               src_image,
                    cl_mem               dst_image,
@@ -4332,12 +4332,12 @@ clEnqueueCopyImage(cl_command_queue     command_queue,
                    const cl_event *     event_wait_list,
                    cl_event *           event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImage!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyImageToBuffer(cl_command_queue command_queue,
                            cl_mem           src_image,
                            cl_mem           dst_buffer,
@@ -4348,12 +4348,12 @@ clEnqueueCopyImageToBuffer(cl_command_queue command_queue,
                            const cl_event * event_wait_list,
                            cl_event *       event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImageToBuffer!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImageToBuffer!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueCopyBufferToImage(cl_command_queue command_queue,
                            cl_mem           src_buffer,
                            cl_mem           dst_image,
@@ -4364,12 +4364,12 @@ clEnqueueCopyBufferToImage(cl_command_queue command_queue,
                            const cl_event * event_wait_list,
                            cl_event *       event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBufferToImage!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBufferToImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL
 clEnqueueMapBuffer(cl_command_queue command_queue,
                    cl_mem           buffer,
                    cl_bool          blocking_map,
@@ -4381,12 +4381,12 @@ clEnqueueMapBuffer(cl_command_queue command_queue,
                    cl_event *       event,
                    cl_int *         errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueMapBuffer!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueMapBuffer!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return NULL;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL
 clEnqueueMapImage(cl_command_queue  command_queue,
                   cl_mem            image,
                   cl_bool           blocking_map,
@@ -4400,12 +4400,12 @@ clEnqueueMapImage(cl_command_queue  command_queue,
                   cl_event *        event,
                   cl_int *          errcode_ret)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueMapImage!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueMapImage!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return NULL;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueUnmapMemObject(cl_command_queue command_queue,
                         cl_mem           memobj,
                         void *           mapped_ptr,
@@ -4413,7 +4413,7 @@ clEnqueueUnmapMemObject(cl_command_queue command_queue,
                         const cl_event *  event_wait_list,
                         cl_event *        event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueUnmapMemObject!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueUnmapMemObject!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
@@ -4421,8 +4421,8 @@ clEnqueueUnmapMemObject(cl_command_queue command_queue,
 
 
 inline cl_int executeRangeKernel1D(cl_kernel kernel, const size_t global_work_size, const size_t local_work_size) {
-	PACKETIZED_OPENCL_DEBUG( outs() << "  global_work_size: " << global_work_size << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  local_work_size: " << local_work_size << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  global_work_size: " << global_work_size << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  local_work_size: " << local_work_size << "\n"; );
 	if (global_work_size % local_work_size != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
 
@@ -4440,31 +4440,31 @@ typedef void (*kernelFnPtr)(
 	// In any case, changing the local work size can introduce arbitrary problems
 	// except for the case where it is 1.
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
-	assert (global_work_size >= PACKETIZED_OPENCL_SIMD_WIDTH);
-	assert (local_work_size == 1 || local_work_size >= PACKETIZED_OPENCL_SIMD_WIDTH);
-	assert (global_work_size % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
-	assert (local_work_size == 1 || local_work_size % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
+#ifndef WFVOPENCL_NO_PACKETIZATION
+	assert (global_work_size >= WFVOPENCL_SIMD_WIDTH);
+	assert (local_work_size == 1 || local_work_size >= WFVOPENCL_SIMD_WIDTH);
+	assert (global_work_size % WFVOPENCL_SIMD_WIDTH == 0);
+	assert (local_work_size == 1 || local_work_size % WFVOPENCL_SIMD_WIDTH == 0);
 #endif
 
 	// unfortunately we have to convert to 32bit values because we work with 32bit internally
 	// TODO: in the 1D case we can optimize because only the first value is loaded (automatic truncation)
 	const cl_uint modified_global_work_size = (cl_uint)global_work_size;
 
-#ifdef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_PACKETIZATION
 	const cl_uint modified_local_work_size = (cl_uint)local_work_size;
 #else
-	if (local_work_size != 1 && local_work_size < PACKETIZED_OPENCL_SIMD_WIDTH) {
+	if (local_work_size != 1 && local_work_size < WFVOPENCL_SIMD_WIDTH) {
 		errs() << "\nERROR: group size of dimension " << kernel->get_best_simd_dim() << " is smaller than the SIMD width!\n\n";
 		exit(-1);
 	}
-	PACKETIZED_OPENCL_DEBUG(
+	WFVOPENCL_DEBUG(
 		if (local_work_size == 1) {
 			errs() << "\nWARNING: group size of dimension " << kernel->get_best_simd_dim() << " is 1, will be increased to multiple of SIMD width!\n\n";
 		}
 	);
 
-#	ifdef PACKETIZED_OPENCL_USE_OPENMP
+#	ifdef WFVOPENCL_USE_OPENMP
 	// If the local work size is set to 1, we should be safe to set it to some arbitrary
 	// value unless the application does weird things.
 	// TODO: Test if kernel calls get_group_id or get_group_size, in which case we must not change anything!
@@ -4472,7 +4472,7 @@ typedef void (*kernelFnPtr)(
 	// exactly as many iterations of the outermost loop as we have cores for multi-threading.
 	// Using larger amounts of iterations can severely degrade performance (e.g. FloydWarshall, Mandelbrot)
 	const cl_uint modified_local_work_size = local_work_size == 1 ?
-		modified_global_work_size/PACKETIZED_OPENCL_NUM_CORES : (cl_uint)local_work_size;
+		modified_global_work_size/WFVOPENCL_NUM_CORES : (cl_uint)local_work_size;
 #	else
 	const cl_uint modified_local_work_size = local_work_size == 1 ?
 		modified_global_work_size : (cl_uint)local_work_size;
@@ -4484,21 +4484,21 @@ typedef void (*kernelFnPtr)(
 	// execute the kernel
 	//
 	const cl_uint num_iterations = modified_global_work_size / modified_local_work_size; // = total # threads per block
-	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_global_work_size: " << modified_global_work_size << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_local_work_size: " << modified_local_work_size << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
+	WFVOPENCL_DEBUG( outs() << "  modified_global_work_size: " << modified_global_work_size << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  modified_local_work_size: " << modified_local_work_size << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "\nexecuting kernel (#iterations: " << num_iterations << ")...\n"; );
 
 	assert (num_iterations > 0 && "should give error message before executeRangeKernel!");
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 	// allocate local memory for each thread to prevent data races
 	// TODO: move somewhere else? should all be "static" information!
 	const cl_uint numArgs = kernel->get_num_args();
-	void* argstructs[PACKETIZED_OPENCL_MAX_NUM_THREADS];
-	void** localdata[PACKETIZED_OPENCL_MAX_NUM_THREADS]; // too much, but easier to access
+	void* argstructs[WFVOPENCL_MAX_NUM_THREADS];
+	void** localdata[WFVOPENCL_MAX_NUM_THREADS]; // too much, but easier to access
 
 	const cl_uint argStrSize = kernel->get_argument_struct_size();
-	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+	for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 		localdata[j] = (void**)malloc(numArgs*sizeof(void*));
 		for (cl_uint i=0; i<numArgs; ++i) {
 			if (kernel->arg_is_local(i)) {
@@ -4518,16 +4518,16 @@ typedef void (*kernelFnPtr)(
 
 	cl_int i;
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
-	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
+#ifdef WFVOPENCL_USE_OPENMP
+	omp_set_num_threads(WFVOPENCL_MAX_NUM_THREADS);
 #	pragma omp parallel for shared(argument_struct, kernel) private(i)
 #endif
 	for (i=0; i<num_iterations; ++i) {
-		PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << " (= group id)\n"; );
-		PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
-		PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "  verification before execution successful!\n"; );
+		WFVOPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << " (= group id)\n"; );
+		WFVOPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
+		WFVOPENCL_DEBUG_RUNTIME( outs() << "  verification before execution successful!\n"; );
 
-//		PACKETIZED_OPENCL_DEBUG_RUNTIME(
+//		WFVOPENCL_DEBUG_RUNTIME(
 //			//hardcoded debug output
 //			struct t { cl_int* numSteps; cl_float* randArray; cl_float* output; cl_float* callA; cl_float* callB;  } __attribute__((packed))* tt = (t*)kernel->get_argument_struct();
 //			outs() << "  numSteps: "  << tt->numSteps  << "\n";
@@ -4538,7 +4538,7 @@ typedef void (*kernelFnPtr)(
 //			verifyModule(*kernel->get_program()->module);
 //		);
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 		// fetch this thread's argument struct
 		const cl_uint tid = omp_get_thread_num();
 		void* newargstr = argstructs[tid];
@@ -4553,32 +4553,32 @@ typedef void (*kernelFnPtr)(
 #endif
 
 
-		PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "iteration " << i << " finished!\n"; );
-		PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
-		PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "  verification after execution successful!\n"; );
+		WFVOPENCL_DEBUG_RUNTIME( outs() << "iteration " << i << " finished!\n"; );
+		WFVOPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
+		WFVOPENCL_DEBUG_RUNTIME( outs() << "  verification after execution successful!\n"; );
 	}
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 	// clean up memory allocated for local data and each thread's argument struct
 	for (cl_uint i=0; i<numArgs; ++i) {
 		if (kernel->arg_is_local(i)) {
-			for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+			for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 				free(localdata[j][i]);
 			}
 		}
 	}
-	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+	for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 		free(argstructs[j]);
 	}
 #endif
 
-	PACKETIZED_OPENCL_DEBUG( outs() << "execution of kernel finished!\n"; );
+	WFVOPENCL_DEBUG( outs() << "execution of kernel finished!\n"; );
 
 	return CL_SUCCESS;
 }
 inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_size, const size_t* local_work_size) {
-	PACKETIZED_OPENCL_DEBUG( outs() << "  global_work_sizes: " << global_work_size[0] << ", " << global_work_size[1] << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  local_work_sizes: " << local_work_size[0] << ", " << local_work_size[1] << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  global_work_sizes: " << global_work_size[0] << ", " << global_work_size[1] << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  local_work_sizes: " << local_work_size[0] << ", " << local_work_size[1] << "\n"; );
 	if (global_work_size[0] % local_work_size[0] != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	if (global_work_size[1] % local_work_size[1] != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	//if (global_work_size[0] > pow(2, sizeof(size_t)) /* oder so :P */) return CL_OUT_OF_RESOURCES;
@@ -4597,13 +4597,13 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	const cl_uint modified_global_work_size[2] = { (cl_uint)global_work_size[0], (cl_uint)global_work_size[1] };
 	const cl_uint modified_local_work_size[2] = { (cl_uint)local_work_size[0], (cl_uint)local_work_size[1] };
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_PACKETIZATION
 	const cl_uint simd_dim = kernel->get_best_simd_dim();
 
-	assert (global_work_size[simd_dim] >= PACKETIZED_OPENCL_SIMD_WIDTH);
-	assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] >= PACKETIZED_OPENCL_SIMD_WIDTH);
-	assert (global_work_size[simd_dim] % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
-	assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
+	assert (global_work_size[simd_dim] >= WFVOPENCL_SIMD_WIDTH);
+	assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] >= WFVOPENCL_SIMD_WIDTH);
+	assert (global_work_size[simd_dim] % WFVOPENCL_SIMD_WIDTH == 0);
+	assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] % WFVOPENCL_SIMD_WIDTH == 0);
 #endif
 
 	// TODO: insert warnings as in 1D case if sizes do not match simd width etc.
@@ -4613,21 +4613,21 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	//
 	const cl_uint num_iterations_0 = modified_global_work_size[0] / modified_local_work_size[0]; // = total # threads per block in dim 0
 	const cl_uint num_iterations_1 = modified_global_work_size[1] / modified_local_work_size[1]; // = total # threads per block in dim 1
-	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_global_work_sizes: " << modified_global_work_size[0] << " / " << modified_global_work_size[1] << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  modified_local_work_sizes: " << modified_local_work_size[0] << " / " << modified_local_work_size[1] << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 << ")...\n"; );
+	WFVOPENCL_DEBUG( outs() << "  modified_global_work_sizes: " << modified_global_work_size[0] << " / " << modified_global_work_size[1] << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  modified_local_work_sizes: " << modified_local_work_size[0] << " / " << modified_local_work_size[1] << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 << ")...\n"; );
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && "should give error message before executeRangeKernel!");
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 	// allocate local memory for each thread to prevent data races
 	// TODO: move somewhere else? should all be "static" information!
 	const cl_uint numArgs = kernel->get_num_args();
-	void* argstructs[PACKETIZED_OPENCL_MAX_NUM_THREADS];
-	void** localdata[PACKETIZED_OPENCL_MAX_NUM_THREADS]; // too much, but easier to access
+	void* argstructs[WFVOPENCL_MAX_NUM_THREADS];
+	void** localdata[WFVOPENCL_MAX_NUM_THREADS]; // too much, but easier to access
 
 	const cl_uint argStrSize = kernel->get_argument_struct_size();
-	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+	for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 		localdata[j] = (void**)malloc(numArgs*sizeof(void*));
 		for (cl_uint i=0; i<numArgs; ++i) {
 			if (kernel->arg_is_local(i)) {
@@ -4647,8 +4647,8 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 
 	cl_int i, j;
 	
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
-	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
+#ifdef WFVOPENCL_USE_OPENMP
+	omp_set_num_threads(WFVOPENCL_MAX_NUM_THREADS);
 #	ifdef _WIN32
 #		pragma omp parallel for shared(argument_struct) private(i, j) // VS2010 only supports OpenMP 2.5
 #	else
@@ -4657,12 +4657,12 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 #endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
-			PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << " (= group ids)\n"; );
-			PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
+			WFVOPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << " (= group ids)\n"; );
+			WFVOPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
 			const cl_int group_id[2] = { i, j };
 
-//			PACKETIZED_OPENCL_DEBUG_RUNTIME(
+//			WFVOPENCL_DEBUG_RUNTIME(
 //				//hardcoded debug output
 //				struct t { cl_float* input; cl_float* output; } __attribute__((packed))* tt = (t*)kernel->get_argument_struct();
 //				outs() << "  input: "  << tt->output  << "\n";
@@ -4677,7 +4677,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 //				verifyModule(*kernel->get_program()->module);
 //			);
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 			// fetch this thread's argument struct
 			const cl_uint tid = omp_get_thread_num();
 			void* newargstr = argstructs[tid];
@@ -4702,26 +4702,26 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 			);
 #endif
 
-			PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "iteration " << i << "/" << j << " finished!\n"; );
-			PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
+			WFVOPENCL_DEBUG_RUNTIME( outs() << "iteration " << i << "/" << j << " finished!\n"; );
+			WFVOPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 		}
 	}
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 	// clean up memory allocated for local data and each thread's argument struct
 	for (cl_uint i=0; i<numArgs; ++i) {
 		if (kernel->arg_is_local(i)) {
-			for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+			for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 				free(localdata[j][i]);
 			}
 		}
 	}
-	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+	for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 		free(argstructs[j]);
 	}
 #endif
 
-	PACKETIZED_OPENCL_DEBUG( outs() << "execution of kernel finished!\n"; );
+	WFVOPENCL_DEBUG( outs() << "execution of kernel finished!\n"; );
 
 	return CL_SUCCESS;
 }
@@ -4730,8 +4730,8 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 	outs() << "Support for kernels with #dimensions > 2 not fully implemented yet!\n";
 	return CL_INVALID_WORK_DIMENSION;
 
-	PACKETIZED_OPENCL_DEBUG( outs() << "  global_work_sizes: " << global_work_size[0] << ", " << global_work_size[1] << ", " << global_work_size[2] << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  local_work_sizes: " << local_work_size[0] << ", " << local_work_size[1] << ", " << local_work_size[2] << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  global_work_sizes: " << global_work_size[0] << ", " << global_work_size[1] << ", " << global_work_size[2] << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  local_work_sizes: " << local_work_size[0] << ", " << local_work_size[1] << ", " << local_work_size[2] << "\n"; );
 	if (global_work_size[0] % local_work_size[0] != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	if (global_work_size[1] % local_work_size[1] != 0) return CL_INVALID_WORK_GROUP_SIZE;
 	if (global_work_size[2] % local_work_size[2] != 0) return CL_INVALID_WORK_GROUP_SIZE;
@@ -4757,19 +4757,19 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 	const cl_uint num_iterations_0 = modified_global_work_size[0] / modified_local_work_size[0]; // = total # threads per block in dim 0
 	const cl_uint num_iterations_1 = modified_global_work_size[1] / modified_local_work_size[1]; // = total # threads per block in dim 1
 	const cl_uint num_iterations_2 = modified_global_work_size[2] / modified_local_work_size[2]; // = total # threads per block in dim 2
-	PACKETIZED_OPENCL_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 * num_iterations_2 << ")...\n"; );
+	WFVOPENCL_DEBUG( outs() << "executing kernel (#iterations: " << num_iterations_0 * num_iterations_1 * num_iterations_2 << ")...\n"; );
 
 	assert (num_iterations_0 > 0 && num_iterations_1 > 0 && num_iterations_2 && "should give error message before executeRangeKernel!");
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 	// allocate local memory for each thread to prevent data races
 	// TODO: move somewhere else? should all be "static" information!
 	const cl_uint numArgs = kernel->get_num_args();
-	void* argstructs[PACKETIZED_OPENCL_MAX_NUM_THREADS];
-	void** localdata[PACKETIZED_OPENCL_MAX_NUM_THREADS]; // too much, but easier to access
+	void* argstructs[WFVOPENCL_MAX_NUM_THREADS];
+	void** localdata[WFVOPENCL_MAX_NUM_THREADS]; // too much, but easier to access
 
 	const cl_uint argStrSize = kernel->get_argument_struct_size();
-	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+	for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 		localdata[j] = (void**)malloc(numArgs*sizeof(void*));
 		for (cl_uint i=0; i<numArgs; ++i) {
 			if (kernel->arg_is_local(i)) {
@@ -4789,8 +4789,8 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 
 	cl_int i, j, k;
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
-	omp_set_num_threads(PACKETIZED_OPENCL_MAX_NUM_THREADS);
+#ifdef WFVOPENCL_USE_OPENMP
+	omp_set_num_threads(WFVOPENCL_MAX_NUM_THREADS);
 #	ifdef _WIN32
 #		pragma omp parallel for shared(argument_struct) private(i, j, k) // VS2010 only supports OpenMP 2.5
 #	else
@@ -4800,8 +4800,8 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
 			for (k=0; k<num_iterations_2; ++k) {
-				PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << "/" << k << " (= group ids)\n"; );
-				PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
+				WFVOPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << "/"  << j << "/" << k << " (= group ids)\n"; );
+				WFVOPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
 				const cl_int group_id[3] = { i, j, k };
 
@@ -4813,27 +4813,27 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 					group_id
 				);
 
-				PACKETIZED_OPENCL_DEBUG_RUNTIME( outs() << "iteration " << i << "/" << j << "/" << k << " finished!\n"; );
-				PACKETIZED_OPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
+				WFVOPENCL_DEBUG_RUNTIME( outs() << "iteration " << i << "/" << j << "/" << k << " finished!\n"; );
+				WFVOPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 			}
 		}
 	}
 
-#ifdef PACKETIZED_OPENCL_USE_OPENMP
+#ifdef WFVOPENCL_USE_OPENMP
 	// clean up memory allocated for local data and each thread's argument struct
 	for (cl_uint i=0; i<numArgs; ++i) {
 		if (kernel->arg_is_local(i)) {
-			for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+			for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 				free(localdata[j][i]);
 			}
 		}
 	}
-	for (cl_uint j=0; j<PACKETIZED_OPENCL_MAX_NUM_THREADS; ++j) {
+	for (cl_uint j=0; j<WFVOPENCL_MAX_NUM_THREADS; ++j) {
 		free(argstructs[j]);
 	}
 #endif
 
-	PACKETIZED_OPENCL_DEBUG( outs() << "execution of kernel finished!\n"; );
+	WFVOPENCL_DEBUG( outs() << "execution of kernel finished!\n"; );
 
 	return CL_SUCCESS;
 }
@@ -4843,7 +4843,7 @@ inline cl_int executeRangeKernelND(cl_kernel kernel, const cl_uint num_dimension
 	return CL_INVALID_PROGRAM_EXECUTABLE; // just return something != CL_SUCCESS :P
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueNDRangeKernel(cl_command_queue command_queue,
                        cl_kernel        kernel,
                        cl_uint          work_dim,
@@ -4854,16 +4854,16 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
                        const cl_event * event_wait_list,
                        cl_event *       event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueNDRangeKernel!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueNDRangeKernel!\n"; );
 	const unsigned num_dimensions = work_dim; // rename for better understandability ;)
-	PACKETIZED_OPENCL_DEBUG( outs() << "\nclEnqueueNDRangeKernel(" << kernel->function_wrapper->getNameStr() << ")\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  num_dimensions: " << num_dimensions << "\n"; );
-	PACKETIZED_OPENCL_DEBUG( outs() << "  num_events_in_wait_list: " << num_events_in_wait_list << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "\nclEnqueueNDRangeKernel(" << kernel->function_wrapper->getNameStr() << ")\n"; );
+	WFVOPENCL_DEBUG( outs() << "  num_dimensions: " << num_dimensions << "\n"; );
+	WFVOPENCL_DEBUG( outs() << "  num_events_in_wait_list: " << num_events_in_wait_list << "\n"; );
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if (!kernel) return CL_INVALID_KERNEL;
 	if (command_queue->context != kernel->get_context()) return CL_INVALID_CONTEXT;
 	//if (command_queue->context != event_wait_list->context) return CL_INVALID_CONTEXT;
-	if (num_dimensions < 1 || num_dimensions > PACKETIZED_OPENCL_MAX_NUM_DIMENSIONS) return CL_INVALID_WORK_DIMENSION;
+	if (num_dimensions < 1 || num_dimensions > WFVOPENCL_MAX_NUM_DIMENSIONS) return CL_INVALID_WORK_DIMENSION;
 	if (!kernel->get_compiled_function()) return CL_INVALID_PROGRAM_EXECUTABLE; // ?
 	if (!global_work_size) return CL_INVALID_GLOBAL_WORK_SIZE;
 	if (!local_work_size) return CL_INVALID_WORK_GROUP_SIZE;
@@ -4881,19 +4881,19 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 	// compare work_dim and derived dimensions and issue warning/error if not the same
 	// (we generate code specific to the number of dimensions actually used)
 	// TODO: reject kernel if any of the builtin functions receives variable parameter
-	PACKETIZED_OPENCL_DEBUG(
+	WFVOPENCL_DEBUG(
 		if (kernel->get_num_dimensions() != num_dimensions) {
 			errs() << "WARNING: number of dimensions used in kernel (" << kernel->get_num_dimensions() <<
 					") does not match 'work_dim' (" << num_dimensions << ") supplied by clEnqueueNDRangeKernel()!\n";
 		}
 	);
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
-	PACKETIZED_OPENCL_DEBUG(
+#ifndef WFVOPENCL_NO_PACKETIZATION
+	WFVOPENCL_DEBUG(
 		const size_t simd_dim_work_size = local_work_size[kernel->get_best_simd_dim()];
 		outs() << "  best simd dim: " << kernel->get_best_simd_dim() << "\n";
 		outs() << "  local_work_size of dim: " << simd_dim_work_size << "\n";
-		const bool dividableBySimdWidth = simd_dim_work_size % PACKETIZED_OPENCL_SIMD_WIDTH == 0;
+		const bool dividableBySimdWidth = simd_dim_work_size % WFVOPENCL_SIMD_WIDTH == 0;
 		if (!dividableBySimdWidth) {
 			errs() << "WARNING: group size of simd dimension not dividable by simdWidth\n";
 			//return CL_INVALID_WORK_GROUP_SIZE;
@@ -4910,19 +4910,19 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueTask(cl_command_queue  command_queue,
               cl_kernel         kernel,
               cl_uint           num_events_in_wait_list,
               const cl_event *  event_wait_list,
               cl_event *        event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueTask!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueTask!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueNativeKernel(cl_command_queue  command_queue,
 					  void (CL_CALLBACK *user_func)(void *),
                       void *            args,
@@ -4934,34 +4934,34 @@ clEnqueueNativeKernel(cl_command_queue  command_queue,
                       const cl_event *  event_wait_list,
                       cl_event *        event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueNativeKernel!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueNativeKernel!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueMarker(cl_command_queue    command_queue,
                 cl_event *          event)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueMarker!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueMarker!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueWaitForEvents(cl_command_queue command_queue,
                        cl_uint          num_events,
                        const cl_event * event_list)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueWaitForEvents!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueWaitForEvents!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
 
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueBarrier(cl_command_queue command_queue)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clEnqueueBarrier!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueBarrier!\n"; );
 	assert (false && "NOT IMPLEMENTED!");
 	return CL_SUCCESS;
 }
@@ -4973,10 +4973,10 @@ clEnqueueBarrier(cl_command_queue command_queue)
  * check to make sure the address is not NULL, before using or
  * calling the returned function address.
  */
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name)
+WFVOPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clGetExtensionFunctionAddress!\n"; );
-	PACKETIZED_OPENCL_DEBUG ( outs() << "  func_name: " << func_name << "\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetExtensionFunctionAddress!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "  func_name: " << func_name << "\n"; );
 	// This is for identification by the ICD mechanism
 	if (!strcmp(func_name, "clIcdGetPlatformIDsKHR")) {
 		return (void*)clIcdGetPlatformIDsKHR;
@@ -4999,15 +4999,15 @@ PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFuncti
 /************************ 
  * cl_khr_icd extension *                                                  
  ************************/
-PACKETIZED_OPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
+WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clIcdGetPlatformIDsKHR(cl_uint              num_entries,
                            cl_platform_id * platforms,
                            cl_uint *        num_platforms)
 {
-	PACKETIZED_OPENCL_DEBUG ( outs() << "ENTERED clIcdGetPlatformIDsKHR!\n"; );
-	PACKETIZED_OPENCL_DEBUG ( outs() << "  num_entries: " << num_entries << "\n"; );
-	PACKETIZED_OPENCL_DEBUG ( outs() << "  platforms: " << (void*)platforms << "\n"; );
-	PACKETIZED_OPENCL_DEBUG ( if (num_platforms) outs() << "  num_platforms: " << *num_platforms << "\n"; );
+	WFVOPENCL_DEBUG ( outs() << "ENTERED clIcdGetPlatformIDsKHR!\n"; );
+	WFVOPENCL_DEBUG ( outs() << "  num_entries: " << num_entries << "\n"; );
+	WFVOPENCL_DEBUG ( outs() << "  platforms: " << (void*)platforms << "\n"; );
+	WFVOPENCL_DEBUG ( if (num_platforms) outs() << "  num_platforms: " << *num_platforms << "\n"; );
 
 	if (num_entries == 0 && platforms) return CL_INVALID_VALUE;
 	if (!num_platforms && !platforms) return CL_INVALID_VALUE;

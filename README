@@ -1,11 +1,24 @@
-REQUIRED SOFTWARE:
+/**
+ * @file   README
+ * @date   25.07.2010
+ * @author Ralf Karrenberg
+ *
+ * This file is distributed under the University of Illinois Open Source
+ * License. See the COPYING file in the root directory for details.
+ *
+ * Copyright (C) 2010, 2011 Saarland University
+ *
+ */
+
+================================================================================
+1. REQUIRED SOFTWARE:
 
 - scons (requires python)
 - libglew1.5-dev
 - glew-utils (?)
 - libglut3-dev (?)
 - LLVM 2.9 final
-- packetizer
+- WFV library
 - AMD APP SDK
 - Intel OpenCL Beta
 - clc tool from former ATI Stream SDK (included in folder 'bin')
@@ -14,13 +27,14 @@ On Windows and Unix, glew/glut are possibly not required with the included libra
 On Mac OS X, glew has to be downloaded and built in order to get a working libGLEW.a.
 
 
-INSTALLATION:
+================================================================================
+2. INSTALLATION:
 
 IMPORTANT: .bc files can not be generated under windows (clc only works on UNIX)
 
 - build llvm
-- build packetizer
-- set environment variables $LLVM_INSTALL_DIR and $PACKETIZER_INSTALL_DIR appropriately
+- build WFV library
+- set environment variables $LLVM_INSTALL_DIR and $WFV_INSTALL_DIR appropriately
 - install AMD APP SDK
 	- Linux: place ICD registration config files in /etc/OpenCL/vendors
 		- should be attempted automatically by installer
@@ -39,14 +53,14 @@ IMPORTANT: .bc files can not be generated under windows (clc only works on UNIX)
 	- building the SDK is not required (only need the libraries)
 - run scons
 	- options (default shown):
-		debug         = 0
-		debug-runtime = 0
-		profile       = 0
-		packetize     = 0 (enable packetization)
-		openmp        = 0 (enable openmp multi threading)
-		threads       = 0 (set number of threads to use if openmp is enabled (default: 4))
-		split         = 0 (disable mem access optimizations)
-		static        = 0 (build static driver library instead of dynamic)
+		debug			= 0
+		debug-runtime	= 0
+		profile			= 0
+		wfv				= 0 (enable packetization)
+		openmp			= 0 (enable openmp multi threading)
+		threads			= 0 (set number of threads to use if openmp is enabled (default: 4))
+		split			= 0 (disable mem access optimizations)
+		static			= 0 (build static driver library instead of dynamic)
 
 
 additional step for windows installation:
@@ -58,34 +72,35 @@ Installing the OpenCL Installable Client Driver (ICD):
 ( consider htpp://www.khronos.org/registry/cl/extensions/khr/cl_khr_icd.txt )
 
 - Windows:
-	1) add DWORD value to HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\OpenCL\Vendors with name "PacketizedOpenCL.dll"
+	1) add DWORD value to HKEY_LOCAL_MACHINE\SOFTWARE\Khronos\OpenCL\Vendors with name "WFVOpenCL.dll"
 	2a) make sure ./lib is in your $PATH
 	OR
-	2b) copy lib/packetizedOpenCL.dll to %WINDOWS%\system32
+	2b) copy lib/WFVOpenCL.dll to %WINDOWS%\system32
 
 - Linux:
-	1) copy lib/packetizedOpenCL.icd to /etc/OpenCL/vendors/
+	1) copy lib/WFVOpenCL.icd to /etc/OpenCL/vendors/
 	2) make sure ./lib/x86_64 is in your $LD_LIBRARY_PATH
 	3) make sure ./lib is in your $PATH (?)
 
 
-RUNNING SAMPLES:
+================================================================================
+3. RUNNING SAMPLES:
 
-- in order to successfully run samples using PacketizedOpenCL, make sure ./lib and ./lib/x86_64 (x86 for 32bit) are in your $PATH ($LD_LIBRARY_PATH on unix), otherwise the OpenCL ICD will not find the driver and list it as an available platform
+- in order to successfully run samples using WFVOpenCL, make sure ./lib and ./lib/x86_64 (x86 for 32bit) are in your $PATH ($LD_LIBRARY_PATH on unix), otherwise the OpenCL ICD will not find the driver and list it as an available platform
 
 - in order to successfully run samples using AMD OpenCL, make sure as.exe and ld.exe from $AMDAPPSDKROOT/bin/x86_64 are used (e.g. MinGW puts its own bin-directories in front of the PATH variable)
 - also make sure $AMDAPPSDKROOT is always quoted (directories with spaces)
 
-- switch between PacketizedOpenCL/AMD/Intel by running the executables with flag "-p X", where X is the number of the appropriate platform (probably 0 = Intel, 1 = AMD, 2 = PacketizedOpenCL).
+- switch between WFVOpenCL/AMD/Intel by running the executables with flag "-p X", where X is the number of the appropriate platform (probably 0 = Intel, 1 = AMD, 2 = WFVOpenCL).
 
-
+--------------------------------------------------------------------------------
 NOTES ON SAMPLES:
 
 - Samples ending with 'Simple' are usually simplified ones. Modifications usually come down to manually replacing vector code by scalar code
   in order to enable use of automatic vectorization.
 - Histogram has been modified to take a sharedArray of type uint instead of uchar to allow for packetization
 - MatrixTranspose might have problems with OpenMP 3.0 collapse -> check!
-- TestConstantIndex: There is an issue with uniformly accessing an input/output array with constant index: The packetizer creates a vector load/store of indices 0/1/2/3 because the array is varying. In a non-OpenCL-context, this is the desired behaviour, but here we want to access the same value as in the scalar case.
+- TestConstantIndex: There is an issue with uniformly accessing an input/output array with constant index: WFV creates a vector load/store of indices 0/1/2/3 because the array is varying. In a non-OpenCL-context, this is the desired behaviour, but here we want to access the same value as in the scalar case.
 	Example 1:
 		float input[128];     -->   __m128 inputV[32];
 		float output[128];    -->   __m128 outputV[32];
@@ -106,11 +121,12 @@ NOTES ON SAMPLES:
 
 
 
-TROUBLESHOOTING:
+================================================================================
+4. TROUBLESHOOTING:
 
 Any System
 ----------------------------------------------------------------------
-Packetized OpenCL Platform does not appear.
+WFVOpenCL Platform does not appear.
 ----------------------------------------------------------------------
 Make sure the ICD is correctly registered and the path to the corresponding library is in your LD_LIBRARY_PATH (Unix) or PATH (Windows).
 
@@ -129,5 +145,4 @@ a) The OpenCL ICD list does not point to the correct AMD APP SDK lib (libamdocl6
 b) You are missing the path to the AMD APP SDK libs (libamdocl64.so) from your LD_LIBRARY_PATH (should be $AMDAPPSDKROOT/lib/x86_64).
 This can happen e.g. if you have the ICD of an older SDK installed and the library was renamed.
 The error is likely only to appear if you only have that one platform - in cases with other valid platforms, it will be silently ignored
-
 

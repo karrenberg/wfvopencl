@@ -6,7 +6,7 @@
  * This file is distributed under the University of Illinois Open Source
  * License. See the COPYING file in the root directory for details.
  *
- * Copyright (C) 2008, 2009, 2010, 2011 Saarland University
+ * Copyright (C) 2010, 2011 Saarland University
  *
  */
 #ifndef _LLVMTOOLS_H
@@ -51,30 +51,30 @@
 #include "llvm/Support/TypeBuilder.h"
 
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_PACKETIZATION
 #	include "packetizerAPI.hpp"
 #endif
 
 #ifdef DEBUG
-#	define PACKETIZED_OPENCL_DEBUG(x) do { x } while (false)
-#	define PACKETIZED_OPENCL_DEBUG_VISIBLE(x) x
+#	define WFVOPENCL_DEBUG(x) do { x } while (false)
+#	define WFVOPENCL_DEBUG_VISIBLE(x) x
 #else
-#	define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
-#	define PACKETIZED_OPENCL_DEBUG_VISIBLE(x)
+#	define WFVOPENCL_DEBUG(x) ((void)0)
+#	define WFVOPENCL_DEBUG_VISIBLE(x)
 #endif
 
 #ifdef NDEBUG // force debug output disabled
-#	undef PACKETIZED_OPENCL_DEBUG
-#	define PACKETIZED_OPENCL_DEBUG(x) ((void)0)
-#	undef PACKETIZED_OPENCL_DEBUG_VISIBLE
-#	define PACKETIZED_OPENCL_DEBUG_VISIBLE(x)
+#	undef WFVOPENCL_DEBUG
+#	define WFVOPENCL_DEBUG(x) ((void)0)
+#	undef WFVOPENCL_DEBUG_VISIBLE
+#	define WFVOPENCL_DEBUG_VISIBLE(x)
 #endif
 
-#define PACKETIZED_OPENCL_SIMD_WIDTH 4
+#define WFVOPENCL_SIMD_WIDTH 4
 
 using namespace llvm;
 
-namespace PacketizedOpenCL {
+namespace WFVOpenCL {
 
 	// small helper function
 	inline bool constantEqualsInt(const Constant* c, const uint64_t intValue) {
@@ -89,10 +89,10 @@ namespace PacketizedOpenCL {
 		assert (isa<ConstantInt>(c));
 		const ConstantInt* constIntOp = cast<ConstantInt>(c);
 		const uint64_t constVal = *(constIntOp->getValue().getRawData());
-		return (constVal % PACKETIZED_OPENCL_SIMD_WIDTH == 0);
+		return (constVal % WFVOPENCL_SIMD_WIDTH == 0);
 	}
 
-#ifndef PACKETIZED_OPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_PACKETIZATION
 	void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer) {
 
 		for (Function::iterator BB=kernel->begin(), BBE=kernel->end();
@@ -377,14 +377,14 @@ namespace PacketizedOpenCL {
 			Function::Create(fTypeL0, Function::ExternalLinkage, "get_local_id", mod);
 		}
 
-#ifdef PACKETIZED_OPENCL_OLD_PACKETIZER
+#ifdef WFVOPENCL_OLD_PACKETIZER
 		// generate 'unsigned get_global_id_split(unsigned)'
 		// is replaced by get_global_id_split_SIMD during packetization
 		const FunctionType* fTypeG1 = FunctionType::get(Type::getInt32Ty(context), params, false);
 		Function::Create(fTypeG1, Function::ExternalLinkage, "get_global_id_split", mod);
 		// generate '__m128i get_global_id_split_SIMD(unsigned)'
 		// returns a vector to force splitting during packetization
-		const FunctionType* fTypeG2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), PACKETIZED_OPENCL_SIMD_WIDTH), params, false);
+		const FunctionType* fTypeG2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), WFVOPENCL_SIMD_WIDTH), params, false);
 		Function::Create(fTypeG2, Function::ExternalLinkage, "get_global_id_split_SIMD", mod);
 		// generate 'unsigned get_global_id_SIMD(unsigned)'
 		// does not return a vector because the simd value is loaded from the
@@ -398,7 +398,7 @@ namespace PacketizedOpenCL {
 		Function::Create(fTypeL1, Function::ExternalLinkage, "get_local_id_split", mod);
 		// generate '__m128i get_local_id_split_SIMD(unsigned)'
 		// returns a vector to force splitting during packetization
-		const FunctionType* fTypeL2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), PACKETIZED_OPENCL_SIMD_WIDTH), params, false);
+		const FunctionType* fTypeL2 = FunctionType::get(VectorType::get(Type::getInt32Ty(context), WFVOPENCL_SIMD_WIDTH), params, false);
 		Function::Create(fTypeL2, Function::ExternalLinkage, "get_local_id_split_SIMD", mod);
 		// generate 'unsigned get_local_id_SIMD(unsigned)'
 		// does not return a vector because the simd value is loaded from the
@@ -481,7 +481,7 @@ namespace PacketizedOpenCL {
 
 
 // to be removed :)
-namespace PacketizedOpenCL {
+namespace WFVOpenCL {
 
 	Function* getFunction(const std::string& name, Module* module) {
 		assert (module);
@@ -700,7 +700,7 @@ namespace PacketizedOpenCL {
 
 
 	void inlineFunctionCalls(Function* f, TargetData* targetData=NULL) {
-		//PACKETIZED_OPENCL_DEBUG( outs() << "  inlining function calls... "; );
+		//WFVOPENCL_DEBUG( outs() << "  inlining function calls... "; );
 		bool functionChanged = true;
 		while (functionChanged) {
 			functionChanged = false;
@@ -715,7 +715,7 @@ namespace PacketizedOpenCL {
 						continue;
 					}
 					if (callee->getAttributes().hasAttrSomewhere(Attribute::NoInline)) {
-						//PACKETIZED_OPENCL_DEBUG( outs() << "    function '" << callee->getNameStr() << "' has attribute 'no inline', ignored call!\n"; );
+						//WFVOPENCL_DEBUG( outs() << "    function '" << callee->getNameStr() << "' has attribute 'no inline', ignored call!\n"; );
 						continue;
 					}
 
@@ -723,7 +723,7 @@ namespace PacketizedOpenCL {
 
 					InlineFunctionInfo IFI(NULL, targetData);
 					blockChanged = InlineFunction(call, IFI);
-					//PACKETIZED_OPENCL_DEBUG(
+					//WFVOPENCL_DEBUG(
 						//if (blockChanged) outs() << "  inlined call to function '" << calleeName << "'\n";
 						//else errs() << "  inlining of call to function '" << calleeName << "' FAILED!\n";
 					//);
@@ -731,7 +731,7 @@ namespace PacketizedOpenCL {
 				}
 			}
 		}
-		//PACKETIZED_OPENCL_DEBUG( outs() << "done.\n"; );
+		//WFVOPENCL_DEBUG( outs() << "done.\n"; );
 	}
 
 
@@ -743,7 +743,7 @@ namespace PacketizedOpenCL {
 		Module* mod = f->getParent();
 		TargetData* targetData = new TargetData(mod);
 
-		//PACKETIZED_OPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
+		//WFVOPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
 
 
 		//PassManager Passes;
@@ -790,19 +790,19 @@ namespace PacketizedOpenCL {
 		Passes.add(createCFGSimplificationPass());
 		Passes.add(createAggressiveDCEPass());
 
-		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
+		WFVOPENCL_DEBUG( Passes.add(createVerifierPass()); );
 
-		//PACKETIZED_OPENCL_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
-		//PACKETIZED_OPENCL_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
-		//PACKETIZED_OPENCL_DEBUG( t.startTimer(); );
+		//WFVOPENCL_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
+		//WFVOPENCL_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
+		//WFVOPENCL_DEBUG( t.startTimer(); );
 
 		Passes.doInitialization();
 		Passes.run(*f);
 		Passes.doFinalization();
 
-		//PACKETIZED_OPENCL_DEBUG( t.stopTimer(); );
-		//PACKETIZED_OPENCL_DEBUG( outs() << "done.\ndone.\n"; );
-		//PACKETIZED_OPENCL_DEBUG( tg.print(outs()); );
+		//WFVOPENCL_DEBUG( t.stopTimer(); );
+		//WFVOPENCL_DEBUG( outs() << "done.\ndone.\n"; );
+		//WFVOPENCL_DEBUG( tg.print(outs()); );
 	}
 #else
 
@@ -881,7 +881,7 @@ namespace PacketizedOpenCL {
 		Passes.add(createAggressiveDCEPass());         // Delete dead instructions
 		Passes.add(createCFGSimplificationPass());     // Merge & remove BBs
 
-		PACKETIZED_OPENCL_DEBUG( Passes.add(createVerifierPass()); );
+		WFVOPENCL_DEBUG( Passes.add(createVerifierPass()); );
 
 		Passes.doInitialization();
 		Passes.run(*f);

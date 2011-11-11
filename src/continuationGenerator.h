@@ -6,7 +6,7 @@
  * This file is distributed under the University of Illinois Open Source
  * License. See the COPYING file in the root directory for details.
  *
- * Copyright (C) 2008, 2009, 2010, 2011 Saarland University
+ * Copyright (C) 2010, 2011 Saarland University
  *
  */
 #ifndef _CONTINUATIONGENERATOR_H
@@ -44,9 +44,9 @@
 #define DEBUG_LA(x) ((void)0)
 #endif
 
-#define PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER "barrier"
-#define PACKETIZED_OPENCL_BARRIER_SPECIAL_END_ID -1
-#define PACKETIZED_OPENCL_BARRIER_SPECIAL_START_ID 0
+#define WFVOPENCL_FUNCTION_NAME_BARRIER "barrier"
+#define WFVOPENCL_BARRIER_SPECIAL_END_ID -1
+#define WFVOPENCL_BARRIER_SPECIAL_START_ID 0
 
 using namespace llvm;
 
@@ -171,7 +171,7 @@ public:
 
 		DEBUG_LA( verifyModule(*f.getParent()); );
 
-		DEBUG_LA( PacketizedOpenCL::writeFunctionToFile(&f, "debug_kernel_barriers_finished.ll"); );
+		DEBUG_LA( WFVOpenCL::writeFunctionToFile(&f, "debug_kernel_barriers_finished.ll"); );
 
 		DEBUG_LA( outs() << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"; );
 		DEBUG_LA( outs() << "generation of continuations finished!\n"; );
@@ -251,7 +251,7 @@ private:
 		if (!isa<CallInst>(value)) return false;
 		const CallInst* call = cast<CallInst>(value);
 		const Function* callee = call->getCalledFunction();
-		return callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER);
+		return callee->getName().equals(WFVOPENCL_FUNCTION_NAME_BARRIER);
 	}
 	inline bool blockEndsWithBarrierBeforeTerminator(const BasicBlock* block) const {
 		if (block->getInstList().size() < 2) return false;  // block cannot end with barrier
@@ -337,7 +337,7 @@ private:
 			CallInst* call = cast<CallInst>(I);
 
 			const Function* callee = call->getCalledFunction();
-			if (!callee->getName().equals(PACKETIZED_OPENCL_FUNCTION_NAME_BARRIER)) continue;
+			if (!callee->getName().equals(WFVOPENCL_FUNCTION_NAME_BARRIER)) continue;
 
 			++numBarriers;
 
@@ -1360,7 +1360,7 @@ private:
 		for (unsigned i=0; i<returns.size(); ++i) {
 			BasicBlock* retBlock = returns[i]->getParent();
 			returns[i]->eraseFromParent();
-			ReturnInst::Create(context, ConstantInt::get(getReturnType(context), PACKETIZED_OPENCL_BARRIER_SPECIAL_END_ID, true), retBlock);
+			ReturnInst::Create(context, ConstantInt::get(getReturnType(context), WFVOPENCL_BARRIER_SPECIAL_END_ID, true), retBlock);
 		}
 
 		// Replace branches behind barriers by corresponding return ids
@@ -1592,7 +1592,7 @@ private:
 		//
 		{
 			const CallInst* barrier = NULL;
-			const unsigned barrierIndex = PACKETIZED_OPENCL_BARRIER_SPECIAL_START_ID;
+			const unsigned barrierIndex = WFVOPENCL_BARRIER_SPECIAL_START_ID;
 			DEBUG_LA( outs() << "\n  start function with index " << barrierIndex << "\n"; );
 			const unsigned depth = 0;
 			SetVector<const BasicBlock*>* continuationRegion = new SetVector<const BasicBlock*>();
