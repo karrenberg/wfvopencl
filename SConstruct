@@ -5,20 +5,19 @@ env = Environment(ENV = os.environ)
 
 # These two variables have to be set in the environment
 LLVM_INSTALL_DIR = env['ENV']['LLVM_INSTALL_DIR']
-PACKETIZER_INSTALL_DIR = env['ENV']['PACKETIZER_INSTALL_DIR']
+WFV_INSTALL_DIR = env['ENV']['WFV_INSTALL_DIR']
 
 # build variables
-debug             = ARGUMENTS.get('debug', 0)             # enable debug information
-debug_runtime     = ARGUMENTS.get('debug_runtime', 0)     # enable debugging of runtime (JIT) code
-profile           = ARGUMENTS.get('profile', 0)           # enable profiling
-use_openmp        = ARGUMENTS.get('openmp', 0)            # enable OpenMP
-num_threads       = ARGUMENTS.get('threads', 0)           # set number of threads to use in OpenMP
-split             = ARGUMENTS.get('split', 0)             # disable load/store optimizations (= always perform scalar load/store, experimental)
-packetize         = ARGUMENTS.get('packetize', 0)         # enable packetization
-packetizer_shared = ARGUMENTS.get('packetizer_shared', 0) # should be set if Packetizer was compiled as a shared library (see below)
-llvm_no_debug     = ARGUMENTS.get('llvm_no_debug', 0)     # should be set if LLVM was compiled in release mode (at least on windows)
-
-compile_static_lib_driver = ARGUMENTS.get('static', 0)    # compile static library link applications statically (circumvents OpenCL ICD mechanism)
+debug			= ARGUMENTS.get('debug', 0)             # enable debug information
+debug_runtime	= ARGUMENTS.get('debug_runtime', 0)     # enable debugging of runtime (JIT) code
+profile			= ARGUMENTS.get('profile', 0)           # enable profiling
+use_openmp		= ARGUMENTS.get('openmp', 0)            # enable OpenMP
+num_threads		= ARGUMENTS.get('threads', 0)           # set number of threads to use in OpenMP
+split			= ARGUMENTS.get('split', 0)             # disable load/store optimizations (= always perform scalar load/store, experimental)
+use_wfv			= ARGUMENTS.get('wfv', 0)				# enable WFV
+wfv_shared		= ARGUMENTS.get('wfv_shared', 0)		# should be set if the WFV library was compiled as a shared library (see below)
+llvm_no_debug	= ARGUMENTS.get('llvm_no_debug', 0)		# should be set if LLVM was compiled in release mode (at least on windows)
+compile_static_lib_driver = ARGUMENTS.get('static', 0)	# compile static library link applications statically (circumvents OpenCL ICD mechanism)
 
 if int(debug_runtime):
 	debug = 1
@@ -41,11 +40,11 @@ else:
 #print env['TARGET_OS']
 #print env['TARGET_ARCH']
 
-# NOTE: Dynamically linking the packetizer will not work because both the driver and the packetizer statically link LLVM
+# NOTE: Dynamically linking the WFV library will not work because both the driver and the WFV lib statically link LLVM
 #       on Windows (because there are no shared libraries as of LLVM 2.9). Thus, pointer equality of LLVM types (e.g. for
 #       Type* == Type*) will not work between the two libs (and possibly more stuff).
-if isWin and int(packetize) and int(packetizer_shared):
-	print "\nERROR: Dynamic linking of packetizer library does not work on Windows!\n"
+if isWin and int(use_wfv) and int(wfv_shared):
+	print "\nERROR: Dynamic linking of WFV library does not work on Windows!\n"
 	Exit(1)
 
 # set up compiler
@@ -104,40 +103,40 @@ if int(profile):
 	else:
 		cxxflags=cxxflags+env.Split("-O0 -g")
 	# disabled until we have 64bit VTune libraries
-	#cxxflags=cxxflags+env.Split("-g -DPACKETIZED_OPENCL_ENABLE_JIT_PROFILING")
+	#cxxflags=cxxflags+env.Split("-g -DWFVOPENCL_ENABLE_JIT_PROFILING")
 	#compile_static_lib_driver=1
 
 if int(use_openmp):
 	if isWin:
-		cxxflags=cxxflags+env.Split("/DPACKETIZED_OPENCL_USE_OPENMP /openmp")
+		cxxflags=cxxflags+env.Split("/DWFVOPENCL_USE_OPENMP /openmp")
 	else:
-		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_USE_OPENMP -fopenmp")
+		cxxflags=cxxflags+env.Split("-DWFVOPENCL_USE_OPENMP -fopenmp")
 		env.Append(LINKFLAGS = env.Split("-fopenmp"))
 	if int(num_threads):
-		cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_NUM_CORES="+num_threads)
+		cxxflags=cxxflags+env.Split("-DWFVOPENCL_NUM_CORES="+num_threads)
 
-if not int(packetize):
-	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_NO_PACKETIZATION")
+if not int(use_wfv):
+	cxxflags=cxxflags+env.Split("-DWFVOPENCL_NO_WFV")
 
 if int(split):
-	cxxflags=cxxflags+env.Split("-DPACKETIZED_OPENCL_SPLIT_EVERYTHING")
+	cxxflags=cxxflags+env.Split("-DWFVOPENCL_SPLIT_EVERYTHING")
 
-# This is only required if the packetizer was built as a shared library (and only on Windows for dllexport/dllimport)
+# This is only required if the WFV library was built as a shared library (and only on Windows for dllexport/dllimport)
 # TODO: Can we detect this automatically? :)
-if int(packetize) and not int(packetizer_shared):
-	cxxflags=cxxflags+env.Split("-DPACKETIZER_STATIC_LIBS")
+if int(use_wfv) and not int(wfv_shared):
+	cxxflags=cxxflags+env.Split("-DWFV_STATIC_LIBS")
 
 
 env.Append(CXXFLAGS = cxxflags)
 
 # set up paths
 env.Append(CPPPATH = [os.path.join(LLVM_INSTALL_DIR, 'include')])
-env.Append(CPPPATH = [os.path.join(PACKETIZER_INSTALL_DIR, 'include')])
+env.Append(CPPPATH = [os.path.join(WFV_INSTALL_DIR, 'include')])
 env.Append(CPPPATH = llvm_vars.get('CPPPATH'))
 env.Append(CPPPATH = env.Split("include"))
 
 env.Append(LIBPATH = [os.path.join(LLVM_INSTALL_DIR, 'lib')])
-env.Append(LIBPATH = [os.path.join(PACKETIZER_INSTALL_DIR, 'lib')])
+env.Append(LIBPATH = [os.path.join(WFV_INSTALL_DIR, 'lib')])
 env.Append(LIBPATH = llvm_vars.get('LIBPATH'))
 env.Append(LIBPATH = env.Split("lib"))
 if is32Bit:
@@ -148,11 +147,11 @@ else:
 
 # set up libraries
 # glut and GLEW are not required for all, but this is easier :P
-driverLibs = llvm_vars.get('LIBS') + env.Split('Packetizer dl')
+driverLibs = llvm_vars.get('LIBS') + env.Split('WFV dl')
 if isWin:
 	# get glut from http://www.idfun.de/glut64/
 	if int(compile_static_lib_driver):
-		appLibs = env.Split('PacketizedOpenCL SDKUtil glut32')
+		appLibs = env.Split('WFVOpenCL SDKUtil glut32')
 	else:
 		appLibs = env.Split('OpenCL SDKUtil glut32')
 	if is32Bit:
@@ -162,14 +161,14 @@ if isWin:
 		appLibs+=env.Split('glew32')
 elif isDarwin:
 	if int(compile_static_lib_driver):
-		appLibs = env.Split('PacketizedOpenCL SDKUtil glew')
+		appLibs = env.Split('WFVOpenCL SDKUtil glew')
 	else:
 		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
 		#appLibs = env.Split('SDKUtil glew')
 		appLibs = env.Split('OpenCL SDKUtil glew')
 else:
 	if int(compile_static_lib_driver):
-		appLibs = env.Split('PacketizedOpenCL SDKUtil glut GLEW')
+		appLibs = env.Split('WFVOpenCL SDKUtil glut GLEW')
 	else:
 		appLibs = env.Split('OpenCL SDKUtil glut GLEW')
 
@@ -181,14 +180,14 @@ else:
 
 
 ###
-### build Packetized OpenCL library
+### build WFV OpenCL library
 ###
 
 driverSrc = env.Glob('src/*.cpp')
 if int(compile_static_lib_driver):
-	PacketizedOpenCL = env.StaticLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
+	WFVOpenCL = env.StaticLibrary(target='lib/WFVOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 else:
-	PacketizedOpenCL = env.SharedLibrary(target='lib/PacketizedOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
+	WFVOpenCL = env.SharedLibrary(target='lib/WFVOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 
 ###
 ### build AMD-ATI SDKUtil as a static library (required for test applications)
@@ -207,7 +206,7 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 #TestBarrier2
 #""")
 
-# Those work in all configurations, including packetizer:
+# Those work in all configurations, including WFV:
 testApps = env.Split("""
 TestSimple
 TestLinearAccess
@@ -326,7 +325,7 @@ else:
 
 # NOTE: using --march automatically generates a stub-function
 # NOTE: using --march also inserts calls to builtin functions instead of e.g. printf
-# NOTE: --march=x86-64 generates bad code for packetization :(
+# NOTE: --march=x86-64 generates bad code for WFV :(
 #       --march=x86 (or left out) generates 32bit data structures etc., making wrapper unusable
 
 #env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
@@ -350,13 +349,13 @@ if not isWin and not isDarwin:
 # these are not removed automatically by scons -c for some configurations :(
 if GetOption("clean"):
 	Execute(Delete('build'))
-	Execute(Delete('lib/PacketizedOpenCL.dll'))
-	Execute(Delete('lib/PacketizedOpenCL.dll.manifest'))
-	Execute(Delete('lib/PacketizedOpenCL.exp'))
-	Execute(Delete('lib/PacketizedOpenCL.ilk'))
-	Execute(Delete('lib/PacketizedOpenCL.pdb'))
-	Execute(Delete('lib/libPacketizedOpenCL.so'))
-	Execute(Delete('lib/libPacketizedOpenCL.a'))
+	Execute(Delete('lib/WFVOpenCL.dll'))
+	Execute(Delete('lib/WFVOpenCL.dll.manifest'))
+	Execute(Delete('lib/WFVOpenCL.exp'))
+	Execute(Delete('lib/WFVOpenCL.ilk'))
+	Execute(Delete('lib/WFVOpenCL.pdb'))
+	Execute(Delete('lib/libWFVOpenCL.so'))
+	Execute(Delete('lib/libWFVOpenCL.a'))
 	for a in testApps:
 		Execute(Delete(a+'_Output.bmp'))
 		if isDarwin:

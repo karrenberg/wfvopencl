@@ -6,7 +6,7 @@
  * This file is distributed under the University of Illinois Open Source
  * License. See the COPYING file in the root directory for details.
  *
- * Copyright (C) 2008, 2009, 2010, 2011 Saarland University
+ * Copyright (C) 2010, 2011 Saarland University
  *
  */
 #ifndef _LIVENESSANALYZER_H

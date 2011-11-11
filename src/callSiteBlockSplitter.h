@@ -6,7 +6,7 @@
  * This file is distributed under the University of Illinois Open Source
  * License. See the COPYING file in the root directory for details.
  *
- * Copyright (C) 2008, 2009, 2010, 2011 Saarland University
+ * Copyright (C) 2010, 2011 Saarland University
  *
  * TODO: void* as last param is hardcoded
  * TODO: replacing all returns by return -1 is hardcoded
@@ -63,9 +63,9 @@ public:
 		DEBUG_CSBS( outs() << "splitting basic blocks at callsites of function " << calleeName << "...\n"; );
 		DEBUG_CSBS( outs() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n"; );
 
-		DEBUG_CSBS( PacketizedOpenCL::writeFunctionToFile(&f, "debug_splitting_before.ll"); );
+		DEBUG_CSBS( WFVOpenCL::writeFunctionToFile(&f, "debug_splitting_before.ll"); );
 		splitBlocksAtCallSites(&f);
-		DEBUG_CSBS( PacketizedOpenCL::writeFunctionToFile(&f, "debug_splitting_after.ll"); );
+		DEBUG_CSBS( WFVOpenCL::writeFunctionToFile(&f, "debug_splitting_after.ll"); );
 
 		DEBUG_CSBS( verifyModule(*f.getParent()); );
 
