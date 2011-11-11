@@ -13,4 +13,9 @@ build/
 *.pdb
 *.manifest
 
+# vim
 *.swp
+
+# eclipse
+.project
+.cproject
