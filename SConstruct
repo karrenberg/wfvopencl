@@ -320,28 +320,6 @@ else:
 
 
 ###
-### build bitcode from OpenCL files
-###
-
-# NOTE: using --march automatically generates a stub-function
-# NOTE: using --march also inserts calls to builtin functions instead of e.g. printf
-# NOTE: --march=x86-64 generates bad code for WFV :(
-#       --march=x86 (or left out) generates 32bit data structures etc., making wrapper unusable
-
-#env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86-64 --msse2 $SOURCE")
-#env.Command('build/obj/simpleTest_Kernels.ll', 'test/simpleTest_Kernels.cl', "clc --march=x86 --msse2 $SOURCE")
-
-#cmd_ll = "clc -o $TARGET --msse2 $SOURCE"
-#cmd_bc = "llvm-as $SOURCE -o $TARGET"
-
-if not isWin and not isDarwin:
-	for a in testApps:
-		env.Command('build/obj/'+a+'_Kernels', 'test/'+a+'/'+a+'_Kernels.cl',
-					["bin/x86_64/clc -o ${TARGET.file}.ll --msse2 ${SOURCE}",
-					LLVM_INSTALL_DIR+"/bin/llvm-as"+" -o ${TARGET.file}.bc ${TARGET.file}.ll",
-					Delete('${TARGET.file}.ll')])
-
-###
 ### clean up
 ###
 
