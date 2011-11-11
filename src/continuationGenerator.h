@@ -36,16 +36,7 @@
 #include <stack>
 #include "llvm/ADT/SetVector.h"
 
-#ifdef DEBUG
-#define DEBUG_LA(x) do { x } while (false)
-#else
-#define DEBUG_LA(x) ((void)0)
-#endif
-
-#ifdef NDEBUG // force debug output disabled
-#undef DEBUG_LA
-#define DEBUG_LA(x) ((void)0)
-#endif
+#include "debug.h"
 
 #define WFVOPENCL_FUNCTION_NAME_BARRIER "barrier"
 #define WFVOPENCL_BARRIER_SPECIAL_END_ID -1

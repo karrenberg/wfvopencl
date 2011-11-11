@@ -25,18 +25,7 @@
 #include <llvm/Module.h>
 #include <llvm/Analysis/LoopInfo.h>
 
-
-#ifdef DEBUG
-#define DEBUG_LA(x) do { x } while (false)
-#else
-#define DEBUG_LA(x) ((void)0)
-#endif
-
-#ifdef NDEBUG // force debug output disabled
-#undef DEBUG_LA
-#define DEBUG_LA(x) ((void)0)
-#endif
-
+#include "debug.h"
 
 using namespace llvm;
 

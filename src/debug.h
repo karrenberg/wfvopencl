@@ -19,4 +19,15 @@
 #define WFVOPENCL_DEBUG_RUNTIME(x) ((void)0)
 #endif
 
+#ifdef DEBUG
+#define DEBUG_LA(x) do { x } while (false)
+#else
+#define DEBUG_LA(x) ((void)0)
+#endif
+
+#ifdef NDEBUG // force debug output disabled
+#undef DEBUG_LA
+#define DEBUG_LA(x) ((void)0)
+#endif
+
 #endif
