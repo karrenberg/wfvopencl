@@ -11,7 +11,6 @@
  */
 
 #include "wfvocl.h"
-#include "icd.h"
 
 /*
 Memory objects are categorized into two types: buffer objects, and image objects. A buffer

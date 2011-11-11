@@ -48,7 +48,7 @@
 #include "livenessAnalyzer.h"
 #include "llvmTools.hpp"
 #include "continuationGenerator.h"
-//#include "wfvOpenCL.h"
+#include "wfvOpenCL.h"
 
 #ifndef WFVOPENCL_FUNCTION_NAME_BARRIER
 	#define WFVOPENCL_FUNCTION_NAME_BARRIER "barrier"
