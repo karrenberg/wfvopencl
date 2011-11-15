@@ -147,7 +147,7 @@ else:
 
 # set up libraries
 # glut and GLEW are not required for all, but this is easier :P
-driverLibs = llvm_vars.get('LIBS') + env.Split('WFV dl')
+driverLibs = env.Split('WFV') + llvm_vars.get('LIBS') + env.Split('dl')
 if isWin:
 	# get glut from http://www.idfun.de/glut64/
 	if int(compile_static_lib_driver):
