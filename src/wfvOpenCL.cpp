@@ -202,7 +202,7 @@ namespace WFVOpenCL {
 
 
 	// We assume that A dominates B, so all paths from A have to lead to B.
-	inline bool barrierBetweenInstructions(BasicBlock* block, Instruction* A, Instruction* B, std::set<BasicBlock*>& visitedBlocks) {
+	bool barrierBetweenInstructions(BasicBlock* block, Instruction* A, Instruction* B, std::set<BasicBlock*>& visitedBlocks) {
 		assert (block && A && B);
 
 		if (visitedBlocks.find(block) != visitedBlocks.end()) return false;
@@ -411,7 +411,7 @@ namespace WFVOpenCL {
 
 	}
 
-	inline llvm::Function* generateKernelWrapper(
+	llvm::Function* generateKernelWrapper(
 			const std::string& wrapper_name,
 			llvm::Function* f,
 			llvm::Module* mod,
@@ -444,7 +444,7 @@ namespace WFVOpenCL {
 		return wrapper;
 	}
 
-	inline CallInst* getWrappedKernelCall(Function* wrapper, Function* kernel) {
+	CallInst* getWrappedKernelCall(Function* wrapper, Function* kernel) {
 		for (Function::use_iterator U=kernel->use_begin(), UE=kernel->use_end(); U!=UE; ++U) {
 			if (!isa<CallInst>(*U)) continue;
 			CallInst* call = cast<CallInst>(*U);
@@ -455,7 +455,7 @@ namespace WFVOpenCL {
 	}
 
 	// TODO: make sure all functions have appropriate attributes (nounwind, readonly/readnone, ...)
-	inline void fixFunctionNames(Module* mod) {
+	void fixFunctionNames(Module* mod) {
 		assert (mod);
 		// fix __sqrt_f32
 		if (WFVOpenCL::getFunction("__sqrt_f32", mod)) {
@@ -590,7 +590,7 @@ namespace WFVOpenCL {
 	}
 
 	// TODO: implement some kind of heuristic
-	inline unsigned getBestSimdDim(Function* f, const unsigned num_dimensions) {
+	unsigned getBestSimdDim(Function* f, const unsigned num_dimensions) {
 		return 0;
 	}
 	unsigned determineNumDimensionsUsed(Function* f) {
@@ -839,7 +839,7 @@ namespace WFVOpenCL {
 
 		return;
 	}
-	inline void createGroupConstantSpecialParamLoads(
+	void createGroupConstantSpecialParamLoads(
 			const unsigned num_dimensions,
 			LLVMContext& context,
 			Value* arg_work_dim,
@@ -909,7 +909,7 @@ namespace WFVOpenCL {
 		}
 	}
 
-	inline void generateLoopsAroundCall(
+	void generateLoopsAroundCall(
 			CallInst* call,
 			const unsigned num_dimensions,
 			const int simd_dim,
@@ -1297,7 +1297,7 @@ namespace WFVOpenCL {
 		delete [] local_ids;
 	}
 
-	inline Function* createKernel(Function* f, const std::string& kernel_name, const unsigned num_dimensions, const int simd_dim, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
+	Function* createKernel(Function* f, const std::string& kernel_name, const unsigned num_dimensions, const int simd_dim, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
 		assert (f && module && targetData);
 		assert (num_dimensions > 0 && num_dimensions < 4);
 		assert (simd_dim < (int)num_dimensions);
@@ -1623,7 +1623,7 @@ namespace WFVOpenCL {
 	}
 
 
-	inline cl_uint convertLLVMAddressSpace(cl_uint llvm_address_space) {
+	cl_uint convertLLVMAddressSpace(cl_uint llvm_address_space) {
 		switch (llvm_address_space) {
 			case 0 : return CL_PRIVATE;
 			case 1 : return CL_GLOBAL;
@@ -1631,7 +1631,7 @@ namespace WFVOpenCL {
 			default : return llvm_address_space;
 		}
 	}
-	inline std::string getAddressSpaceString(cl_uint cl_address_space) {
+	std::string getAddressSpaceString(cl_uint cl_address_space) {
 		switch (cl_address_space) {
 			case CL_GLOBAL: return "CL_GLOBAL";
 			case CL_PRIVATE: return "CL_PRIVATE";
@@ -1648,7 +1648,7 @@ namespace WFVOpenCL {
 	//------------------------------------------------------------------------//
 
 	// TODO: get real info :p
-	inline unsigned long long getDeviceMaxMemAllocSize() {
+	unsigned long long getDeviceMaxMemAllocSize() {
 		//return 0x3B9ACA00; // 1 GB
 		return 0xEE6B2800; // 4 GB
 	}
