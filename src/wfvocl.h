@@ -1209,6 +1209,9 @@ public:
 		return args[arg_index]->get_mem_address();
 	}
 
+	inline bool is_packetized() const {
+		return function_SIMD != NULL;
+	}
 };
 
 struct _cl_event {
