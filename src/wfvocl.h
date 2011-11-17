@@ -937,6 +937,11 @@ private:
 	cl_uint best_simd_dim;
 
 public:
+	/**
+	 * Creates a new _cl_kernel
+	 *
+	 * The kernel works in scaler mode iff f_SIMD equals NULL
+	 */
 	_cl_kernel(_cl_context* ctx, _cl_program* prog, llvm::Function* f,
 			llvm::Function* f_wrapper, llvm::Function* f_SIMD=NULL)
 		: dispatch(&static_dispatch), context(ctx), program(prog), compiled_function(NULL), num_args(WFVOpenCL::getNumArgs(f)), args(num_args),
