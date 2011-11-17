@@ -18,7 +18,6 @@ inline bool constantIsDividableBySIMDWidth(const Constant* c) {
 
 namespace WFVOpenCL {
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
 void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer) {
 
 	for (Function::iterator BB=kernel->begin(), BBE=kernel->end();
@@ -67,7 +66,6 @@ void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Pac
 	}
 
 }
-#endif
 
 #if 0
 // Generate a new function that only receives a void* argument.
