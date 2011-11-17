@@ -34,9 +34,7 @@
 #	define WFVOPENCL_DLLEXPORT
 #endif
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
 #include "packetizerAPI.hpp" // packetizer
-#endif
 
 #ifdef WFVOPENCL_ENABLE_JIT_PROFILING
 #include "JITProfiling.h"
