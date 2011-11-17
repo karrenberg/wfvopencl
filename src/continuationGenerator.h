@@ -51,10 +51,7 @@ namespace llvm {
 }
 
 
-namespace {
-
 void printValueMap(ValueMap<const Value*, Value*>& valueMap, raw_ostream& o);
-
 
 class ContinuationGenerator : public FunctionPass {
 private:
@@ -122,14 +119,14 @@ public:
 	void releaseMemory();
 
 	// each continuation function receives an additional parameter with this type and name
-	inline void addSpecialParam(const Type* param, const std::string& paramName);
+	void addSpecialParam(const Type* param, const std::string& paramName);
 
-	inline Function* getBarrierFreeFunction() const;
+	Function* getBarrierFreeFunction() const;
 	typedef SmallVector<Function*, 4> ContinuationVecType;
-	inline void getContinuations(ContinuationVecType& continuations);
+	void getContinuations(ContinuationVecType& continuations) const;
 
 	typedef DenseMap<unsigned, BarrierInfo*> ContinuationMapType;
-	inline ContinuationMapType* getContinuationMap();
+	ContinuationMapType* getContinuationMap();
 
 private:
 	const bool verbose;
@@ -224,6 +221,7 @@ private:
 	void getContinuationBlocks(const CallInst* barrier, SetVector<const BasicBlock*>& continuationRegion);
 	void getLiveValuesForRegion(SetVector<const BasicBlock*>& continuationRegion, DominatorTree& domTree, LiveSetTypeConst& liveInValues, LiveSetTypeConst& liveOutValues);
 
+	const StructType* computeLiveValueStructType(LiveSetTypeConst& liveInValues, LLVMContext& context);
 	void createLiveValueStoresForBarrier(BarrierInfo* barrierInfo, Function* f, ValueToValueMapTy& origFnValueMap, LLVMContext& context);
 
 	Function* createContinuationNEW2(BarrierInfo* barrierInfo, const std::string& continuationName, Module* mod);
@@ -289,8 +287,6 @@ private:
 	*/
 	Function* createWrapper(Function* origFunction, ContinuationMapType& cMap, Module* mod, TargetData* targetData);
 };
-
-} // namespace
 
 /*
 INITIALIZE_PASS_BEGIN(ContinuationGenerator, "continuation-generation", "Continuation Generation", false, false)

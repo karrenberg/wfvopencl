@@ -50,9 +50,6 @@ namespace llvm {
 	void initializeCallSiteBlockSplitterPass(PassRegistry&);
 }
 
-
-namespace {
-
 class CallSiteBlockSplitter : public FunctionPass {
 public:
 	static char ID; // Pass identification, replacement for typeid
@@ -81,8 +78,6 @@ private:
 	// - split basic blocks at each valid splitting instruction
 	void splitBlocksAtCallSites(Function* f);
 };
-
-} // namespace
 
 /*
 // TODO header or impl?

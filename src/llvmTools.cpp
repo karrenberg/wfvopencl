@@ -16,6 +16,8 @@ inline bool constantIsDividableBySIMDWidth(const Constant* c) {
 	return (constVal % WFVOPENCL_SIMD_WIDTH == 0);
 }
 
+namespace WFVOpenCL {
+
 #ifndef WFVOPENCL_NO_PACKETIZATION
 void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer) {
 
@@ -620,7 +622,7 @@ unsigned getAddressSpace(const Type* type) {
 
 
 
-void inlineFunctionCalls(Function* f, TargetData* targetData=NULL) {
+void inlineFunctionCalls(Function* f, TargetData* targetData) {
 	//WFVOPENCL_DEBUG( outs() << "  inlining function calls... "; );
 	bool functionChanged = true;
 	while (functionChanged) {
@@ -728,7 +730,7 @@ void optimizeFunction(Function* f) {
 #else
 
 /// adopted from: llvm-2.9/include/llvm/Support/StandardPasses.h
-void optimizeFunction(Function* f, const bool disableLICM=false, const bool disableLoopRotate=false) {
+void optimizeFunction(Function* f, const bool disableLICM, const bool disableLoopRotate) {
 	assert (f);
 	assert (f->getParent());
 	Module* mod = f->getParent();
@@ -970,3 +972,4 @@ Module* linkInModule(Module* target, Module* source) {
 	return linker->releaseModule();
 }
 
+}
