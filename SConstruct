@@ -11,10 +11,10 @@ WFV_INSTALL_DIR = env['ENV']['WFV_INSTALL_DIR']
 debug			= ARGUMENTS.get('debug', 0)             # enable debug information
 debug_runtime	= ARGUMENTS.get('debug_runtime', 0)     # enable debugging of runtime (JIT) code
 profile			= ARGUMENTS.get('profile', 0)           # enable profiling
-use_openmp		= ARGUMENTS.get('openmp', 0)            # enable OpenMP
+use_openmp		= ARGUMENTS.get('openmp', 1)            # enable OpenMP
 num_threads		= ARGUMENTS.get('threads', 0)           # set number of threads to use in OpenMP
 split			= ARGUMENTS.get('split', 0)             # disable load/store optimizations (= always perform scalar load/store, experimental)
-use_wfv			= ARGUMENTS.get('wfv', 0)				# enable WFV
+use_wfv			= ARGUMENTS.get('wfv', 1)				# enable WFV
 wfv_shared		= ARGUMENTS.get('wfv_shared', 0)		# should be set if the WFV library was compiled as a shared library (see below)
 llvm_no_debug	= ARGUMENTS.get('llvm_no_debug', 0)		# should be set if LLVM was compiled in release mode (at least on windows)
 compile_static_lib_driver = ARGUMENTS.get('static', 0)	# compile static library link applications statically (circumvents OpenCL ICD mechanism)
