@@ -36,13 +36,11 @@ typedef void (*kernelFnPtr)(
 	// In any case, changing the local work size can introduce arbitrary problems
 	// except for the case where it is 1.
 
-#ifndef NDEBUG
-	if (kernel->is_packetized()) {
-		assert (global_work_size >= WFVOPENCL_SIMD_WIDTH);
-		assert (local_work_size == 1 || local_work_size >= WFVOPENCL_SIMD_WIDTH);
-		assert (global_work_size % WFVOPENCL_SIMD_WIDTH == 0);
-		assert (local_work_size == 1 || local_work_size % WFVOPENCL_SIMD_WIDTH == 0);\
-	}
+#ifndef WFVOPENCL_NO_PACKETIZATION
+	assert (global_work_size >= WFVOPENCL_SIMD_WIDTH);
+	assert (local_work_size == 1 || local_work_size >= WFVOPENCL_SIMD_WIDTH);
+	assert (global_work_size % WFVOPENCL_SIMD_WIDTH == 0);
+	assert (local_work_size == 1 || local_work_size % WFVOPENCL_SIMD_WIDTH == 0);
 #endif
 
 	// unfortunately we have to convert to 32bit values because we work with 32bit internally
@@ -195,15 +193,13 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	const cl_uint modified_global_work_size[2] = { (cl_uint)global_work_size[0], (cl_uint)global_work_size[1] };
 	const cl_uint modified_local_work_size[2] = { (cl_uint)local_work_size[0], (cl_uint)local_work_size[1] };
 
-#ifndef NDEBUG
-	if (kernel->is_packetized()) {
-		const cl_uint simd_dim = kernel->get_best_simd_dim();
+#ifndef WFVOPENCL_NO_PACKETIZATION
+	const cl_uint simd_dim = kernel->get_best_simd_dim();
 
-		assert (global_work_size[simd_dim] >= WFVOPENCL_SIMD_WIDTH);
-		assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] >= WFVOPENCL_SIMD_WIDTH);
-		assert (global_work_size[simd_dim] % WFVOPENCL_SIMD_WIDTH == 0);
-		assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] % WFVOPENCL_SIMD_WIDTH == 0);
-	}
+	assert (global_work_size[simd_dim] >= WFVOPENCL_SIMD_WIDTH);
+	assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] >= WFVOPENCL_SIMD_WIDTH);
+	assert (global_work_size[simd_dim] % WFVOPENCL_SIMD_WIDTH == 0);
+	assert (local_work_size[simd_dim] == 1 || local_work_size[simd_dim] % WFVOPENCL_SIMD_WIDTH == 0);
 #endif
 
 	// TODO: insert warnings as in 1D case if sizes do not match simd width etc.
@@ -480,24 +476,14 @@ clCreateKernel(cl_program      program,
 
 	// optimize kernel // TODO: not necessary if we optimize wrapper afterwards
 	WFVOpenCL::inlineFunctionCalls(f, program->targetData);
-
-	// do we want to packetize?
-	// bool packetize = program->context->is_packetized();
-#ifdef WFVOPENCL_NO_PACKETIZATION
-	bool packetize = false;
-#else
-	bool packetize = true;
-#endif
-
 	// Optimize
 	// This is essential, we have to get rid of allocas etc.
 	// Unfortunately, for packetization enabled, loop rotate has to be disabled (otherwise, Mandelbrot breaks).
-	if (packetize) {
-		WFVOpenCL::optimizeFunction(f); // enable all optimizations
-	}
-	else {
-		WFVOpenCL::optimizeFunction(f, false, true); // enable LICM, disable loop rotate
-	}
+#ifdef WFVOPENCL_NO_PACKETIZATION
+	WFVOpenCL::optimizeFunction(f); // enable all optimizations
+#else
+	WFVOpenCL::optimizeFunction(f, false, true); // enable LICM, disable loop rotate
+#endif
 
 	WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f, "debug_kernel_orig.ll"); );
 	WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(module, "debug_kernel_orig.mod.ll"); );
@@ -508,34 +494,35 @@ clCreateKernel(cl_program      program,
 	const unsigned num_dimensions = WFVOpenCL::determineNumDimensionsUsed(f);
 
 
-	_cl_kernel* kernel;
-	if (packetize) {
-		const int simd_dim = -1;
+#ifdef WFVOPENCL_NO_PACKETIZATION
 
-		llvm::Function* f_wrapper = WFVOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, NULL);
-		if (!f_wrapper) {
-			errs() << "ERROR: kernel generation failed!\n";
-			return NULL;
-		}
-
-		kernel = new _cl_kernel(program->context, program, f, f_wrapper);
-		kernel->set_num_dimensions(num_dimensions);
+	const int simd_dim = -1;
+	llvm::Function* f_wrapper = WFVOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, NULL);
+	if (!f_wrapper) {
+		errs() << "ERROR: kernel generation failed!\n";
+		return NULL;
 	}
-	else {
-		// determine best dimension for packetization
-		const int simd_dim = WFVOpenCL::getBestSimdDim(f, num_dimensions);
 
-		llvm::Function* f_SIMD = NULL;
-		llvm::Function* f_wrapper = WFVOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, &f_SIMD);
-		if (!f_wrapper || !f_SIMD) {
-			errs() << "ERROR: kernel generation failed!\n";
-			return NULL;
-		}
+	_cl_kernel* kernel = new _cl_kernel(program->context, program, f, f_wrapper);
+	kernel->set_num_dimensions(num_dimensions);
 
-		kernel = new _cl_kernel(program->context, program, f, f_wrapper, f_SIMD);
-		kernel->set_num_dimensions(num_dimensions);
-		kernel->set_best_simd_dim(simd_dim);
+#else
+
+	// determine best dimension for packetization
+	const int simd_dim = WFVOpenCL::getBestSimdDim(f, num_dimensions);
+
+	llvm::Function* f_SIMD = NULL;
+	llvm::Function* f_wrapper = WFVOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, &f_SIMD);
+	if (!f_wrapper || !f_SIMD) {
+		errs() << "ERROR: kernel generation failed!\n";
+		return NULL;
 	}
+
+	_cl_kernel* kernel = new _cl_kernel(program->context, program, f, f_wrapper, f_SIMD);
+	kernel->set_num_dimensions(num_dimensions);
+	kernel->set_best_simd_dim(simd_dim);
+
+#endif
 
 	if (!kernel->get_compiled_function()) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
 
@@ -676,19 +663,17 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		}
 	);
 
-#ifndef NDEBUG
-	if (kernel->is_packetized()) {
-		WFVOPENCL_DEBUG(
-			const size_t simd_dim_work_size = local_work_size[kernel->get_best_simd_dim()];
-			outs() << "  best simd dim: " << kernel->get_best_simd_dim() << "\n";
-			outs() << "  local_work_size of dim: " << simd_dim_work_size << "\n";
-			const bool dividableBySimdWidth = simd_dim_work_size % WFVOPENCL_SIMD_WIDTH == 0;
-			if (!dividableBySimdWidth) {
-				errs() << "WARNING: group size of simd dimension not dividable by simdWidth\n";
-				//return CL_INVALID_WORK_GROUP_SIZE;
-			}
-		);
-	}
+#ifndef WFVOPENCL_NO_PACKETIZATION
+	WFVOPENCL_DEBUG(
+		const size_t simd_dim_work_size = local_work_size[kernel->get_best_simd_dim()];
+		outs() << "  best simd dim: " << kernel->get_best_simd_dim() << "\n";
+		outs() << "  local_work_size of dim: " << simd_dim_work_size << "\n";
+		const bool dividableBySimdWidth = simd_dim_work_size % WFVOPENCL_SIMD_WIDTH == 0;
+		if (!dividableBySimdWidth) {
+			errs() << "WARNING: group size of simd dimension not dividable by simdWidth\n";
+			//return CL_INVALID_WORK_GROUP_SIZE;
+		}
+	);
 #endif
 
 	switch (num_dimensions) {
