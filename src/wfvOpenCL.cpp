@@ -93,6 +93,11 @@ namespace WFVOpenCL {
 
 		packetizer.run();
 
+		// check if the function has been vectorized
+		if (mod->getFunction(targetKernelName)->getBasicBlockList().empty()) {
+			return false;
+		}
+
 		return true;
 	}
 #endif
@@ -1339,7 +1344,7 @@ namespace WFVOpenCL {
 		const bool use_avx = false;
 #endif
 		const bool verbose = false;
-		const bool success = 
+		const bool vectorized =
 			WFVOpenCL::packetizeKernelFunction(f->getNameStr(),
 													 kernel_simd_name,
 													 module,
@@ -1349,59 +1354,58 @@ namespace WFVOpenCL {
 													 use_avx,
 													 verbose);
 
-		if (!success) {
-			errs() << "ERROR: packetization of kernel failed!\n";
-			return NULL;
-		}
-		f_SIMD = WFVOpenCL::getFunction(kernel_simd_name, module); // old pointer not valid anymore!
+		if (vectorized) {
+			f_SIMD = WFVOpenCL::getFunction(kernel_simd_name, module); // old pointer not valid anymore!
 
-		WFVOPENCL_DEBUG( verifyModule(*module); );
-		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
-		WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd.mod.ll"); );
-		WFVOPENCL_DEBUG( outs() << *f_SIMD << "\n"; );
+			WFVOPENCL_DEBUG( verifyModule(*module); );
+			WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_SIMD, "debug_kernel_packetized.ll"); );
+			WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(f_SIMD->getParent(), "debug_f_simd.mod.ll"); );
+			WFVOPENCL_DEBUG( outs() << *f_SIMD << "\n"; );
 
-		WFVOPENCL_DEBUG_RUNTIME(
-			BasicBlock* block = &f_SIMD->getEntryBlock();
-			insertPrintf("\nf_SIMD called!", Constant::getNullValue(Type::getInt32Ty(getGlobalContext())), true, block->getFirstNonPHI());
-			for (Function::iterator BB=f_SIMD->begin(), BBE=f_SIMD->end(); BB!=BBE; ++BB) {
-				for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
-					if (CallInst* call = dyn_cast<CallInst>(I)) {
-						std::string name = call->getCalledFunction()->getNameStr();
-						if (name != "get_global_size" &&
-							name != "get_local_size" &&
-							name != "get_group_id" &&
-							name != "get_global_id" &&
-							name != "get_local_id") continue;
+			WFVOPENCL_DEBUG_RUNTIME(
+				BasicBlock* block = &f_SIMD->getEntryBlock();
+				insertPrintf("\nf_SIMD called!", Constant::getNullValue(Type::getInt32Ty(getGlobalContext())), true, block->getFirstNonPHI());
+				for (Function::iterator BB=f_SIMD->begin(), BBE=f_SIMD->end(); BB!=BBE; ++BB) {
+					for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {
+						if (CallInst* call = dyn_cast<CallInst>(I)) {
+							std::string name = call->getCalledFunction()->getNameStr();
+							if (name != "get_global_size" &&
+								name != "get_local_size" &&
+								name != "get_group_id" &&
+								name != "get_global_id" &&
+								name != "get_local_id") continue;
 
-						assert (isa<ConstantInt>(call->getOperand(0)));
-						ConstantInt* dimIdx = cast<ConstantInt>(call->getOperand(0));
-						uint64_t intValue = *dimIdx->getValue().getRawData();
-						std::stringstream sstr;
-						sstr << name << "(" << intValue << "): ";
+							assert (isa<ConstantInt>(call->getOperand(0)));
+							ConstantInt* dimIdx = cast<ConstantInt>(call->getOperand(0));
+							uint64_t intValue = *dimIdx->getValue().getRawData();
+							std::stringstream sstr;
+							sstr << name << "(" << intValue << "): ";
 
-						insertPrintf(sstr.str(), call, true, BB->getTerminator());
+							insertPrintf(sstr.str(), call, true, BB->getTerminator());
+						}
 					}
 				}
-			}
-		);
+			);
 
-//		BasicBlock* block = &f_SIMD->getEntryBlock();
-//		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-//			if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
-//				insertPrintf("out-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
-//				break;
+//			BasicBlock* block = &f_SIMD->getEntryBlock();
+//			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+//				if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
+//					insertPrintf("out-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
+//					break;
+//				}
 //			}
-//		}
-//		int count = 0;
-//		for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-//			if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
-//				if (count == 0) { ++count; continue; }
-//				insertPrintf("in-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
+//			int count = 0;
+//			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
+//				if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
+//					if (count == 0) { ++count; continue; }
+//					insertPrintf("in-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
+//				}
 //			}
-//		}
-//		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_SIMD, "special.ll"); );
+//			WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_SIMD, "special.ll"); );
 
-		f = f_SIMD;
+			f = f_SIMD;
+		}
+
 #endif
 
 		bool hasBarriers = false;
@@ -1560,8 +1564,8 @@ namespace WFVOpenCL {
 		Passes.doFinalization();
 #endif
 #else
-		// packetization enabled -> no problem with enabling all optimizations.
-		WFVOpenCL::optimizeFunction(f_wrapper);
+		// disable LCIM if vectorization was not successful
+		WFVOpenCL::optimizeFunction(f_wrapper, !vectorized);
 #endif
 		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_afteropt.ll"); );
 		
@@ -1616,8 +1620,10 @@ namespace WFVOpenCL {
 
 
 #ifndef WFVOPENCL_NO_PACKETIZATION
-		// if packetization is enabled, we "return" the SIMD function as well
-		*f_SIMD_ret = f;
+		// if vectorization is enabled, we "return" the SIMD function as well
+		if (vectorized) {
+			*f_SIMD_ret = f;
+		}
 #endif
 		return f_wrapper;
 	}

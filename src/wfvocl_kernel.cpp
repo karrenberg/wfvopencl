@@ -513,14 +513,23 @@ clCreateKernel(cl_program      program,
 
 	llvm::Function* f_SIMD = NULL;
 	llvm::Function* f_wrapper = WFVOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, &f_SIMD);
-	if (!f_wrapper || !f_SIMD) {
+	if (!f_wrapper) {
 		errs() << "ERROR: kernel generation failed!\n";
 		return NULL;
 	}
-
-	_cl_kernel* kernel = new _cl_kernel(program->context, program, f, f_wrapper, f_SIMD);
-	kernel->set_num_dimensions(num_dimensions);
-	kernel->set_best_simd_dim(simd_dim);
+	_cl_kernel* kernel;
+	if (f_SIMD) {
+		// vectorization was successful
+		kernel = new _cl_kernel(program->context, program, f, f_wrapper, f_SIMD);
+		kernel->set_num_dimensions(num_dimensions);
+		kernel->set_best_simd_dim(simd_dim);
+	}
+	else {
+		// vectorization did not work
+		kernel = new _cl_kernel(program->context, program, f, f_wrapper);
+		kernel->set_num_dimensions(num_dimensions);
+	}
+	assert(kernel);
 
 #endif
 
