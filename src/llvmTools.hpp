@@ -59,7 +59,9 @@
 #include "llvm/Support/TypeBuilder.h"
 
 
-#include "packetizerAPI.hpp"
+#ifndef WFVOPENCL_NO_PACKETIZATION
+#	include "packetizerAPI.hpp"
+#endif
 
 #include "debug.h"
 
@@ -68,7 +70,9 @@
 using namespace llvm;
 
 namespace WFVOpenCL {
+#ifndef WFVOPENCL_NO_PACKETIZATION
 	void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer);
+#endif
 	Function* generateFunctionWrapperWithParams(const std::string& wrapper_name, Function* f, Module* mod, std::vector<const Type*>& additionalParams, const bool inlineCall);
 	void generateOpenCLFunctions(Module* mod);
 	const Type * getPrimitiveType(Module *mod, char t);
