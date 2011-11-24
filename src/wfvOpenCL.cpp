@@ -63,7 +63,7 @@ extern "C" {
 ///////////////////////////////////////////////////////////////////////////
 namespace WFVOpenCL {
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 		bool packetizeKernelFunction(
 			const std::string& kernelName,
 			const std::string& targetKernelName,
@@ -967,7 +967,7 @@ namespace WFVOpenCL {
 			BranchInst::Create(latchBB, loopBB);
 
 			// Block latchBB
-#ifdef WFVOPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_WFV
 			const uint64_t incInt = 1;
 #else
 			const uint64_t incInt = i == simd_dim ? WFVOPENCL_SIMD_WIDTH : 1U;
@@ -1307,7 +1307,7 @@ namespace WFVOpenCL {
 		assert (num_dimensions > 0 && num_dimensions < 4);
 		assert (simd_dim < (int)num_dimensions);
 
-#ifdef WFVOPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_WFV
 		assert (simd_dim == -1); // packetization disabled: only -1 is a valid value
 		assert (!f_SIMD_ret);
 
@@ -1549,7 +1549,7 @@ namespace WFVOpenCL {
 		WFVOPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		WFVOpenCL::inlineFunctionCalls(f_wrapper, targetData);
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 		// packetization disabled -> LICM makes problems
 		WFVOpenCL::optimizeFunction(f_wrapper, true); // disable LICM.
 #if 0
@@ -1619,7 +1619,7 @@ namespace WFVOpenCL {
 		WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(module, "debug_kernel_wrapped_final.mod.ll"); );
 
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 		// if vectorization is enabled, we "return" the SIMD function as well
 		if (vectorized) {
 			*f_SIMD_ret = f;

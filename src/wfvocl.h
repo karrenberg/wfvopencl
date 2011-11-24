@@ -34,7 +34,7 @@
 #	define WFVOPENCL_DLLEXPORT
 #endif
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 #include "packetizerAPI.hpp" // packetizer
 #endif
 
@@ -93,7 +93,7 @@
 
 
 // these defines are assumed to be set via build script:
-//#define WFVOPENCL_NO_PACKETIZATION
+//#define WFVOPENCL_NO_WFV
 //#define WFVOPENCL_USE_OPENMP
 //#define WFVOPENCL_SPLIT_EVERYTHING
 //#define WFVOPENCL_ENABLE_JIT_PROFILING

@@ -59,7 +59,7 @@
 #include "llvm/Support/TypeBuilder.h"
 
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 #	include "packetizerAPI.hpp"
 #endif
 
@@ -70,7 +70,7 @@
 using namespace llvm;
 
 namespace WFVOpenCL {
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 	void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer);
 #endif
 	Function* generateFunctionWrapperWithParams(const std::string& wrapper_name, Function* f, Module* mod, std::vector<const Type*>& additionalParams, const bool inlineCall);

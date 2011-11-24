@@ -18,7 +18,7 @@ inline bool constantIsDividableBySIMDWidth(const Constant* c) {
 
 namespace WFVOpenCL {
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer) {
 
 	for (Function::iterator BB=kernel->begin(), BBE=kernel->end();

@@ -36,7 +36,7 @@ typedef void (*kernelFnPtr)(
 	// In any case, changing the local work size can introduce arbitrary problems
 	// except for the case where it is 1.
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 	assert (global_work_size >= WFVOPENCL_SIMD_WIDTH);
 	assert (local_work_size == 1 || local_work_size >= WFVOPENCL_SIMD_WIDTH);
 	assert (global_work_size % WFVOPENCL_SIMD_WIDTH == 0);
@@ -47,7 +47,7 @@ typedef void (*kernelFnPtr)(
 	// TODO: in the 1D case we can optimize because only the first value is loaded (automatic truncation)
 	const cl_uint modified_global_work_size = (cl_uint)global_work_size;
 
-#ifdef WFVOPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_WFV
 	const cl_uint modified_local_work_size = (cl_uint)local_work_size;
 #else
 	if (local_work_size != 1 && local_work_size < WFVOPENCL_SIMD_WIDTH) {
@@ -193,7 +193,7 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 	const cl_uint modified_global_work_size[2] = { (cl_uint)global_work_size[0], (cl_uint)global_work_size[1] };
 	const cl_uint modified_local_work_size[2] = { (cl_uint)local_work_size[0], (cl_uint)local_work_size[1] };
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 	const cl_uint simd_dim = kernel->get_best_simd_dim();
 
 	assert (global_work_size[simd_dim] >= WFVOPENCL_SIMD_WIDTH);
@@ -479,7 +479,7 @@ clCreateKernel(cl_program      program,
 	// Optimize
 	// This is essential, we have to get rid of allocas etc.
 	// Unfortunately, for packetization enabled, loop rotate has to be disabled (otherwise, Mandelbrot breaks).
-#ifdef WFVOPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_WFV
 	WFVOpenCL::optimizeFunction(f); // enable all optimizations
 #else
 	WFVOpenCL::optimizeFunction(f, false, true); // enable LICM, disable loop rotate
@@ -494,7 +494,7 @@ clCreateKernel(cl_program      program,
 	const unsigned num_dimensions = WFVOpenCL::determineNumDimensionsUsed(f);
 
 
-#ifdef WFVOPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_WFV
 
 	const int simd_dim = -1;
 	llvm::Function* f_wrapper = WFVOpenCL::createKernel(f, kernel_name, num_dimensions, simd_dim, module, program->targetData, context, errcode_ret, NULL);
@@ -672,7 +672,7 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
 		}
 	);
 
-#ifndef WFVOPENCL_NO_PACKETIZATION
+#ifndef WFVOPENCL_NO_WFV
 	WFVOPENCL_DEBUG(
 		const size_t simd_dim_work_size = local_work_size[kernel->get_best_simd_dim()];
 		outs() << "  best simd dim: " << kernel->get_best_simd_dim() << "\n";

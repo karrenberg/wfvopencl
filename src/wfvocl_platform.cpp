@@ -52,7 +52,7 @@ clGetPlatformInfo(cl_platform_id   platform,
 			res = "1.0";
 			break;
 		case CL_PLATFORM_NAME:
-#ifdef WFVOPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_WFV
 #	ifdef WFVOPENCL_USE_OPENMP
 			res = "Packetized OpenCL (scalar, multi-threaded)";
 #	else
@@ -141,7 +141,7 @@ clGetDeviceInfo(cl_device_id    device,
 		case CL_DEVICE_MAX_COMPUTE_UNITS: {
 			if (param_value_size < sizeof(cl_uint)) return CL_INVALID_VALUE;
 
-#ifdef WFVOPENCL_NO_PACKETIZATION
+#ifdef WFVOPENCL_NO_WFV
 			if (param_value) *(cl_uint*)param_value = WFVOPENCL_NUM_CORES;
 #else
 	#ifndef WFVOPENCL_USE_OPENMP
