@@ -1550,8 +1550,8 @@ namespace WFVOpenCL {
 		WFVOpenCL::inlineFunctionCalls(f_wrapper, targetData);
 
 #ifndef WFVOPENCL_NO_WFV
-		// packetization disabled -> LICM makes problems
-		WFVOpenCL::optimizeFunction(f_wrapper, true); // disable LICM.
+		// disable LCIM if vectorization was not successful
+		WFVOpenCL::optimizeFunction(f_wrapper, !vectorized); // disable LICM.
 #if 0
 		// TODO: why does the driver crash (later) if LICM was used? It is important for performance :(
 		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "ASDF.ll"); );
@@ -1564,8 +1564,8 @@ namespace WFVOpenCL {
 		Passes.doFinalization();
 #endif
 #else
-		// disable LCIM if vectorization was not successful
-		WFVOpenCL::optimizeFunction(f_wrapper, !vectorized);
+		// disable LCIM for scalar code
+		WFVOpenCL::optimizeFunction(f_wrapper, true);
 #endif
 		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_afteropt.ll"); );
 		
