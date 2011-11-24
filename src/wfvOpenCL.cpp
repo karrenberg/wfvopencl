@@ -970,7 +970,10 @@ namespace WFVOpenCL {
 #ifdef WFVOPENCL_NO_WFV
 			const uint64_t incInt = 1;
 #else
-			const uint64_t incInt = i == simd_dim ? WFVOPENCL_SIMD_WIDTH : 1U;
+			// fall back to increments of 1 if vectorization failed
+			const uint64_t incInt =
+				(simd_dim == -1 ? 1 :
+					(i == simd_dim ? WFVOPENCL_SIMD_WIDTH : 1U));
 #endif
 			BinaryOperator* loopCounterInc = BinaryOperator::Create(Instruction::Add, loopCounterPhi, ConstantInt::get(counterType, incInt, false), "inc", latchBB);
 			ICmpInst* exitcond1 = new ICmpInst(*latchBB, ICmpInst::ICMP_UGE, loopCounterInc, local_size, "exitcond");
@@ -1302,7 +1305,7 @@ namespace WFVOpenCL {
 		delete [] local_ids;
 	}
 
-	Function* createKernel(Function* f, const std::string& kernel_name, const unsigned num_dimensions, const int simd_dim, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
+	Function* createKernel(Function* f, const std::string& kernel_name, const unsigned num_dimensions, int simd_dim, Module* module, TargetData* targetData, LLVMContext& context, cl_int* errcode_ret, Function** f_SIMD_ret) {
 		assert (f && module && targetData);
 		assert (num_dimensions > 0 && num_dimensions < 4);
 		assert (simd_dim < (int)num_dimensions);
@@ -1404,6 +1407,10 @@ namespace WFVOpenCL {
 //			WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_SIMD, "special.ll"); );
 
 			f = f_SIMD;
+		}
+		else {
+			// vectorization failed
+			simd_dim = -1;
 		}
 
 #endif
