@@ -121,7 +121,6 @@ clBuildProgram(cl_program           program,
 	// compile using clc
 	std::stringstream clcCmd;
 	clcCmd << "clc -o " << clcOutPath << " --msse2 " << program->fileName;
-	printf("*** %s\n", clcCmd.str().c_str());
 	system(clcCmd.str().c_str());
 
 	// assemble and load module
@@ -129,8 +128,9 @@ clBuildProgram(cl_program           program,
 	llvm::LLVMContext& context = llvm::getGlobalContext();
 	llvm::Module* mod = llvm::ParseAssemblyFile(clcOutPath, asmErr, context);
 
-	// remove clc output
+	// remove temp outputs
 	remove(clcOutPath);
+	remove(program->fileName);
 
 	// check if module has been loaded
 	if (!mod) return CL_BUILD_PROGRAM_FAILURE;
