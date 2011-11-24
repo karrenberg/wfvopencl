@@ -1,126 +1,82 @@
 #!/bin/bash
-echo
-echo TestSimple
-build/bin/TestSimple "$@"
-echo
-echo Test2D
-build/bin/Test2D "$@"
-echo
-echo Test2D2
-build/bin/Test2D2 "$@"
-echo
-echo TestLinearAccess
-build/bin/TestLinearAccess "$@"
-echo
-echo TestBarrier
-build/bin/TestBarrier "$@"
-echo
-echo TestBarrier2
-build/bin/TestBarrier2 "$@"
-echo
-echo TestLoopBarrier
-build/bin/TestLoopBarrier "$@"
-echo
-echo TestLoopBarrier2
-build/bin/TestLoopBarrier2 "$@"
-echo
-echo AmbientOcclusionRenderer
-build/bin/AmbientOcclusionRenderer -q -e -x 256 -y 256 "$@"
-echo
-echo BinarySearch
-build/bin/BinarySearch -q -e "$@"
-echo
-echo BinomialOption
-build/bin/BinomialOption -q -e "$@"
-echo
-echo BinomialOptionSimple
-build/bin/BinomialOptionSimple -q -e "$@"
-echo
-echo BitonicSort
-build/bin/BitonicSort -q -e -x 32 "$@"
-echo
-echo BlackScholes
-build/bin/BlackScholes -q -e "$@"
-echo
-echo BlackScholesSimple
-build/bin/BlackScholesSimple -q -e "$@"
-echo
-echo DCT
-build/bin/DCT -q -e "$@"
-echo
-echo DwtHaar1D
-build/bin/DwtHaar1D -q -e "$@"
-echo
-echo EigenValue
-build/bin/EigenValue -q -e -x 16 "$@"
-echo
-echo FFT
-build/bin/FFT -q -e "$@"
-echo
-echo FastWalshTransform
-build/bin/FastWalshTransform -q -e -x 32 "$@"
-echo
-echo FloydWarshall
-build/bin/FloydWarshall -q -e -x 16 "$@"
-echo
-echo Histogram
-build/bin/Histogram -q -e "$@"
-echo
-echo Mandelbrot
-build/bin/Mandelbrot -q -e -x 16 "$@"
-echo
-echo MandelbrotSimple
-build/bin/MandelbrotSimple -q -e -x 16 "$@"
-echo
-echo MatrixMulImage
-build/bin/MatrixMulImage -q -e "$@"
-echo
-echo MatrixMultiplication
-build/bin/MatrixMultiplication -q -e "$@"
-echo
-echo MatrixTranspose
-build/bin/MatrixTranspose -q -e -x 512 "$@"
-echo
-echo MersenneTwister
-build/bin/MersenneTwister -q -e "$@"
-echo
-echo MersenneTwisterSimple
-build/bin/MersenneTwisterSimple -q -e "$@"
-echo
-echo MonteCarloAsian
-build/bin/MonteCarloAsian -q -e "$@"
-echo
-echo NBody
-build/bin/NBody -q -e "$@"
-echo
-echo NBodySimple
-build/bin/NBodySimple -q -e "$@"
-echo
-echo PrefixSum
-build/bin/PrefixSum -q -e "$@"
-echo
-echo QuasiRandomSequence
-build/bin/QuasiRandomSequence -q -e "$@"
-echo
-echo RadixSort
-build/bin/RadixSort -q -e "$@"
-echo
-echo RecursiveGaussian
-build/bin/RecursiveGaussian -q -e "$@"
-echo
-echo Reduction
-build/bin/Reduction -q -e "$@"
-echo
-echo ScanLargeArrays
-build/bin/ScanLargeArrays -q -e "$@"
-echo
-echo SimpleConvolution
-build/bin/SimpleConvolution -q -e -x 8 "$@"
-echo
-echo SobelFilter
-build/bin/SobelFilter -q -e "$@"
-echo
-echo URNG
-build/bin/URNG -q -e "$@"
-echo
 
+total=0
+success=0
+
+run() {
+    # show info
+    echo " *** Running $@"
+
+    # run
+    if [ -f $1 ]; then
+        $@
+    else
+        echo " *** Skipping (not found)"
+        echo
+        echo
+        echo
+        return
+    fi
+
+
+    # keep stats
+    if [ $? -eq 0 ]; then
+        success=$((success+1))
+    fi
+    total=$((total+1))
+
+    # space
+    echo
+    echo
+    echo
+}
+
+printStats() {
+    echo " *** Number of tests: $total"
+    echo " *** Successful:      $success"
+    echo " *** Failed:          $((total - success))"
+}
+
+run build/bin/TestSimple "$@"
+run build/bin/Test2D "$@"
+run build/bin/Test2D2 "$@"
+run build/bin/TestLinearAccess "$@"
+run build/bin/TestBarrier "$@"
+run build/bin/TestBarrier2 "$@"
+run build/bin/TestLoopBarrier "$@"
+run build/bin/TestLoopBarrier2 "$@"
+run build/bin/AmbientOcclusionRenderer -q -e -x 256 -y 256 "$@"
+run build/bin/BinarySearch -q -e "$@"
+run build/bin/BinomialOption -q -e "$@"
+run build/bin/BinomialOptionSimple -q -e "$@"
+run build/bin/BitonicSort -q -e -x 32 "$@"
+run build/bin/BlackScholes -q -e "$@"
+run build/bin/BlackScholesSimple -q -e "$@"
+run build/bin/DCT -q -e "$@"
+run build/bin/DwtHaar1D -q -e "$@"
+run build/bin/EigenValue -q -e -x 16 "$@"
+run build/bin/FFT -q -e "$@"
+run build/bin/FastWalshTransform -q -e -x 32 "$@"
+run build/bin/FloydWarshall -q -e -x 16 "$@"
+run build/bin/Histogram -q -e "$@"
+run build/bin/Mandelbrot -q -e -x 16 "$@"
+run build/bin/MandelbrotSimple -q -e -x 16 "$@"
+run build/bin/MatrixMulImage -q -e "$@"
+run build/bin/MatrixMultiplication -q -e "$@"
+run build/bin/MatrixTranspose -q -e -x 512 "$@"
+run build/bin/MersenneTwister -q -e "$@"
+run build/bin/MersenneTwisterSimple -q -e "$@"
+run build/bin/MonteCarloAsian -q -e "$@"
+run build/bin/NBody -q -e "$@"
+run build/bin/NBodySimple -q -e "$@"
+run build/bin/PrefixSum -q -e "$@"
+run build/bin/QuasiRandomSequence -q -e "$@"
+run build/bin/RadixSort -q -e "$@"
+run build/bin/RecursiveGaussian -q -e "$@"
+run build/bin/Reduction -q -e "$@"
+run build/bin/ScanLargeArrays -q -e "$@"
+run build/bin/SimpleConvolution -q -e -x 8 "$@"
+run build/bin/SobelFilter -q -e "$@"
+run build/bin/URNG -q -e "$@"
+
+printStats
