@@ -49,9 +49,29 @@ public:
 	typedef std::pair< LiveSetType*, LiveSetType* > LiveValueSetType;
 	typedef std::map< const BasicBlock*, LiveValueSetType > LiveValueMapType;
 
-	inline LiveValueSetType* getBlockLiveValues(BasicBlock* block);
-	inline LiveSetType* getBlockLiveInValues(const BasicBlock* block);
-	inline LiveSetType* getBlockLiveOutValues(const BasicBlock* block);
+	inline LiveValueSetType* getBlockLiveValues(BasicBlock* block) {
+		assert (block);
+		LiveValueMapType::iterator it = liveValueMap.find(block);
+		if (it == liveValueMap.end()) return NULL;
+
+		return &(it->second);
+	}
+
+	inline LiveSetType* getBlockLiveInValues(const BasicBlock* block) {
+		assert (block);
+		LiveValueMapType::iterator it = liveValueMap.find(block);
+		if (it == liveValueMap.end()) return NULL;
+
+		return it->second.first;
+	}
+
+	inline LiveSetType* getBlockLiveOutValues(const BasicBlock* block) {
+		assert (block);
+		LiveValueMapType::iterator it = liveValueMap.find(block);
+		if (it == liveValueMap.end()) return NULL;
+
+		return it->second.second;
+	}
 
 	// create map which holds order of instructions
 	unsigned createInstructionOrdering(const BasicBlock* block, const Instruction* frontier, std::map<const Instruction*, unsigned>& instMap) const;

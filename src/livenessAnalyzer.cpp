@@ -81,29 +81,6 @@ void LivenessAnalyzer::releaseMemory() {
 	//}
 }
 
-
-inline LivenessAnalyzer::LiveValueSetType* LivenessAnalyzer::getBlockLiveValues(BasicBlock* block) {
-	assert (block);
-	LiveValueMapType::iterator it = liveValueMap.find(block);
-	if (it == liveValueMap.end()) return NULL;
-
-	return &(it->second);
-}
-inline LivenessAnalyzer::LiveSetType* LivenessAnalyzer::getBlockLiveInValues(const BasicBlock* block) {
-	assert (block);
-	LiveValueMapType::iterator it = liveValueMap.find(block);
-	if (it == liveValueMap.end()) return NULL;
-
-	return it->second.first;
-}
-inline LivenessAnalyzer::LiveSetType* LivenessAnalyzer::getBlockLiveOutValues(const BasicBlock* block) {
-	assert (block);
-	LiveValueMapType::iterator it = liveValueMap.find(block);
-	if (it == liveValueMap.end()) return NULL;
-
-	return it->second.second;
-}
-
 // create map which holds order of instructions
 unsigned LivenessAnalyzer::createInstructionOrdering(const BasicBlock* block, const Instruction* frontier, std::map<const Instruction*, unsigned>& instMap) const {
 	unsigned frontierId = 0;
