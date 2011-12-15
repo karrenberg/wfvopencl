@@ -22,8 +22,8 @@
 #include <CL/cl.h>
 #endif
 
+#include "passes/continuationGenerator.h"
 #include "consts.h"
-#include "continuationGenerator.h"
 #include "debug.h"
 #include "llvmTools.hpp"
 

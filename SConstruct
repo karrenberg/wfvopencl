@@ -183,7 +183,7 @@ else:
 ### build WFV OpenCL library
 ###
 
-driverSrc = env.Glob('src/*.cpp')
+driverSrc = env.Glob("src/*.cpp") + env.Glob('src/passes/*.cpp')
 if int(compile_static_lib_driver):
 	WFVOpenCL = env.StaticLibrary(target='lib/WFVOpenCL', source=driverSrc, CPPDEFINES=llvm_vars.get('CPPDEFINES'), LIBS=driverLibs)
 else:

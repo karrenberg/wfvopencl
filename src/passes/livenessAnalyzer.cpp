@@ -13,10 +13,9 @@
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Instructions.h>
 
-#include "debug.h"
+#include "../debug.h"
 
 using namespace llvm;
-
 
 // forward declaration of initializer
 namespace llvm {

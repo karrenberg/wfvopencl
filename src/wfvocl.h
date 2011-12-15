@@ -44,10 +44,10 @@
 
 //#include "llvmTools.hpp" // LLVM functionality
 
-#include "callSiteBlockSplitter.h"
-#include "livenessAnalyzer.h"
+#include "passes/callSiteBlockSplitter.h"
+#include "passes/continuationGenerator.h"
+#include "passes/livenessAnalyzer.h"
 #include "llvmTools.hpp"
-#include "continuationGenerator.h"
 #include "wfvOpenCL.h"
 
 #ifndef WFVOPENCL_FUNCTION_NAME_BARRIER

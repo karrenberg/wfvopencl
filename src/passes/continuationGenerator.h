@@ -18,6 +18,9 @@
 #endif
 #define DEBUG_TYPE "continuationgenerator"
 
+#include <stack>
+
+#include <llvm/ADT/SetVector.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/IRBuilder.h>
@@ -31,12 +34,8 @@
 
 #include "callSiteBlockSplitter.h"
 #include "livenessAnalyzer.h"
-#include "llvmTools.hpp"
-
-#include <stack>
-#include "llvm/ADT/SetVector.h"
-
-#include "debug.h"
+#include "../debug.h"
+#include "../llvmTools.hpp"
 
 #define WFVOPENCL_FUNCTION_NAME_BARRIER "barrier"
 #define WFVOPENCL_BARRIER_SPECIAL_END_ID -1

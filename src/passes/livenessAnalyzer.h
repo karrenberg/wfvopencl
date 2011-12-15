@@ -25,7 +25,7 @@
 #include <llvm/Module.h>
 #include <llvm/Analysis/LoopInfo.h>
 
-#include "debug.h"
+#include "../debug.h"
 
 using namespace llvm;
 
