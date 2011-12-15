@@ -201,38 +201,6 @@ SDKUtil = env.StaticLibrary(target='lib/SDKUtil', source=sdkSrc)
 ### build test applications
 ###
 
-#testApps = env.Split("""
-#TestUnaligned
-#TestBarrier2
-#""")
-
-# Those work in all configurations, including WFV:
-#testApps = env.Split("""
-#TestSimple
-#TestLinearAccess
-#TestConstantIndex
-#TestUnaligned
-#Test2D
-#Test2D2
-#TestBarrier
-#TestBarrier2
-#TestLoopBarrier
-#TestDynCheckSpeed
-#AmbientOcclusionRenderer
-#BitonicSort
-#BlackScholesSimple
-#DCT
-#DwtHaar1D
-#FloydWarshall
-#FastWalshTransform
-#Histogram
-#MandelbrotSimple
-#MatrixTranspose
-#NBodySimple
-#PrefixSum
-#""")
-
-# These are our primary targets
 testApps = env.Split("""
 TestSimple
 TestLinearAccess
@@ -245,53 +213,7 @@ TestBarrier2
 TestLoopBarrier
 TestLoopBarrier2
 TestDynCheckSpeed
-AmbientOcclusionRenderer
-BinomialOptionSimple
-BitonicSort
-BlackScholesSimple
-DCT
-DwtHaar1D
-EigenValue
-FastWalshTransform
-FloydWarshall
-Histogram
-MandelbrotSimple
-MatrixTranspose
-MersenneTwisterSimple
-NBodySimple
-PrefixSum
-RadixSort
-ScanLargeArrays
-SimpleConvolution
 """)
-
-# These use vectors or other bad stuff and don't work with any configuration atm
-#testApps = env.Split("""
-#BinarySearch
-#Reduction
-#BinomialOption
-#BlackScholes
-#FFT
-#Mandelbrot
-#MatrixMulImage
-#MatrixMultiplication
-#MersenneTwister
-#MonteCarloAsian
-#NBody
-#QuasiRandomSequence
-#RecursiveGaussian
-#SobelFilter
-#URNG
-#""")
-
-# These use AMD specific extensions not available in our clc (TODO: do we use clc from 2.3 already?)
-#testApps = env.Split("""
-#AESEncryptDecrypt
-#FluidSimulation2D
-#HistogramAtomics
-#LUDecomposition
-#URNGNoiseGL #uses opencl1.1 gl stuff
-#""")
 
 Execute(Mkdir('build/bin'))
 if int(compile_static_lib_driver):
