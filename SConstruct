@@ -146,31 +146,24 @@ else:
 
 
 # set up libraries
-# glut and GLEW are not required for all, but this is easier :P
 driverLibs = env.Split('WFV') + llvm_vars.get('LIBS') + env.Split('dl')
 if isWin:
-	# get glut from http://www.idfun.de/glut64/
 	if int(compile_static_lib_driver):
-		appLibs = env.Split('WFVOpenCL SDKUtil glut32')
+		appLibs = env.Split('WFVOpenCL SDKUtil')
 	else:
-		appLibs = env.Split('OpenCL SDKUtil glut32')
-	if is32Bit:
-		appLibs+=env.Split('glew32s')
-		env.Append(CXXFLAGS = '-DGLEW_STATIC')
-	else:
-		appLibs+=env.Split('glew32')
+		appLibs = env.Split('OpenCL SDKUtil')
 elif isDarwin:
 	if int(compile_static_lib_driver):
-		appLibs = env.Split('WFVOpenCL SDKUtil glew')
+		appLibs = env.Split('WFVOpenCL SDKUtil')
 	else:
 		# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
-		#appLibs = env.Split('SDKUtil glew')
-		appLibs = env.Split('OpenCL SDKUtil glew')
+		#appLibs = env.Split('SDKUtil')
+		appLibs = env.Split('OpenCL SDKUtil')
 else:
 	if int(compile_static_lib_driver):
-		appLibs = env.Split('WFVOpenCL SDKUtil glut GLEW')
+		appLibs = env.Split('WFVOpenCL SDKUtil')
 	else:
-		appLibs = env.Split('OpenCL SDKUtil glut GLEW')
+		appLibs = env.Split('OpenCL SDKUtil')
 
 # disabled until we have 64bit VTune libraries
 #if int(profile):
@@ -222,7 +215,7 @@ if int(compile_static_lib_driver):
 			# On Darwin, SDK currently lacks code to find the execution path, so we need to copy the .cl files somewhere else than on unix/windows
 			Execute(Copy('.', 'test/'+a+'/'+a+'_Kernels.cl'))
 			Execute(Copy('.', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
-			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'GLUT', '-framework', 'OpenGL'])
+			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs+driverLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenGL'])
 		else:
 			Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Kernels.cl'))
 			Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
@@ -234,8 +227,8 @@ else:
 		Execute(Copy('build/bin', 'test/'+a+'/'+a+'_Input.bmp')) # TODO: only if existant
 		if isDarwin:
 			# The following will only work as soon as Apple uses ICD etc. (OpenCL 1.1)
-			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenCL', '-framework', 'GLUT', '-framework', 'OpenGL'])
-			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'GLUT', '-framework', 'OpenGL'])
+			#App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenCL', '-framework', 'OpenGL'])
+			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs, LINKFLAGS=env['LINKFLAGS']+['-framework', 'OpenGL'])
 		else:
 			App = env.Program('build/bin/'+a, env.Glob('test/'+a+'/*.cpp'), LIBS=appLibs)
 		env.Depends(App, SDKUtil)
