@@ -1555,25 +1555,7 @@ namespace WFVOpenCL {
 		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_beforeopt.ll"); );
 		WFVOPENCL_DEBUG( outs() << "optimizing wrapper... "; );
 		WFVOpenCL::inlineFunctionCalls(f_wrapper, targetData);
-
-#ifndef WFVOPENCL_NO_WFV
-		// disable LCIM if vectorization was not successful
-		WFVOpenCL::optimizeFunction(f_wrapper, !vectorized); // disable LICM.
-#if 0
-		// TODO: why does the driver crash (later) if LICM was used? It is important for performance :(
-		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "ASDF.ll"); );
-		outs() << *f_wrapper << "\nNow running LICM...\n";
-		FunctionPassManager Passes(f_wrapper->getParent());
-		Passes.add(targetData);
-		Passes.add(createLICMPass());                  // Hoist loop invariants
-		Passes.doInitialization();
-		Passes.run(*f_wrapper);
-		Passes.doFinalization();
-#endif
-#else
-		// disable LCIM for scalar code
-		WFVOpenCL::optimizeFunction(f_wrapper, true);
-#endif
+		WFVOpenCL::optimizeFunction(f_wrapper);
 		WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_wrapper, "debug_wrapper_afteropt.ll"); );
 		
 		WFVOPENCL_DEBUG_RUNTIME(
