@@ -29,9 +29,9 @@
 #endif
 
 #ifdef _WIN32
-#	define WFVOPENCL_DLLEXPORT __declspec(dllexport)
+#   define WFVOPENCL_DLLEXPORT __declspec(dllexport)
 #else
-#	define WFVOPENCL_DLLEXPORT
+#   define WFVOPENCL_DLLEXPORT
 #endif
 
 #ifndef WFVOPENCL_NO_WFV
@@ -62,9 +62,9 @@
 #define WFVOPENCL_EXTENSIONS "cl_khr_icd cl_amd_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_byte_addressable_store cl_khr_gl_sharing cl_ext_device_fission cl_amd_device_attribute_query cl_amd_printf"
 #define WFVOPENCL_ICD_SUFFIX "pkt"
 #ifdef __APPLE__
-#	define WFVOPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
+#   define WFVOPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
 #else
-#	define WFVOPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32:64"
+#   define WFVOPENCL_LLVM_DATA_LAYOUT_64 "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32:64"
 #endif
 #define WFVOPENCL_ADDRESS_BITS 32
 #define WFVOPENCL_MAX_WORK_GROUP_SIZE 100000//8192
@@ -953,10 +953,6 @@ public:
 		WFVOPENCL_DEBUG( outs() << "    compiling function '" << f_wrapper->getNameStr() << "'... "; );
 		WFVOPENCL_DEBUG( verifyModule(*prog->module); );
 		WFVOPENCL_DEBUG( WFVOpenCL::writeModuleToFile(prog->module, "debug_kernel_final_before_compilation.mod.ll"); );
-//		prog->module = WFVOpenCL::createModuleFromFile("KERNELTEST.bc");
-//		f_wrapper = prog->module->getFunction(f_wrapper->getNameStr());
-//		f = prog->module->getFunction(f->getNameStr());
-//		f_wrapper->viewCFG();
 #if 0
 		for (Function::iterator BB=f_wrapper->begin(), BBE=f_wrapper->end(); BB!=BBE; ++BB) {
 			for (BasicBlock::iterator I=BB->begin(), IE=BB->end(); I!=IE; ++I) {

@@ -60,7 +60,7 @@ typedef void (*kernelFnPtr)(
 		}
 	);
 
-#	ifdef WFVOPENCL_USE_OPENMP
+#   ifdef WFVOPENCL_USE_OPENMP
 	// If the local work size is set to 1, we should be safe to set it to some arbitrary
 	// value unless the application does weird things.
 	// TODO: Test if kernel calls get_group_id or get_group_size, in which case we must not change anything!
@@ -69,10 +69,10 @@ typedef void (*kernelFnPtr)(
 	// Using larger amounts of iterations can severely degrade performance (e.g. FloydWarshall, Mandelbrot)
 	const cl_uint modified_local_work_size = local_work_size == 1 ?
 		modified_global_work_size/WFVOPENCL_NUM_CORES : (cl_uint)local_work_size;
-#	else
+#   else
 	const cl_uint modified_local_work_size = local_work_size == 1 ?
 		modified_global_work_size : (cl_uint)local_work_size;
-#	endif
+#   endif
 
 #endif
 
@@ -116,23 +116,12 @@ typedef void (*kernelFnPtr)(
 
 #ifdef WFVOPENCL_USE_OPENMP
 	omp_set_num_threads(WFVOPENCL_MAX_NUM_THREADS);
-#	pragma omp parallel for shared(argument_struct, kernel) private(i)
+#   pragma omp parallel for shared(argument_struct, kernel) private(i)
 #endif
 	for (i=0; i<num_iterations; ++i) {
 		WFVOPENCL_DEBUG_RUNTIME( outs() << "\niteration " << i << " (= group id)\n"; );
 		WFVOPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 		WFVOPENCL_DEBUG_RUNTIME( outs() << "  verification before execution successful!\n"; );
-
-//		WFVOPENCL_DEBUG_RUNTIME(
-//			//hardcoded debug output
-//			struct t { cl_int* numSteps; cl_float* randArray; cl_float* output; cl_float* callA; cl_float* callB;  } __attribute__((packed))* tt = (t*)kernel->get_argument_struct();
-//			outs() << "  numSteps: "  << tt->numSteps  << "\n";
-//			outs() << "  randArray: " << tt->randArray << "\n";
-//			outs() << "  output: "  << tt->output  << "\n";
-//			outs() << "  callA: " << tt->callA << "\n";
-//			outs() << "  callB: " << tt->callB << "\n";
-//			verifyModule(*kernel->get_program()->module);
-//		);
 
 #ifdef WFVOPENCL_USE_OPENMP
 		// fetch this thread's argument struct
@@ -245,11 +234,11 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 
 #ifdef WFVOPENCL_USE_OPENMP
 	omp_set_num_threads(WFVOPENCL_MAX_NUM_THREADS);
-#	ifdef _WIN32
-#		pragma omp parallel for shared(argument_struct) private(i, j) // VS2010 only supports OpenMP 2.5
-#	else
-#		pragma omp parallel for shared(argument_struct) private(i, j) collapse(2) // collapse requires OpenMP 3.0
-#	endif
+#   ifdef _WIN32
+#      pragma omp parallel for shared(argument_struct) private(i, j) // VS2010 only supports OpenMP 2.5
+#   else
+#      pragma omp parallel for shared(argument_struct) private(i, j) collapse(2) // collapse requires OpenMP 3.0
+#   endif
 #endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {
@@ -257,21 +246,6 @@ inline cl_int executeRangeKernel2D(cl_kernel kernel, const size_t* global_work_s
 			WFVOPENCL_DEBUG_RUNTIME( verifyModule(*kernel->get_program()->module); );
 
 			const cl_int group_id[2] = { i, j };
-
-//			WFVOPENCL_DEBUG_RUNTIME(
-//				//hardcoded debug output
-//				struct t { cl_float* input; cl_float* output; } __attribute__((packed))* tt = (t*)kernel->get_argument_struct();
-//				outs() << "  input: "  << tt->output  << "\n";
-//				for (cl_uint f=0; f<16; ++f) {
-//					outs() << " " << tt->input[f];
-//				}
-//				outs() << "\n  output: "  << tt->output  << "\n";
-//				for (cl_uint f=0; f<256; ++f) {
-//					outs() << " " << tt->output[f];
-//				}
-//				outs() << "\n\n";
-//				verifyModule(*kernel->get_program()->module);
-//			);
 
 #ifdef WFVOPENCL_USE_OPENMP
 			// fetch this thread's argument struct
@@ -387,11 +361,11 @@ inline cl_int executeRangeKernel3D(cl_kernel kernel, const size_t* global_work_s
 
 #ifdef WFVOPENCL_USE_OPENMP
 	omp_set_num_threads(WFVOPENCL_MAX_NUM_THREADS);
-#	ifdef _WIN32
-#		pragma omp parallel for shared(argument_struct) private(i, j, k) // VS2010 only supports OpenMP 2.5
-#	else
-#		pragma omp parallel for shared(argument_struct) private(i, j, k) collapse(3) // collapse requires OpenMP 3.0
-#	endif
+#   ifdef _WIN32
+#       pragma omp parallel for shared(argument_struct) private(i, j, k) // VS2010 only supports OpenMP 2.5
+#   else
+#       pragma omp parallel for shared(argument_struct) private(i, j, k) collapse(3) // collapse requires OpenMP 3.0
+#   endif
 #endif
 	for (i=0; i<num_iterations_0; ++i) {
 		for (j=0; j<num_iterations_1; ++j) {

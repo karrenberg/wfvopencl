@@ -53,17 +53,17 @@ clGetPlatformInfo(cl_platform_id   platform,
 			break;
 		case CL_PLATFORM_NAME:
 #ifdef WFVOPENCL_NO_WFV
-#	ifdef WFVOPENCL_USE_OPENMP
-			res = "Packetized OpenCL (scalar, multi-threaded)";
-#	else
-			res = "Packetized OpenCL (scalar, single-threaded)";
-#	endif
+#   ifdef WFVOPENCL_USE_OPENMP
+		res = "Packetized OpenCL (scalar, multi-threaded)";
+#   else
+		res = "Packetized OpenCL (scalar, single-threaded)";
+#   endif
 #else
-#	ifdef WFVOPENCL_USE_OPENMP
-			res = "Packetized OpenCL (vectorized, multi-threaded)";
-#	else
-			res = "Packetized OpenCL (vectorized, single-threaded)";
-#	endif
+#   ifdef WFVOPENCL_USE_OPENMP
+		res = "Packetized OpenCL (vectorized, multi-threaded)";
+#   else
+		res = "Packetized OpenCL (vectorized, single-threaded)";
+#   endif
 #endif
 			break;
 		case CL_PLATFORM_VENDOR:

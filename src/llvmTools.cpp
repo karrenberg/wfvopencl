@@ -657,78 +657,6 @@ void inlineFunctionCalls(Function* f, TargetData* targetData) {
 	//WFVOPENCL_DEBUG( outs() << "done.\n"; );
 }
 
-
-#if 0
-/// adopted from: llvm-2.5/tools/llvm-ld
-void optimizeFunction(Function* f) {
-	assert (f);
-	assert (f->getParent());
-	Module* mod = f->getParent();
-	TargetData* targetData = new TargetData(mod);
-
-	//WFVOPENCL_DEBUG( outs() << "optimizing function '" << f->getNameStr() << "'...\n"; );
-
-
-	//PassManager Passes;
-	FunctionPassManager Passes(mod);
-	Passes.add(targetData);
-//		createStandardFunctionPasses(&Passes, 3);
-	Passes.add(createScalarReplAggregatesPass(2048)); // Break up allocas, override default threshold of maximum struct size of 128 bytes
-	Passes.add(createInstructionCombiningPass());
-	Passes.add(createJumpThreadingPass());        // Thread jumps.
-	Passes.add(createReassociatePass());
-	Passes.add(createInstructionCombiningPass());
-	Passes.add(createCFGSimplificationPass());
-	Passes.add(createAggressiveDCEPass()); //fpm.add(createDeadCodeEliminationPass());
-	Passes.add(createScalarReplAggregatesPass(2048)); // Break up allocas, override default threshold of maximum struct size of 128 bytes
-	Passes.add(createLICMPass());                 // Hoist loop invariants   //Pass
-	Passes.add(createGVNPass());                  // Remove redundancies
-	Passes.add(createMemCpyOptPass());            // Remove dead memcpy's
-	Passes.add(createDeadStoreEliminationPass()); // Nuke dead stores
-	Passes.add(createInstructionCombiningPass());
-	Passes.add(createJumpThreadingPass());        // Thread jumps.
-	Passes.add(createPromoteMemoryToRegisterPass()); // Cleanup jumpthread.
-	Passes.add(createCFGSimplificationPass());
-
-	//custom
-	Passes.add(createSCCPPass()); //fpm.add(createConstantPropagationPass());
-	Passes.add(createTailCallEliminationPass());
-	Passes.add(createAggressiveDCEPass());
-
-	// custom, added after llvm 2.7
-	// -> wrong results in OpenCL-Mandelbrot!!!
-	// -> without: bad optimization of OpenCL-SimpleConvolution
-	/*Passes.add(createLoopRotatePass());            // Rotate Loop
-	  Passes.add(createLICMPass());                  // Hoist loop invariants
-	  Passes.add(createLoopUnswitchPass(false));
-	  Passes.add(createInstructionCombiningPass());
-	  Passes.add(createIndVarSimplifyPass());        // Canonicalize indvars
-	  Passes.add(createLoopDeletionPass());          // Delete dead loops
-	  Passes.add(createLoopUnrollPass());          // Unroll small loops
-	 */
-	//clean up again
-	Passes.add(createInstructionCombiningPass());
-	Passes.add(createReassociatePass());
-	Passes.add(createGVNPass());
-	Passes.add(createCFGSimplificationPass());
-	Passes.add(createAggressiveDCEPass());
-
-	WFVOPENCL_DEBUG( Passes.add(createVerifierPass()); );
-
-	//WFVOPENCL_DEBUG_VISIBLE( llvm::TimerGroup tg("llvmOptimization"); )
-	//WFVOPENCL_DEBUG_VISIBLE( llvm::Timer t("llvmOptimization", tg); )
-	//WFVOPENCL_DEBUG( t.startTimer(); );
-
-	Passes.doInitialization();
-	Passes.run(*f);
-	Passes.doFinalization();
-
-	//WFVOPENCL_DEBUG( t.stopTimer(); );
-	//WFVOPENCL_DEBUG( outs() << "done.\ndone.\n"; );
-	//WFVOPENCL_DEBUG( tg.print(outs()); );
-}
-#else
-
 /// adopted from: llvm-2.9/include/llvm/Support/StandardPasses.h
 void optimizeFunction(Function* f, const bool disableLICM, const bool disableLoopRotate) {
 	assert (f);
@@ -810,7 +738,6 @@ void optimizeFunction(Function* f, const bool disableLICM, const bool disableLoo
 	Passes.run(*f);
 	Passes.doFinalization();
 }
-#endif
 
 
 Constant * createPointerConstant(void * thePointer, const Type * pointerType) {

@@ -147,7 +147,7 @@ clBuildProgram(cl_program           program,
 #elif defined __linux
 	mod->setTargetTriple("x86_64-unknown-linux-gnu");
 #else
-#	error "unknown platform found, can not assign correct target triple!");
+#   error "unknown platform found, can not assign correct target triple!");
 #endif
 	program->targetData = new TargetData(mod);
 

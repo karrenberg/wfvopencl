@@ -61,10 +61,10 @@ clGetCommandQueueInfo(cl_command_queue      command_queue,
 
 //#ifdef CL_USE_DEPRECATED_OPENCL_1_0_APIS
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
-clSetCommandQueueProperty(cl_command_queue              command_queue,
-			cl_command_queue_properties					properties,
-			cl_bool										enable,
-			cl_command_queue_properties *				old_properties)
+clSetCommandQueueProperty(cl_command_queue             command_queue,
+                          cl_command_queue_properties  properties,
+                          cl_bool                      enable,
+                          cl_command_queue_properties* old_properties)
 {
 	WFVOPENCL_DEBUG ( outs() << "ENTERED clSetCommandQueueProperty!\n"; );
 	assert (false && "NOT IMPLEMENTED!");

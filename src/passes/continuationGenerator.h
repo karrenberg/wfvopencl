@@ -10,7 +10,7 @@
  *
  */
 #ifndef _CONTINUATIONGENERATOR_H
-#define	_CONTINUATIONGENERATOR_H
+#define _CONTINUATIONGENERATOR_H
 
 
 #ifdef DEBUG_TYPE
@@ -260,24 +260,24 @@ private:
 				case BARRIER_BEGIN: {
 					for (int localId=0; localId<blockSizeDim0; ++localId) {
 						current_barrier_id = runOrigFunc(..., localId, &data); break;
-	 				}
-	 			}
+					}
+				}
 				case B0: {
 					// 1D case example
 					for (int localId=0; localId<blockSizeDim0; ++localId) {
 						current_barrier_id = runFunc0(localId, &data); break;
-	 				}
+					}
 				}
 				case B1: {
 					for (int localId=0; localId<blockSizeDim0; ++localId) {
 						current_barrier_id = runFunc1(localId, &data); break;
-		 			}
+					}
 				}
 				...
 				case BN: {
 					for (int localId=0; localId<blockSizeDim0; ++localId) {
 						current_barrier_id = runFuncN(localId, &data); break;
-		 			}
+					}
 				}
 				default: error; break;
 			}
@@ -302,5 +302,5 @@ namespace llvm {
 }
 
 
-#endif	/* _CONTINUATIONGENERATOR_H */
+#endif /* _CONTINUATIONGENERATOR_H */
 

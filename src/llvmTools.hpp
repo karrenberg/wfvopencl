@@ -60,7 +60,7 @@
 
 
 #ifndef WFVOPENCL_NO_WFV
-#	include "packetizerAPI.hpp"
+#   include "packetizerAPI.hpp"
 #endif
 
 #include "debug.h"

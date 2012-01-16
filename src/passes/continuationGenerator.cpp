@@ -104,12 +104,12 @@ bool ContinuationGenerator::runOnFunction(Function &f) {
 }
 
 void ContinuationGenerator::print(raw_ostream& o, const Module *M) const {
-//		ContinuationVecType contVec;
-//		getContinuations(contVec);
-//		for (ContinuationVecType::const_iterator it=contVec.begin(), E=contVec.end(); it!=E; ++it) {
-//			Function* continuation = *it;
-//			continuation->viewCFG();
-//		}
+//    ContinuationVecType contVec;
+//    getContinuations(contVec);
+//    for (ContinuationVecType::const_iterator it=contVec.begin(), E=contVec.end(); it!=E; ++it) {
+//        Function* continuation = *it;
+//        continuation->viewCFG();
+//    }
 }
 void ContinuationGenerator::getAnalysisUsage(AnalysisUsage &AU) const {
 	AU.addRequired<CallSiteBlockSplitter>();

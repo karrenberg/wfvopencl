@@ -1390,22 +1390,6 @@ namespace WFVOpenCL {
 				}
 			);
 
-//			BasicBlock* block = &f_SIMD->getEntryBlock();
-//			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-//				if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
-//					insertPrintf("out-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
-//					break;
-//				}
-//			}
-//			int count = 0;
-//			for (BasicBlock::iterator I=block->begin(), IE=block->end(); I!=IE; ++I) {
-//				if (GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(I)) {
-//					if (count == 0) { ++count; continue; }
-//					insertPrintf("in-index: ", cast<Value>(gep->idx_begin()), true, block->getTerminator());
-//				}
-//			}
-//			WFVOPENCL_DEBUG( WFVOpenCL::writeFunctionToFile(f_SIMD, "special.ll"); );
-
 			f = f_SIMD;
 		}
 		else {

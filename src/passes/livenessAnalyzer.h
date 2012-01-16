@@ -10,7 +10,7 @@
  *
  */
 #ifndef _LIVENESSANALYZER_H
-#define	_LIVENESSANALYZER_H
+#define _LIVENESSANALYZER_H
 
 
 #ifdef DEBUG_TYPE
@@ -108,5 +108,4 @@ namespace llvm {
 }
 
 
-#endif	/* _LIVENESSANALYZER_H */
-
+#endif /* _LIVENESSANALYZER_H */

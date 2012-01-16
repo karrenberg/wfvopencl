@@ -12,7 +12,7 @@
  * TODO: replacing all returns by return -1 is hardcoded
  */
 #ifndef _CALLSITEBLOCKSPLITTER_H
-#define	_CALLSITEBLOCKSPLITTER_H
+#define _CALLSITEBLOCKSPLITTER_H
 
 
 #ifdef DEBUG_TYPE
@@ -92,5 +92,5 @@ namespace llvm {
 }
 
 
-#endif	/* _CALLSITEBLOCKSPLITTER_H */
+#endif /* _CALLSITEBLOCKSPLITTER_H */
 
