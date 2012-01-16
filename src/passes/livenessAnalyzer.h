@@ -31,69 +31,69 @@ using namespace llvm;
 
 // forward declaration of initializer
 namespace llvm {
-	void initializeLivenessAnalyzerPass(PassRegistry&);
+    void initializeLivenessAnalyzerPass(PassRegistry&);
 }
 
 class LivenessAnalyzer : public FunctionPass {
 public:
-	static char ID; // Pass identification, replacement for typeid
-	LivenessAnalyzer(const bool verbose_flag = false);
-	~LivenessAnalyzer();
+    static char ID; // Pass identification, replacement for typeid
+    LivenessAnalyzer(const bool verbose_flag = false);
+    ~LivenessAnalyzer();
 
-	virtual bool runOnFunction(Function &f);
-	void print(raw_ostream& o, const Module *M=NULL) const;
-	virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-	void releaseMemory();
+    virtual bool runOnFunction(Function &f);
+    void print(raw_ostream& o, const Module *M=NULL) const;
+    virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+    void releaseMemory();
 
-	typedef std::set<Value*> LiveSetType;
-	typedef std::pair< LiveSetType*, LiveSetType* > LiveValueSetType;
-	typedef std::map< const BasicBlock*, LiveValueSetType > LiveValueMapType;
+    typedef std::set<Value*> LiveSetType;
+    typedef std::pair< LiveSetType*, LiveSetType* > LiveValueSetType;
+    typedef std::map< const BasicBlock*, LiveValueSetType > LiveValueMapType;
 
-	inline LiveValueSetType* getBlockLiveValues(BasicBlock* block) {
-		assert (block);
-		LiveValueMapType::iterator it = liveValueMap.find(block);
-		if (it == liveValueMap.end()) return NULL;
+    inline LiveValueSetType* getBlockLiveValues(BasicBlock* block) {
+        assert (block);
+        LiveValueMapType::iterator it = liveValueMap.find(block);
+        if (it == liveValueMap.end()) return NULL;
 
-		return &(it->second);
-	}
+        return &(it->second);
+    }
 
-	inline LiveSetType* getBlockLiveInValues(const BasicBlock* block) {
-		assert (block);
-		LiveValueMapType::iterator it = liveValueMap.find(block);
-		if (it == liveValueMap.end()) return NULL;
+    inline LiveSetType* getBlockLiveInValues(const BasicBlock* block) {
+        assert (block);
+        LiveValueMapType::iterator it = liveValueMap.find(block);
+        if (it == liveValueMap.end()) return NULL;
 
-		return it->second.first;
-	}
+        return it->second.first;
+    }
 
-	inline LiveSetType* getBlockLiveOutValues(const BasicBlock* block) {
-		assert (block);
-		LiveValueMapType::iterator it = liveValueMap.find(block);
-		if (it == liveValueMap.end()) return NULL;
+    inline LiveSetType* getBlockLiveOutValues(const BasicBlock* block) {
+        assert (block);
+        LiveValueMapType::iterator it = liveValueMap.find(block);
+        if (it == liveValueMap.end()) return NULL;
 
-		return it->second.second;
-	}
+        return it->second.second;
+    }
 
-	// create map which holds order of instructions
-	unsigned createInstructionOrdering(const BasicBlock* block, const Instruction* frontier, std::map<const Instruction*, unsigned>& instMap) const;
-	void getBlockInternalLiveInValues(Instruction* inst, LiveSetType& liveVals);
+    // create map which holds order of instructions
+    unsigned createInstructionOrdering(const BasicBlock* block, const Instruction* frontier, std::map<const Instruction*, unsigned>& instMap) const;
+    void getBlockInternalLiveInValues(Instruction* inst, LiveSetType& liveVals);
 
-	// removes all values from 'liveVals' that are live-in of the block of
-	// 'inst' but that do not survive 'inst'.
-	// TODO: implement more cases than just phis
-	// NOTE: must not use loop info here, this function is meant to work on any
-	//       code unrelated to this analysis.
-	void removeBlockInternalNonLiveInValues(Instruction* frontier, LiveSetType& liveInVals, const LiveSetType& liveOutVals);
+    // removes all values from 'liveVals' that are live-in of the block of
+    // 'inst' but that do not survive 'inst'.
+    // TODO: implement more cases than just phis
+    // NOTE: must not use loop info here, this function is meant to work on any
+    //       code unrelated to this analysis.
+    void removeBlockInternalNonLiveInValues(Instruction* frontier, LiveSetType& liveInVals, const LiveSetType& liveOutVals);
 
-	void mapLiveValues(Function* f, Function* newF, ValueMap<const Value*, Value*>& valueMap);
+    void mapLiveValues(Function* f, Function* newF, ValueMap<const Value*, Value*>& valueMap);
 
 private:
-	const bool verbose;
-	LoopInfo* loopInfo;
+    const bool verbose;
+    LoopInfo* loopInfo;
 
-	LiveValueMapType liveValueMap;
+    LiveValueMapType liveValueMap;
 
-	void computeLiveValues(Function* f);
-	void computeLivenessInformation(BasicBlock* block, Value* def, Instruction* use, std::set<BasicBlock*>& visitedBlocks);
+    void computeLiveValues(Function* f);
+    void computeLivenessInformation(BasicBlock* block, Value* def, Instruction* use, std::set<BasicBlock*>& visitedBlocks);
 };
 
 /*
@@ -104,7 +104,7 @@ INITIALIZE_PASS_END(LivenessAnalyzer, "liveness-analysis", "Liveness Analysis", 
 
 // Public interface to the LivenessAnalysis pass
 namespace llvm {
-	FunctionPass* createLivenessAnalyzerPass();
+    FunctionPass* createLivenessAnalyzerPass();
 }
 
 

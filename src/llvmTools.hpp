@@ -71,51 +71,51 @@ using namespace llvm;
 
 namespace WFVOpenCL {
 #ifndef WFVOPENCL_NO_WFV
-	void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer);
+    void addNativeFunctions(Function* kernel, const cl_uint simdDim, Packetizer::Packetizer& packetizer);
 #endif
-	Function* generateFunctionWrapperWithParams(const std::string& wrapper_name, Function* f, Module* mod, std::vector<const Type*>& additionalParams, const bool inlineCall);
-	void generateOpenCLFunctions(Module* mod);
-	const Type * getPrimitiveType(Module *mod, char t);
-	const Type * getTypeFromString(Module *mod, const std::string &typeString);
-	Function* createExternalFunction(const std::string& name, const FunctionType* fType, Module* mod);
-	Function* createExternalFunction(const std::string& name, const Type* returnType, std::vector<const Type*>& paramTypes, Module* mod);
+    Function* generateFunctionWrapperWithParams(const std::string& wrapper_name, Function* f, Module* mod, std::vector<const Type*>& additionalParams, const bool inlineCall);
+    void generateOpenCLFunctions(Module* mod);
+    const Type * getPrimitiveType(Module *mod, char t);
+    const Type * getTypeFromString(Module *mod, const std::string &typeString);
+    Function* createExternalFunction(const std::string& name, const FunctionType* fType, Module* mod);
+    Function* createExternalFunction(const std::string& name, const Type* returnType, std::vector<const Type*>& paramTypes, Module* mod);
 }
 
 
 
 // to be removed :)
 namespace WFVOpenCL {
-	Function* getFunction(const std::string& name, Module* module);
-	Module* createModuleFromFile(const std::string & fileName);
-	void writeModuleToFile(const Module * M, const std::string & fileName);
-	void writeFunctionToFile(const Function * F, const std::string & fileName);
-	ExecutionEngine* createExecutionEngine(Module* mod);
-	ExecutionEngine * getExecutionEngine(Module* mod);
-	void* getPointerToFunction(Module * mod, Function * func);
-	void* getPointerToFunction(Module* mod, std::string functionName);
-	void* getPointerToFunction(ExecutionEngine * engine, Function * func);
-	unsigned getPrimitiveSizeInBits(const Type* type);
-	bool isPointerType(const Type* type);
-	const Type* getContainedType(const Type* type, const unsigned index);
-	TargetData* getTargetData(Module* mod);
-	void setTargetData(Module* mod, const std::string& dataLayout, const std::string& targetTriple);
-	const std::string& getTargetTriple(const Module* mod);
-	void setDataLayout(Module* mod, const std::string& dataLayout);
-	uint64_t getTypeSizeInBits(const TargetData* targetData, const Type* type);
-	void runStaticConstructorsDestructors(Module* mod, ExecutionEngine* engine, const bool isDtors);
-	unsigned getNumArgs(const Function* f);
-	const Type* getArgumentType(const Function* f, const unsigned arg_index);
-	unsigned getAddressSpace(const Type* type);
-	void inlineFunctionCalls(Function* f, TargetData* targetData=NULL);
-	void optimizeFunction(Function* f, const bool disableLICM=false, const bool disableLoopRotate=false);
-	Constant * createPointerConstant(void * thePointer, const Type * pointerType);
-	const char * readConstant(Constant *& target,const Type * type, const char * position);
-	Constant * createConstant(const Type * type, const char * value);
-	Constant * createFunctionPointer(Function * decl, void * ptr);
-	void replaceAllUsesWith(Function* oldFn, Function* newFn);
-	void replaceAllUsesWith(Function* oldFn, Constant* newVal);
-	void replaceAllUsesWith(Value* oldVal, Value* newVal);
-	Module* linkInModule(Module* target, Module* source);
+    Function* getFunction(const std::string& name, Module* module);
+    Module* createModuleFromFile(const std::string & fileName);
+    void writeModuleToFile(const Module * M, const std::string & fileName);
+    void writeFunctionToFile(const Function * F, const std::string & fileName);
+    ExecutionEngine* createExecutionEngine(Module* mod);
+    ExecutionEngine * getExecutionEngine(Module* mod);
+    void* getPointerToFunction(Module * mod, Function * func);
+    void* getPointerToFunction(Module* mod, std::string functionName);
+    void* getPointerToFunction(ExecutionEngine * engine, Function * func);
+    unsigned getPrimitiveSizeInBits(const Type* type);
+    bool isPointerType(const Type* type);
+    const Type* getContainedType(const Type* type, const unsigned index);
+    TargetData* getTargetData(Module* mod);
+    void setTargetData(Module* mod, const std::string& dataLayout, const std::string& targetTriple);
+    const std::string& getTargetTriple(const Module* mod);
+    void setDataLayout(Module* mod, const std::string& dataLayout);
+    uint64_t getTypeSizeInBits(const TargetData* targetData, const Type* type);
+    void runStaticConstructorsDestructors(Module* mod, ExecutionEngine* engine, const bool isDtors);
+    unsigned getNumArgs(const Function* f);
+    const Type* getArgumentType(const Function* f, const unsigned arg_index);
+    unsigned getAddressSpace(const Type* type);
+    void inlineFunctionCalls(Function* f, TargetData* targetData=NULL);
+    void optimizeFunction(Function* f, const bool disableLICM=false, const bool disableLoopRotate=false);
+    Constant * createPointerConstant(void * thePointer, const Type * pointerType);
+    const char * readConstant(Constant *& target,const Type * type, const char * position);
+    Constant * createConstant(const Type * type, const char * value);
+    Constant * createFunctionPointer(Function * decl, void * ptr);
+    void replaceAllUsesWith(Function* oldFn, Function* newFn);
+    void replaceAllUsesWith(Function* oldFn, Constant* newVal);
+    void replaceAllUsesWith(Value* oldVal, Value* newVal);
+    Module* linkInModule(Module* target, Module* source);
 }
 
 

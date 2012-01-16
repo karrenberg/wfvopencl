@@ -21,19 +21,19 @@
  */
 WFVOPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL clGetExtensionFunctionAddress(const char * func_name)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetExtensionFunctionAddress!\n"; );
-	WFVOPENCL_DEBUG ( outs() << "  func_name: " << func_name << "\n"; );
-	// This is for identification by the ICD mechanism
-	if (!strcmp(func_name, "clIcdGetPlatformIDsKHR")) {
-		return (void*)clIcdGetPlatformIDsKHR;
-	}
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clGetExtensionFunctionAddress!\n"; );
+    WFVOPENCL_DEBUG ( outs() << "  func_name: " << func_name << "\n"; );
+    // This is for identification by the ICD mechanism
+    if (!strcmp(func_name, "clIcdGetPlatformIDsKHR")) {
+        return (void*)clIcdGetPlatformIDsKHR;
+    }
 
-	return (void*)clIcdGetPlatformIDsKHR;
+    return (void*)clIcdGetPlatformIDsKHR;
 
 
-	// If we add any additional extensions, we have to insert something here
-	// that queries the func_name for our suffix and returns the appropriate
-	// function.
+    // If we add any additional extensions, we have to insert something here
+    // that queries the func_name for our suffix and returns the appropriate
+    // function.
 
-	//return NULL;
+    //return NULL;
 }

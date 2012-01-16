@@ -16,17 +16,17 @@ WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueMarker(cl_command_queue    command_queue,
                 cl_event *          event)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueMarker!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueMarker!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clEnqueueBarrier(cl_command_queue command_queue)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueBarrier!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueBarrier!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -34,7 +34,7 @@ clEnqueueWaitForEvents(cl_command_queue command_queue,
                        cl_uint          num_events,
                        const cl_event * event_list)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueWaitForEvents!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueWaitForEvents!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }

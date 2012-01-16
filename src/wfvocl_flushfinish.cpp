@@ -15,16 +15,16 @@
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clFlush(cl_command_queue command_queue)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clFlush!\n"; );
-	WFVOPENCL_DEBUG( outs() << "TODO: implement clFlush()\n"; );
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clFlush!\n"; );
+    WFVOPENCL_DEBUG( outs() << "TODO: implement clFlush()\n"; );
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clFinish(cl_command_queue command_queue)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clFinish!\n"; );
-	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
-	// do nothing :P
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clFinish!\n"; );
+    if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
+    // do nothing :P
+    return CL_SUCCESS;
 }

@@ -19,7 +19,7 @@ clGetEventProfilingInfo(cl_event            event,
                         void *              param_value,
                         size_t *            param_value_size_ret)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetEventProfilingInfo!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clGetEventProfilingInfo!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }

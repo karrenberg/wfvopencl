@@ -22,9 +22,9 @@ clCreateImage2D(cl_context              context,
                 void *                  host_ptr,
                 cl_int *                errcode_ret)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateImage2D!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return NULL;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateImage2D!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return NULL;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_mem CL_API_CALL
@@ -39,9 +39,9 @@ clCreateImage3D(cl_context              context,
                 void *                  host_ptr,
                 cl_int *                errcode_ret)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateImage3D!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return NULL;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateImage3D!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return NULL;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -52,9 +52,9 @@ clGetSupportedImageFormats(cl_context           context,
                            cl_image_format *    image_formats,
                            cl_uint *            num_image_formats)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetSupportedImageFormats!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clGetSupportedImageFormats!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -70,9 +70,9 @@ clEnqueueReadImage(cl_command_queue     command_queue,
                    const cl_event *     event_wait_list,
                    cl_event *           event)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadImage!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueReadImage!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -88,9 +88,9 @@ clEnqueueWriteImage(cl_command_queue    command_queue,
                     const cl_event *    event_wait_list,
                     cl_event *          event)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteImage!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueWriteImage!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 
@@ -105,9 +105,9 @@ clEnqueueCopyImage(cl_command_queue     command_queue,
                    const cl_event *     event_wait_list,
                    cl_event *           event)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImage!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImage!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -121,9 +121,9 @@ clEnqueueCopyImageToBuffer(cl_command_queue command_queue,
                            const cl_event * event_wait_list,
                            cl_event *       event)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImageToBuffer!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyImageToBuffer!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -137,9 +137,9 @@ clEnqueueCopyBufferToImage(cl_command_queue command_queue,
                            const cl_event * event_wait_list,
                            cl_event *       event)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBufferToImage!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueCopyBufferToImage!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY void * CL_API_CALL
@@ -156,9 +156,9 @@ clEnqueueMapImage(cl_command_queue  command_queue,
                   cl_event *        event,
                   cl_int *          errcode_ret)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueMapImage!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return NULL;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueMapImage!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return NULL;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -168,7 +168,7 @@ clGetImageInfo(cl_mem           image,
                void *           param_value,
                size_t *         param_value_size_ret)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetImageInfo!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clGetImageInfo!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }

@@ -47,36 +47,36 @@ using namespace llvm;
 
 // forward declaration of initializer
 namespace llvm {
-	void initializeCallSiteBlockSplitterPass(PassRegistry&);
+    void initializeCallSiteBlockSplitterPass(PassRegistry&);
 }
 
 class CallSiteBlockSplitter : public FunctionPass {
 public:
-	static char ID; // Pass identification, replacement for typeid
-	CallSiteBlockSplitter();
-	explicit CallSiteBlockSplitter(const std::string& fnName, const bool verbose_flag = false);
-	~CallSiteBlockSplitter();
+    static char ID; // Pass identification, replacement for typeid
+    CallSiteBlockSplitter();
+    explicit CallSiteBlockSplitter(const std::string& fnName, const bool verbose_flag = false);
+    ~CallSiteBlockSplitter();
 
-	virtual bool runOnFunction(Function &f);
+    virtual bool runOnFunction(Function &f);
 
-	void print(raw_ostream& o, const Module *M) const;
-	virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-	void releaseMemory();
+    void print(raw_ostream& o, const Module *M) const;
+    virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+    void releaseMemory();
 
-	typedef DenseMap<CallInst*, unsigned> CallIndicesMapType;
-	inline const CallIndicesMapType getCallIndexMap() const;
-	inline const unsigned getNumCalls() const;
+    typedef DenseMap<CallInst*, unsigned> CallIndicesMapType;
+    inline const CallIndicesMapType getCallIndexMap() const;
+    inline const unsigned getNumCalls() const;
 
 private:
-	const bool verbose;
-	const std::string calleeName;
-	unsigned numCalls;
-	CallIndicesMapType callIndices;
+    const bool verbose;
+    const std::string calleeName;
+    unsigned numCalls;
+    CallIndicesMapType callIndices;
 
-	inline bool isSplitCall(const Value* value) const;
+    inline bool isSplitCall(const Value* value) const;
 
-	// - split basic blocks at each valid splitting instruction
-	void splitBlocksAtCallSites(Function* f);
+    // - split basic blocks at each valid splitting instruction
+    void splitBlocksAtCallSites(Function* f);
 };
 
 /*
@@ -88,7 +88,7 @@ INITIALIZE_PASS_END(CallSiteBlockSplitter, "callsite-block-splitting", "CallSite
 
 // Public interface to the CallSiteBlockSplitter pass
 namespace llvm {
-	FunctionPass* createCallSiteBlockSplitterPass(const std::string& fnName);
+    FunctionPass* createCallSiteBlockSplitterPass(const std::string& fnName);
 }
 
 

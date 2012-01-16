@@ -15,28 +15,28 @@
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainMemObject(cl_mem memobj)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainMemObject!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainMemObject!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseMemObject(cl_mem memobj)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseMemObject!\n"; );
-	_cl_mem* ptr = (_cl_mem*)memobj;
-	delete ptr;
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseMemObject!\n"; );
+    _cl_mem* ptr = (_cl_mem*)memobj;
+    delete ptr;
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clSetMemObjectDestructorCallback(cl_mem memobj,
-								 void (CL_CALLBACK * pfn_notify)( cl_mem /* memobj */, void* /*user_data*/),
-								 void * user_data)
+                                 void (CL_CALLBACK * pfn_notify)( cl_mem /* memobj */, void* /*user_data*/),
+                                 void * user_data)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clSetMemObjectDestructorCallback!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clSetMemObjectDestructorCallback!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -47,9 +47,9 @@ clEnqueueUnmapMemObject(cl_command_queue command_queue,
                         const cl_event *  event_wait_list,
                         cl_event *        event)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueUnmapMemObject!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clEnqueueUnmapMemObject!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -59,7 +59,7 @@ clGetMemObjectInfo(cl_mem           memobj,
                    void *           param_value,
                    size_t *         param_value_size_ret)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetMemObjectInfo!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clGetMemObjectInfo!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }

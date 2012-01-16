@@ -19,25 +19,25 @@ clCreateSampler(cl_context          context,
                 cl_filter_mode      filter_mode,
                 cl_int *            errcode_ret)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateSampler!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return NULL;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateSampler!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return NULL;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clRetainSampler(cl_sampler sampler)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainSampler!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clRetainSampler!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
 clReleaseSampler(cl_sampler sampler)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseSampler!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clReleaseSampler!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
 WFVOPENCL_DLLEXPORT CL_API_ENTRY cl_int CL_API_CALL
@@ -47,8 +47,8 @@ clGetSamplerInfo(cl_sampler         sampler,
                  void *             param_value,
                  size_t *           param_value_size_ret)
 {
-	WFVOPENCL_DEBUG ( outs() << "ENTERED clGetSamplerInfo!\n"; );
-	assert (false && "NOT IMPLEMENTED!");
-	return CL_SUCCESS;
+    WFVOPENCL_DEBUG ( outs() << "ENTERED clGetSamplerInfo!\n"; );
+    assert (false && "NOT IMPLEMENTED!");
+    return CL_SUCCESS;
 }
 
