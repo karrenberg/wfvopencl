@@ -26,7 +26,9 @@ clCreateProgramWithSource(cl_context        context,
                           cl_int *          errcode_ret)
 {
     WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateProgramWithSource!\n"; );
-    *errcode_ret = CL_SUCCESS;
+    if (errcode_ret != NULL) {
+        *errcode_ret = CL_SUCCESS;
+    }
     _cl_program* p = new _cl_program();
     p->dispatch = &static_dispatch;
     p->context = context;
@@ -39,7 +41,9 @@ clCreateProgramWithSource(cl_context        context,
     // write to temp file
     std::ofstream of(tmpFilename);
     if (!of.good()) {
-        *errcode_ret = CL_OUT_OF_RESOURCES;
+        if (errcode_ret != NULL) {
+            *errcode_ret = CL_OUT_OF_RESOURCES;
+        }
         return NULL;
     }
     of << *strings;

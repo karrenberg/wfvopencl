@@ -422,7 +422,9 @@ clCreateContext(const cl_context_properties * properties,
                 cl_int *                      errcode_ret)
 {
     WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateContext!\n"; );
-    *errcode_ret = CL_SUCCESS;
+    if (errcode_ret != NULL) {
+        *errcode_ret = CL_SUCCESS;
+    }
     _cl_context* c = new _cl_context();
     c->dispatch = &static_dispatch;
     return c;

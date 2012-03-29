@@ -426,7 +426,12 @@ clCreateKernel(cl_program      program,
 {
     WFVOPENCL_DEBUG ( outs() << "ENTERED clCreateKernel!\n"; );
     if (!program) { *errcode_ret = CL_INVALID_PROGRAM; return NULL; }
-    if (!program->module) { *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE; return NULL; }
+    if (!program->module) {
+        if (errcode_ret != NULL) {
+            *errcode_ret = CL_INVALID_PROGRAM_EXECUTABLE;
+        }
+        return NULL;
+    }
     WFVOPENCL_DEBUG( outs() << "\nclCreateKernel(" << program->module->getModuleIdentifier() << ", " << kernel_name << ")\n"; );
 
     // does the returned error code mean we should compile before??
